@@ -277,6 +277,8 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (page !== "workbench") return undefined;
+
     const panel = flowPanelRef.current;
     if (!panel) return undefined;
 
@@ -293,7 +295,7 @@ function App() {
 
     panel.addEventListener("wheel", handleWheel, { capture: true, passive: false });
     return () => panel.removeEventListener("wheel", handleWheel, { capture: true });
-  }, [getViewport, revealMiniMap, setViewport]);
+  }, [getViewport, page, revealMiniMap, setViewport]);
 
   const openWorkbench = () => setPage("workbench");
 

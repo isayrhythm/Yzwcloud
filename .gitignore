@@ -1,0 +1,11 @@
+.venv/
+.pdm-build/
+__pycache__/
+*.py[cod]
+.pdm-python
+data/tasks/
+logs/
+node_modules/
+dist/
+.ruff_cache/
+.pytest_cache/

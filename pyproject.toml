@@ -1,0 +1,42 @@
+[project]
+name = "yzwcloud"
+version = "0.1.0"
+description = "Lightweight bioinformatics workflow cloud platform MVP"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "openpyxl>=3.1.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.8.0",
+]
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm]
+distribution = true
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "httpx>=0.28.0",
+]
+
+[tool.pdm.scripts]
+dev = "uvicorn yzwcloud.main:app --reload --host 127.0.0.1 --port 8000"
+start = "uvicorn yzwcloud.main:app --host 127.0.0.1 --port 8000"
+
+[tool.pdm.build]
+package-dir = "src"
+includes = ["src/yzwcloud"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

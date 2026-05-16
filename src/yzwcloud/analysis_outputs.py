@@ -401,7 +401,9 @@ def _write_volcano_html(path: Path, comparison: str, points: list[dict[str, Any]
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Volcano {html.escape(comparison)}</title>
 <style>
 body{{margin:0;font-family:Georgia,'Noto Serif SC',serif;background:#fffaf0;color:#17211b}}
-.wrap{{padding:24px}}canvas{{width:100%;height:640px;border:1px solid #ded4c2;border-radius:18px;background:white}}
+.wrap{{padding:24px}}
+.plot-shell{{overflow:auto}}
+canvas{{display:block;width:min(100%,1200px);height:auto;aspect-ratio:1200/640;border:1px solid #ded4c2;border-radius:18px;background:white}}
 .tip{{position:fixed;display:none;padding:8px 10px;border-radius:10px;background:#17211b;color:white;font-size:12px;pointer-events:none}}
 </style></head><body><div class="wrap"><h1>火山图：{html.escape(comparison)}</h1>
 <p>悬停查看基因、log2FC 和 p 值。展示前 {len(points)} 个基因。</p><canvas id="plot" width="1200" height="640"></canvas></div><div class="tip" id="tip"></div>
@@ -540,14 +542,16 @@ def _write_pca_html(
 <html lang="zh-CN"><head><meta charset="utf-8"><title>PCA</title>
 <style>
 body{{margin:0;font-family:Georgia,'Noto Serif SC',serif;background:#fffaf0;color:#17211b}}
-.wrap{{padding:24px}}canvas{{width:100%;height:640px;border:1px solid #ded4c2;border-radius:18px;background:white}}
+.wrap{{padding:24px}}
+.plot-shell{{overflow:auto}}
+canvas{{display:block;width:min(100%,1200px);height:auto;aspect-ratio:1200/640;border:1px solid #ded4c2;border-radius:18px;background:white}}
 .legend{{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 18px}}
 .legend span{{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid #e3d6c2;border-radius:999px;background:#fff}}
 .dot{{width:10px;height:10px;border-radius:50%;display:inline-block}}
 .tip{{position:fixed;display:none;padding:8px 10px;border-radius:10px;background:#17211b;color:white;font-size:12px;pointer-events:none}}
 </style></head><body><div class="wrap"><h1>PCA 样本分布</h1>
 <p>基于表达矩阵中方差最高的 {gene_count} 个基因计算。悬停查看样本、分组和坐标。</p>
-<div class="legend" id="legend"></div><canvas id="plot" width="1200" height="640"></canvas></div><div class="tip" id="tip"></div>
+<div class="legend" id="legend"></div><div class="plot-shell"><canvas id="plot" width="1200" height="640"></canvas></div></div><div class="tip" id="tip"></div>
 <script>
 const points = {payload};
 const explained = {json.dumps(explained)};
@@ -565,17 +569,21 @@ const xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ym
 const xspan = xmax - xmin || 1, yspan = ymax - ymin || 1;
 function sx(x){{ return pad + (x - xmin + xspan * 0.08) / (xspan * 1.16) * (canvas.width - pad * 2); }}
 function sy(y){{ return canvas.height - pad - (y - ymin + yspan * 0.08) / (yspan * 1.16) * (canvas.height - pad * 2); }}
-ctx.clearRect(0,0,canvas.width,canvas.height);
-ctx.strokeStyle = '#ded4c2'; ctx.lineWidth = 1;
-ctx.beginPath(); ctx.moveTo(pad, canvas.height-pad); ctx.lineTo(canvas.width-pad, canvas.height-pad); ctx.moveTo(pad,pad); ctx.lineTo(pad,canvas.height-pad); ctx.stroke();
-ctx.fillStyle = '#667067'; ctx.font = '15px Georgia';
-ctx.fillText(`PC1 (${{explained.pc1}}%)`, canvas.width / 2 - 38, canvas.height - 20);
-ctx.save(); ctx.translate(24, canvas.height / 2 + 38); ctx.rotate(-Math.PI / 2); ctx.fillText(`PC2 (${{explained.pc2}}%)`, 0, 0); ctx.restore();
-for (const p of points) {{
-  ctx.fillStyle = colorByCondition[p.condition] || '#0f6b57';
-  ctx.beginPath(); ctx.arc(sx(p.pc1), sy(p.pc2), 6, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = 'rgba(23,33,27,.28)'; ctx.stroke();
+function draw() {{
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle = '#ded4c2'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, canvas.height-pad); ctx.lineTo(canvas.width-pad, canvas.height-pad); ctx.moveTo(pad,pad); ctx.lineTo(pad,canvas.height-pad); ctx.stroke();
+  ctx.fillStyle = '#667067'; ctx.font = '15px Georgia';
+  ctx.fillText(`PC1 (${{explained.pc1}}%)`, canvas.width / 2 - 38, canvas.height - 20);
+  ctx.save(); ctx.translate(24, canvas.height / 2 + 38); ctx.rotate(-Math.PI / 2); ctx.fillText(`PC2 (${{explained.pc2}}%)`, 0, 0); ctx.restore();
+  for (const p of points) {{
+    ctx.fillStyle = colorByCondition[p.condition] || '#0f6b57';
+    ctx.beginPath(); ctx.arc(sx(p.pc1), sy(p.pc2), 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(23,33,27,.28)'; ctx.stroke();
+  }}
 }}
+draw();
+window.addEventListener('resize', draw);
 canvas.addEventListener('mousemove', ev => {{
   const rect = canvas.getBoundingClientRect();
   const x = (ev.clientX - rect.left) * canvas.width / rect.width;

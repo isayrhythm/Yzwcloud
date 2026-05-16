@@ -67,7 +67,9 @@ function App() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [page, setPage] = useState("home");
+  const [showMiniMap, setShowMiniMap] = useState(false);
   const flowPanelRef = useRef(null);
+  const miniMapTimerRef = useRef(null);
 
   const loadTasks = useCallback(async () => {
     const response = await api("/api/tasks");
@@ -257,6 +259,23 @@ function App() {
 
   const nodeTypes = useMemo(() => ({ analysisNode: AnalysisNode }), []);
 
+  const revealMiniMap = useCallback(() => {
+    setShowMiniMap(true);
+    if (miniMapTimerRef.current) {
+      window.clearTimeout(miniMapTimerRef.current);
+    }
+    miniMapTimerRef.current = window.setTimeout(() => {
+      setShowMiniMap(false);
+      miniMapTimerRef.current = null;
+    }, 1400);
+  }, []);
+
+  useEffect(() => () => {
+    if (miniMapTimerRef.current) {
+      window.clearTimeout(miniMapTimerRef.current);
+    }
+  }, []);
+
   useEffect(() => {
     const panel = flowPanelRef.current;
     if (!panel) return undefined;
@@ -267,6 +286,7 @@ function App() {
       if (!event.ctrlKey && !event.metaKey) return;
 
       event.preventDefault();
+      revealMiniMap();
       const viewport = getViewport();
       const nextZoom = Math.min(2, Math.max(0.2, viewport.zoom + (event.deltaY < 0 ? 0.08 : -0.08)));
       setViewport({ x: viewport.x, y: viewport.y, zoom: nextZoom }, { duration: 0 });
@@ -274,7 +294,7 @@ function App() {
 
     panel.addEventListener("wheel", handleWheel, { capture: true, passive: false });
     return () => panel.removeEventListener("wheel", handleWheel, { capture: true });
-  }, [getViewport, setViewport]);
+  }, [getViewport, revealMiniMap, setViewport]);
 
   const openWorkbench = () => setPage("workbench");
 
@@ -341,6 +361,12 @@ function App() {
                 nodeTypes={nodeTypes}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
+                onMoveStart={revealMiniMap}
+                onMove={revealMiniMap}
+                onMoveEnd={revealMiniMap}
+                onNodeDragStart={revealMiniMap}
+                onNodeDrag={revealMiniMap}
+                onNodeDragStop={revealMiniMap}
                 fitView
                 minZoom={0.2}
                 maxZoom={2}
@@ -350,7 +376,9 @@ function App() {
               >
                 <Background gap={28} color="#d9cbb7" />
                 <Controls position="top-right" />
-                <MiniMap pannable zoomable nodeColor={(node) => statusColor[node.data.node.status] || "#d2cabd"} />
+                {showMiniMap ? (
+                  <MiniMap pannable zoomable nodeColor={(node) => statusColor[node.data.node.status] || "#d2cabd"} />
+                ) : null}
               </ReactFlow>
             ) : (
               <div className="empty-flow">先创建或选择一个任务</div>

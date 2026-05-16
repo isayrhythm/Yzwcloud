@@ -281,10 +281,9 @@ function App() {
     if (!panel) return undefined;
 
     const handleWheel = (event) => {
-      event.stopImmediatePropagation();
-
       if (!event.ctrlKey && !event.metaKey) return;
 
+      event.stopImmediatePropagation();
       event.preventDefault();
       revealMiniMap();
       const viewport = getViewport();
@@ -372,6 +371,7 @@ function App() {
                 maxZoom={2}
                 zoomOnScroll={false}
                 panOnScroll={false}
+                proOptions={{ hideAttribution: true }}
                 deleteKeyCode={null}
               >
                 <Background gap={28} color="#d9cbb7" />

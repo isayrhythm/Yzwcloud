@@ -1,123 +1,152 @@
 # YZWcloud
 
-面向生信演示场景的轻量流程工作台。当前实现重点不在重调度，而在这三件事：
+面向生信演示场景的轻量分析工作台。当前重点不是重调度，而是把“上传数据 -> Agent 检查 -> 按需创建分析节点 -> 生成真实可视化结果”这条链路跑通，并且让后续数据类型扩展有稳定骨架。
 
-- 任务之间互不干扰
-- 流程节点按需创建，不一次性铺满画布
-- 数据上传后先经过 intake agent 检查、识别、规整、验证，再决定后续能做什么分析
+## 当前能力
 
-## 当前状态
+- React Flow 流程画布，节点可拖动、可删除、可按 `+` 创建后续分析
+- 数据上传节点，支持上传后由 intake agent 自动识别和规整
+- bulk RNA 表达矩阵主流程
+  - PCA
+  - 差异分析
+  - 差异热图
+  - 火山图
+  - 矩阵 QC
+  - 样本相关性
+  - 表达热图
+  - 单基因表达
+  - 差异结果导出
+- 上传失败时提供用户可读报告，而不是只返回 Python 报错
 
-当前前后端已经不是最初的静态示例 DAG，而是一个可运行的 React Flow 工作台：
+## 当前支持的输入
 
-- 前端：`Vite + React + React Flow`
-- 后端：`FastAPI`
-- 任务存储：每个任务独立目录，保存图、日志、输入、输出
-- 执行方式：FastAPI 轻量后台任务
+上传节点当前接受：
 
-已支持的主流程：
+- `.csv`
+- `.xlsx`
+- `.xlsm`
+- `.zip`
+- `.tar`
+- `.tar.gz`
+- `.tgz`
+- `.gz`
 
-- 数据上传节点
-- PCA 节点
-- 差异分析选择器与分支节点
-- 热图节点
-- 火山图节点
+其中压缩包会先进入预处理阶段：
 
-## 数据上传与 Intake Agent
+1. 解压到任务私有目录
+2. 自动挑选当前最像数据文件的成员
+3. 再进入正式 intake 循环
 
-第一个节点是“数据上传”，不是固定死的“读取表达矩阵”。
+注意：
 
-上传后会进入一个受控的 intake agent 流程：
+- 现在真正接通标准化处理器的是 `bulk RNA expression matrix`
+- 单细胞相关文件目前可以被识别、报告、拦停，但还没有进入后续分析流程
 
-1. `inspect`
-   读取文件基本信息、抽样、列特征、数值比例、表头模式。
-2. `classify`
-   判断更像哪类数据。
-3. `plan`
-   生成当前可尝试的处理策略列表。
-4. `process`
-   依次执行策略，而不是一次性硬跑。
-5. `validate`
-   验证处理后的结果是否真的能接入当前分析流程。
-6. `stop / retry`
-   成功则返回能力；失败则继续下一策略，直到达到最大轮次或确认不支持。
+## Intake Agent
 
-当前 intake 已经支持：
+上传节点不是死板的“读取表达矩阵”，而是一个受控循环的 intake agent。
+
+当前主流程：
+
+1. `prepare_input`
+   负责压缩包解压、输入展开、选择候选成员文件
+2. `inspect`
+   读取文件基本事实，例如行列规模、表头、数值列比例、预览信息
+3. `classify`
+   判断更像哪一类数据
+4. `plan`
+   生成当前可尝试的处理策略
+5. `process`
+   依次执行策略，而不是一次性硬跑
+6. `validate`
+   检查结果是否满足当前分析流程输入要求
+7. `retry_or_stop`
+   可恢复则换策略再试；不可恢复或达到轮次上限则停止
+
+当前已识别的数据类型标签包括：
 
 - `expression_matrix`
 - `single_cell_matrix`
 - `feature_table`
+- `sample_metadata`
+- `diff_result`
+- `gene_list`
 - `unknown_table`
-
-说明：
-
-- 目前真正接了标准化处理器的是 `expression_matrix`
-- `single_cell_matrix` 和 `feature_table` 已经能被识别和拦下，但还没有进入后续分析的处理器
-
-## 当前 Intake 架构
-
-intake 不再是单个 if/else 大流程，而是按“注册表 + 状态机”组织：
-
-- `src/yzwcloud/data_intake_agent.py`
-  负责循环控制、checkpoint、失败报告、调用策略
-- `src/yzwcloud/data_intake_registry.py`
-  负责数据类型到策略列表、能力映射、停止原因等注册信息
-- `src/yzwcloud/prompts.py`
-  负责 LLM 分类提示词
-
-后续新增数据类型时，主要补这几层：
-
-- 识别规则
-- 处理策略
-- 验证规则
-- 能力映射
-
-而不是重写整个 intake 主流程。
 
 ## 失败报告
 
-如果上传数据无法进入当前分析流程，前端不会只显示 Python 报错。
+如果上传文件无法进入当前分析流程，前端节点会提供可点击报告。报告面向用户，而不是只展示异常字符串。
 
-节点上的报告会告诉用户：
+报告会尽量说明：
 
 - 为什么现在不能分析
 - Agent 实际看到了什么
-- 建议怎么改文件
-- 原始报错
 - 已尝试过哪些处理策略
+- 建议用户怎样整理文件
+- 原始报错是什么
 
-## 现有交互特点
+## 代码结构
 
-- 节点可拖动
-- `Ctrl + 滚轮` 缩放 React Flow
-- 后续节点通过 `+` 按需创建
-- 删除节点时会连同下游子节点一起删除
-- 差异分析不会自动冒出来，必须由用户主动创建
-- 上传失败时可点击查看报告
-
-## 目录结构
+这次整理后，分析输出已经从单个大文件拆成了模块化结构：
 
 ```text
-.
-├── src/yzwcloud/
-│   ├── main.py                   # FastAPI 入口
-│   ├── models.py                 # Pydantic 数据模型
-│   ├── node_registry.py          # 节点定义与节点执行路由
-│   ├── executor.py               # 节点执行、状态流转、agent 进度
-│   ├── task_store.py             # 任务目录与图持久化
-│   ├── expression_matrix.py      # 上传节点入口，接入 intake agent
-│   ├── data_intake_agent.py      # intake 循环控制与失败报告
-│   ├── data_intake_registry.py   # 数据类型/策略/能力注册表
-│   ├── prompts.py                # LLM 提示词
-│   ├── analysis_outputs.py       # PCA/热图/火山图等输出生成
-│   └── static/                   # 构建后的前端静态资源
-├── web/                          # React 前端源码
-├── data/tasks/                   # 运行后自动生成的任务目录
-├── pyproject.toml
-└── README.md
+src/yzwcloud/
+├─ analyses/
+│  ├─ __init__.py
+│  ├─ common.py
+│  ├─ differential.py
+│  ├─ expression.py
+│  └─ rendering.py
+├─ analysis_outputs.py
+├─ config.py
+├─ data_intake_agent.py
+├─ data_intake_registry.py
+├─ executor.py
+├─ expression_matrix.py
+├─ main.py
+├─ models.py
+├─ node_registry.py
+├─ prompts.py
+└─ task_store.py
 ```
 
-## 运行
+职责边界：
+
+- `data_intake_agent.py`
+  - intake 主状态机
+  - checkpoint、失败报告、循环控制
+- `data_intake_registry.py`
+  - 数据类型到策略、能力、停止原因的注册信息
+- `analyses/common.py`
+  - 分析共享数据结构、统计和读写辅助
+- `analyses/differential.py`
+  - 差异分析、火山图、差异热图、结果导出
+- `analyses/expression.py`
+  - PCA、矩阵 QC、样本相关性、表达热图、单基因表达
+- `analyses/rendering.py`
+  - 共用的热图渲染输出
+- `analysis_outputs.py`
+  - 兼容导出层，避免调用方跟着一起改
+
+## 前端结构
+
+前端目前仍然是单入口 React 应用：
+
+- `web/src/main.jsx`
+- `web/src/styles.css`
+
+当前交互重点已经稳定：
+
+- `Ctrl + 滚轮` 缩放 React Flow
+- 普通滚轮滚动整页
+- `+` 号按需创建后续节点
+- 删除节点时同步删除其下游子节点
+- 右下角 attribution 已隐藏
+- MiniMap 仅在移动/拖动画布时短暂显示
+
+前端后续仍值得继续拆，但这轮先优先收后端分析模块和文档，不额外扩大改动面。
+
+## 本地运行
 
 要求：
 
@@ -131,25 +160,29 @@ pdm install
 npm install
 ```
 
-前端构建：
+构建前端：
 
 ```bash
 npm run build:web
 ```
 
-开发模式启动后端：
+启动后端开发服务：
 
 ```bash
 pdm run dev
 ```
 
-默认地址：
+默认开发端口在 `pyproject.toml` 里是：
 
 ```text
 http://127.0.0.1:8000
 ```
 
-如果你要和当前本地调试习惯保持一致，也可以手动起到 `8010`。
+当前本地调试通常也会手动起在：
+
+```text
+http://127.0.0.1:8010
+```
 
 ## 主要 API
 
@@ -168,13 +201,26 @@ http://127.0.0.1:8000
 - `PUT /api/tasks/{task_id}/sample-groups`
 - `GET /api/tasks/{task_id}/logs`
 
-## 下一步建议
+## 当前边界
 
-最值得继续做的不是再修一点 UI，而是补齐 intake 的多数据类型处理器：
+这个项目现在的合理定位是：
 
-- `single_cell_matrix` 的 inspector summary 与处理策略
-- `feature_table` 的标准化与可视化能力
-- bulk RNA 的更严格质量检查
-- 差异分析输出结果表标准化
+- 轻执行内核
+- 可扩展数据入口
+- 以 bulk RNA 为主线的演示型工作台
 
-等这些补起来之后，平台的“能上传什么、能做什么、为什么不能做”才会真正稳定。
+暂时不做重型能力：
+
+- 分布式任务调度
+- 富集数据库接入
+- 真正完整的单细胞分析链路
+- 自由生成代码并执行的“黑箱 agent”
+
+## 下一步最合理的方向
+
+如果继续往下做，优先级建议是：
+
+1. 完善 `single_cell_matrix` 和 `feature_table` 的 inspector summary
+2. 把更多数据类型接进 registry，而不是继续堆在 intake 主流程里
+3. 拆前端 `main.jsx` 和历史编码文案
+4. 把 bulk RNA 统计流程继续从演示实现推进到更严格的分析实现

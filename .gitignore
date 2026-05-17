@@ -5,6 +5,7 @@ __pycache__/
 .pdm-python
 data/tasks/
 logs/
+.tmp-uvicorn.*.log
 node_modules/
 dist/
 .ruff_cache/

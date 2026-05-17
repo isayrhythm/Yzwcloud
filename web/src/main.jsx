@@ -590,9 +590,11 @@ function AnalysisNode({ data }) {
     ? outputUrl(data.detail.task.task_id, node.output.meta.preview_file)
     : null;
   const canOpenResult = Boolean(node.output?.meta?.html_file);
+  const uploadedInput = node.params?.uploaded_inputs?.expression_matrix;
+  const uploadStateLabel = node.output ? "已识别" : uploadedInput ? "已上传，待 Agent 检查" : "等待上传";
 
   return (
-    <article className={`analysis-node ${node.status}`}>
+    <article className={`analysis-node ${node.status} ${uploadedInput ? "has-uploaded-input" : ""}`}>
       <Handle type="target" position={Position.Left} />
       <div className="node-topline">
         <span className="status-dot" />
@@ -603,8 +605,18 @@ function AnalysisNode({ data }) {
       <small>输出：{output}</small>
       {node.id === "upload_expression" ? (
         <div className="upload-controls nodrag">
-          <label>
-            上传数据
+          {uploadedInput ? (
+            <div className="uploaded-file-card">
+              <span>{uploadStateLabel}</span>
+              <strong title={uploadedInput.filename}>{uploadedInput.filename}</strong>
+              <small>
+                {formatBytes(uploadedInput.size)}
+                {uploadedInput.uploaded_at ? ` · ${formatDateTime(uploadedInput.uploaded_at)}` : ""}
+              </small>
+            </div>
+          ) : null}
+          <label className={uploadedInput ? "replace-upload" : ""}>
+            {uploadedInput ? "更换数据" : "上传数据"}
             <input
               type="file"
               accept=".csv,.xlsx,.xlsm"
@@ -886,6 +898,24 @@ function summarizeOutput(output) {
     return `${meta.sample_count} 样本 PCA`;
   }
   return output.type;
+}
+
+function formatBytes(size) {
+  const bytes = Number(size) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function outputUrl(taskId, path) {

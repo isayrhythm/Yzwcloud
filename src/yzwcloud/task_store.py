@@ -195,6 +195,8 @@ def save_task_input(
     else:
         upload_node.params["sample_metadata_path"] = str(target.resolve())
         upload_node.default_params["sample_metadata_path"] = str(target.resolve())
+    upload_node.params["uploaded_inputs"] = manifest
+    upload_node.default_params["uploaded_inputs"] = manifest
     _reset_upload_node_for_new_input(graph)
     save_graph(graph)
     append_log(task_id, f"Input uploaded: {input_kind} -> {filename}")

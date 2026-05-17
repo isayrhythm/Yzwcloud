@@ -5,8 +5,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from yzwcloud.analysis_outputs import (
+    create_diff_export_result,
+    create_expression_heatmap_result,
+    create_gene_expression_result,
     create_heatmap_result,
     create_pca_result,
+    create_qc_result,
+    create_sample_correlation_result,
     create_volcano_result,
     run_differential_analysis,
 )
@@ -90,6 +95,31 @@ def execute_demo_node(
             node_id=node_id,
         )
 
+    if node_id.startswith("qc__"):
+        return create_qc_result(source=inputs["upload_expression"], output_dir=output_dir, node_id=node_id)
+
+    if node_id.startswith("correlation__"):
+        return create_sample_correlation_result(
+            source=inputs["upload_expression"],
+            output_dir=output_dir,
+            node_id=node_id,
+        )
+
+    if node_id.startswith("expression_heatmap__"):
+        return create_expression_heatmap_result(
+            source=inputs["upload_expression"],
+            output_dir=output_dir,
+            node_id=node_id,
+        )
+
+    if node_id.startswith("gene_expression__"):
+        return create_gene_expression_result(
+            source=inputs["upload_expression"],
+            params=params,
+            output_dir=output_dir,
+            node_id=node_id,
+        )
+
     if node_id.startswith("heatmap__"):
         return create_heatmap_result(diff=next(iter(inputs.values())), output_dir=output_dir, node_id=node_id)
 
@@ -104,6 +134,13 @@ def execute_demo_node(
             meta={"term_count": 18, "database": params.get("database", "GO")},
             params=params,
             output_dir=output_dir,
+        )
+
+    if node_id.startswith("diff_export__"):
+        return create_diff_export_result(
+            diff=next(iter(inputs.values())),
+            output_dir=output_dir,
+            node_id=node_id,
         )
 
     raise ValueError(f"Unknown node: {node_id}")

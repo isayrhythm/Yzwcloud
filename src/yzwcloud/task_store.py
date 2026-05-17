@@ -136,7 +136,7 @@ def update_sample_groups(
 
     conditions = _count_values(row["condition"] for row in rows)
     groups = _count_values(row["group"] for row in rows)
-    capabilities = ["pca"]
+    capabilities = ["qc", "sample_correlation", "expression_heatmap", "gene_expression", "pca"]
     if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()):
         capabilities.append("diff_analysis")
     upload_node.output.meta["conditions"] = conditions
@@ -270,11 +270,23 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
     if source.status != NodeStatus.COMPLETED or source.output is None:
         raise ValueError("源节点尚未完成，不能创建后续分析")
 
-    if source_node_id == "upload_expression" and analysis_type in {"diff_analysis", "pca"}:
+    if source_node_id == "upload_expression" and analysis_type in {
+        "diff_analysis",
+        "pca",
+        "qc",
+        "sample_correlation",
+        "expression_heatmap",
+        "gene_expression",
+    }:
         if analysis_type == "pca":
             _add_expression_downstream_node(graph, analysis_type)
             save_graph(graph)
             append_log(task_id, "Analysis node enabled: pca")
+            return task, graph
+        if analysis_type in {"qc", "sample_correlation", "expression_heatmap", "gene_expression"}:
+            _add_expression_downstream_node(graph, analysis_type)
+            save_graph(graph)
+            append_log(task_id, f"Analysis node enabled: {analysis_type}")
             return task, graph
         selector = nodes.get("diff_analysis")
         if selector is None:
@@ -290,6 +302,7 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
         "heatmap",
         "volcano",
         "enrichment",
+        "diff_export",
     }:
         _add_diff_downstream_node(graph, source_node_id, analysis_type)
         save_graph(graph)
@@ -382,6 +395,34 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str) -> None:
             "pca_plot",
             {"top_variable_genes": 2000},
         ),
+        "qc": (
+            "qc__expression",
+            "表达矩阵 QC",
+            "查看样本表达量分布、总量和零值比例。",
+            "qc_report",
+            {},
+        ),
+        "sample_correlation": (
+            "correlation__expression",
+            "样本相关性",
+            "查看样本之间的相关性热图。",
+            "sample_correlation_plot",
+            {},
+        ),
+        "expression_heatmap": (
+            "expression_heatmap__expression",
+            "表达聚类热图",
+            "基于表达矩阵的高变基因生成样本聚类热图。",
+            "expression_heatmap_plot",
+            {"top_genes": 40},
+        ),
+        "gene_expression": (
+            "gene_expression__expression",
+            "单基因表达",
+            "查看指定基因在不同分组中的表达分布。",
+            "gene_expression_plot",
+            {"gene": ""},
+        ),
     }
     if analysis_type not in specs:
         raise ValueError("Unsupported expression downstream analysis type")
@@ -433,6 +474,13 @@ def _add_diff_downstream_node(graph: Graph, diff_node_id: str, analysis_type: st
             "基于该差异分析结果生成富集分析。",
             "enrichment_result",
             {"database": "GO", "p_adjust": 0.05},
+        ),
+        "diff_export": (
+            f"diff_export__{suffix}",
+            f"结果导出：{comparison}",
+            "导出该差异分析结果表，并提供结果预览。",
+            "diff_export",
+            {},
         ),
     }
     if analysis_type not in specs:
@@ -537,6 +585,26 @@ def _count_values(values) -> dict[str, int]:
 
 def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, str]]:
     specs = {
+        "qc": {
+            "type": "qc",
+            "label": "矩阵 QC",
+            "description": "查看表达量分布、总量和零值比例。",
+        },
+        "sample_correlation": {
+            "type": "sample_correlation",
+            "label": "样本相关性",
+            "description": "查看样本间相关性热图。",
+        },
+        "expression_heatmap": {
+            "type": "expression_heatmap",
+            "label": "表达热图",
+            "description": "基于高变基因生成表达聚类热图。",
+        },
+        "gene_expression": {
+            "type": "gene_expression",
+            "label": "单基因表达",
+            "description": "查看指定基因在不同分组中的表达。",
+        },
         "pca": {
             "type": "pca",
             "label": "PCA",
@@ -546,6 +614,11 @@ def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, s
             "type": "diff_analysis",
             "label": "差异分析",
             "description": "选择两个样本分组进行差异表达分析。",
+        },
+        "diff_export": {
+            "type": "diff_export",
+            "label": "结果导出",
+            "description": "导出差异分析结果表并查看预览。",
         },
     }
     return [specs[item] for item in capabilities if item in specs]

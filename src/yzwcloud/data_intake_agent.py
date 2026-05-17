@@ -717,6 +717,7 @@ def _validate_expression_matrix(matrix_path: Path, metadata_path: Path) -> dict[
 def _capabilities_for_validation(validation: dict[str, Any]) -> list[str]:
     capabilities = []
     if validation["valid"] and validation["sample_count"] >= 2:
+        capabilities.extend(["qc", "sample_correlation", "expression_heatmap", "gene_expression"])
         capabilities.append("pca")
     condition_counts = validation.get("conditions", {})
     if len(condition_counts) >= 2 and all(count >= 2 for count in condition_counts.values()):
@@ -726,6 +727,26 @@ def _capabilities_for_validation(validation: dict[str, Any]) -> list[str]:
 
 def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, str]]:
     specs = {
+        "qc": {
+            "type": "qc",
+            "label": "矩阵 QC",
+            "description": "查看表达量分布、总量和零值比例。",
+        },
+        "sample_correlation": {
+            "type": "sample_correlation",
+            "label": "样本相关性",
+            "description": "查看样本间相关性热图。",
+        },
+        "expression_heatmap": {
+            "type": "expression_heatmap",
+            "label": "表达热图",
+            "description": "基于高变基因生成表达聚类热图。",
+        },
+        "gene_expression": {
+            "type": "gene_expression",
+            "label": "单基因表达",
+            "description": "查看指定基因在不同分组中的表达。",
+        },
         "pca": {
             "type": "pca",
             "label": "PCA",

@@ -8,7 +8,7 @@ DEFAULT_MAX_ITERATIONS = 3
 
 
 DATA_TYPE_CAPABILITY_MAP = {
-    "expression_matrix": {"pca", "diff_analysis"},
+    "expression_matrix": {"qc", "sample_correlation", "expression_heatmap", "gene_expression", "pca", "diff_analysis"},
     "single_cell_matrix": set(),
     "feature_table": set(),
     "diff_result": {"heatmap", "volcano", "enrichment"},

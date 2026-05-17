@@ -38,6 +38,9 @@ const defaultPositions = {
   upload_expression: { x: 80, y: 210 },
   diff_analysis: { x: 360, y: 210 },
   pca__expression: { x: 640, y: 390 },
+  qc__expression: { x: 640, y: 70 },
+  correlation__expression: { x: 640, y: 210 },
+  expression_heatmap__expression: { x: 640, y: 530 },
 };
 
 async function api(path, options = {}) {
@@ -180,6 +183,16 @@ function App() {
     if (!activeTaskId) return;
     if (nodeId === "diff_analysis") {
       await openComparisonModal();
+      return;
+    }
+    if (nodeId.startsWith("gene_expression__")) {
+      const gene = window.prompt("请输入基因名或 gene_id");
+      if (!gene) return;
+      await api(`/api/tasks/${activeTaskId}/nodes/${encodeURIComponent(nodeId)}/run`, {
+        method: "POST",
+        body: JSON.stringify({ params: { gene } }),
+      });
+      await loadDetail(activeTaskId);
       return;
     }
     await api(`/api/tasks/${activeTaskId}/nodes/${encodeURIComponent(nodeId)}/run`, {
@@ -1005,17 +1018,39 @@ function nextAnalysisOptions(node, detail) {
         pca: detail?.graph.edges.some(
           (edge) => edge.source === "upload_expression" && edge.target.startsWith("pca__"),
         ),
+        qc: detail?.graph.edges.some(
+          (edge) => edge.source === "upload_expression" && edge.target.startsWith("qc__"),
+        ),
+        sample_correlation: detail?.graph.edges.some(
+          (edge) => edge.source === "upload_expression" && edge.target.startsWith("correlation__"),
+        ),
+        expression_heatmap: detail?.graph.edges.some(
+          (edge) => edge.source === "upload_expression" && edge.target.startsWith("expression_heatmap__"),
+        ),
       };
-      return nextAnalyses.filter((analysis) => !created[analysis.type]);
+      return nextAnalyses.filter((analysis) => analysis.type === "gene_expression" || !created[analysis.type]);
     }
-    const capabilities = new Set(node.output?.meta?.capabilities || ["pca", "diff_analysis"]);
+    const capabilities = new Set(node.output?.meta?.capabilities || ["qc", "sample_correlation", "expression_heatmap", "gene_expression", "pca", "diff_analysis"]);
     const hasSelector = !capabilities.has("diff_analysis") || detail?.graph.edges.some(
       (edge) => edge.source === "upload_expression" && edge.target === "diff_analysis",
     );
     const hasPca = !capabilities.has("pca") || detail?.graph.edges.some(
       (edge) => edge.source === "upload_expression" && edge.target.startsWith("pca__"),
     );
+    const hasQc = !capabilities.has("qc") || detail?.graph.edges.some(
+      (edge) => edge.source === "upload_expression" && edge.target.startsWith("qc__"),
+    );
+    const hasCorrelation = !capabilities.has("sample_correlation") || detail?.graph.edges.some(
+      (edge) => edge.source === "upload_expression" && edge.target.startsWith("correlation__"),
+    );
+    const hasExpressionHeatmap = !capabilities.has("expression_heatmap") || detail?.graph.edges.some(
+      (edge) => edge.source === "upload_expression" && edge.target.startsWith("expression_heatmap__"),
+    );
     const options = [];
+    if (!hasQc) options.push({ type: "qc", label: "矩阵 QC" });
+    if (!hasCorrelation) options.push({ type: "sample_correlation", label: "样本相关性" });
+    if (!hasExpressionHeatmap) options.push({ type: "expression_heatmap", label: "表达热图" });
+    if (capabilities.has("gene_expression")) options.push({ type: "gene_expression", label: "单基因表达" });
     if (!hasSelector) options.push({ type: "diff_analysis", label: "差异分析" });
     if (!hasPca) options.push({ type: "pca", label: "PCA" });
     return options;
@@ -1024,6 +1059,7 @@ function nextAnalysisOptions(node, detail) {
     return [
       { type: "heatmap", label: "热图" },
       { type: "volcano", label: "火山图" },
+      { type: "diff_export", label: "结果导出" },
       { type: "enrichment", label: "富集分析" },
     ];
   }
@@ -1041,6 +1077,21 @@ function summarizeOutput(output) {
   }
   if (output.type === "pca_plot" && meta.sample_count) {
     return `${meta.sample_count} 样本 PCA`;
+  }
+  if (output.type === "qc_report" && meta.sample_count) {
+    return `${meta.sample_count} 样本 QC`;
+  }
+  if (output.type === "sample_correlation_plot" && meta.sample_count) {
+    return `${meta.sample_count} 样本相关性`;
+  }
+  if (output.type === "expression_heatmap_plot" && meta.gene_count) {
+    return `${meta.gene_count} 基因热图`;
+  }
+  if (output.type === "gene_expression_plot" && meta.gene) {
+    return meta.gene;
+  }
+  if (output.type === "diff_export" && meta.row_count) {
+    return `${meta.row_count} 行结果`;
   }
   return output.type;
 }
@@ -1078,11 +1129,16 @@ function fallbackPosition(node, index, nodes) {
   if (node.id.startsWith("pca__")) {
     return { x: 640, y: 390 };
   }
-  const downstreamPrefix = ["heatmap__", "volcano__", "enrichment__"].find((prefix) => node.id.startsWith(prefix));
+  if (node.id.startsWith("gene_expression__")) {
+    const geneNodes = nodes.filter((item) => item.id.startsWith("gene_expression__"));
+    const geneIndex = Math.max(0, geneNodes.findIndex((item) => item.id === node.id));
+    return { x: 640, y: 690 + geneIndex * 150 };
+  }
+  const downstreamPrefix = ["heatmap__", "volcano__", "enrichment__", "diff_export__"].find((prefix) => node.id.startsWith(prefix));
   if (downstreamPrefix) {
     const diffId = node.depends_on?.[0];
     const branchIndex = Math.max(0, diffBranches.findIndex((item) => item.id === diffId));
-    const offset = node.id.startsWith("heatmap__") ? -70 : node.id.startsWith("volcano__") ? 35 : 140;
+    const offset = node.id.startsWith("heatmap__") ? -90 : node.id.startsWith("volcano__") ? 10 : node.id.startsWith("diff_export__") ? 110 : 210;
     return { x: 1000, y: 120 + branchIndex * 190 + offset };
   }
   return { x: 100 + (index % 4) * 280, y: 120 + Math.floor(index / 4) * 180 };

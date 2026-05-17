@@ -126,6 +126,7 @@ function App() {
         detail,
         onRun: runNode,
         onDelete: deleteNode,
+        onUploadInput: uploadInputFile,
         onAddNext: openNextModal,
         onOpenResult: openResultModal,
       },
@@ -223,6 +224,29 @@ function App() {
       body: JSON.stringify({ source_node_id: sourceNodeId, analysis_type: analysisType }),
     });
     setModal(null);
+    await loadDetail(activeTaskId);
+  };
+
+  const uploadInputFile = async (inputKind, file) => {
+    if (!activeTaskId || !file) return;
+    const response = await fetch(
+      `/api/tasks/${activeTaskId}/inputs/${inputKind}?filename=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file,
+      },
+    );
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        detail = (await response.json()).detail || detail;
+      } catch {
+        detail = await response.text();
+      }
+      window.alert(`上传失败：${detail}`);
+      return;
+    }
     await loadDetail(activeTaskId);
   };
 
@@ -550,6 +574,32 @@ function AnalysisNode({ data }) {
       </div>
       <h3 title={node.description}>{node.name}</h3>
       <small>输出：{output}</small>
+      {node.id === "upload_expression" ? (
+        <div className="upload-controls nodrag">
+          <label>
+            上传表达矩阵
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xlsm"
+              onChange={(event) => {
+                data.onUploadInput("expression_matrix", event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
+          </label>
+          <label>
+            上传分组表
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(event) => {
+                data.onUploadInput("sample_metadata", event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+      ) : null}
       {previewUrl ? (
         <button className="result-preview nodrag" onClick={() => data.onOpenResult(node)}>
           <img src={previewUrl} alt={`${node.name} 预览`} />

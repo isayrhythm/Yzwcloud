@@ -232,31 +232,27 @@ def _standardize_expression_like_table(
     with source_path.open(encoding="utf-8-sig", newline="") as source_file:
         reader = csv.reader(source_file)
         header = next(reader)
-        sample_indices = _sample_column_indices(header, [row["sample"] for row in sample_metadata])
-        selected_samples = []
-        for row in sample_metadata:
-            indices = sample_indices.get(row["sample"], [])
-            if indices:
-                selected_samples.append((row["sample"], indices[-1]))
+        preview = [row for _, row in zip(range(20), reader)]
+        source_file.seek(0)
+        reader = csv.reader(source_file)
+        header = next(reader)
+        if sample_metadata:
+            sample_indices = _sample_column_indices(header, [row["sample"] for row in sample_metadata])
+            selected_samples = []
+            for row in sample_metadata:
+                indices = sample_indices.get(row["sample"], [])
+                if indices:
+                    selected_samples.append((row["sample"], indices[-1]))
+        else:
+            selected_samples = _infer_numeric_sample_columns(header, preview)
 
         if not selected_samples:
-            shutil.copyfile(source_path, matrix_path)
-            if metadata_path:
-                shutil.copyfile(metadata_path, sample_meta_path)
-            return {
-                "matrix_file": str(matrix_path),
-                "sample_metadata_file": str(sample_meta_path),
-                "gene_annotation_file": "",
-                "standardization": {
-                    "mode": "copied_input",
-                    "reason": "metadata sample names did not match matrix columns",
-                    "llm_strategy": llm_plan.get("sample_columns_strategy", ""),
-                },
-            }
+            raise ValueError("No usable expression sample columns were detected")
 
         gene_indices = [idx for idx, name in enumerate(header) if name in GENE_COLUMNS]
         gene_name_to_index = {header[idx]: idx for idx in gene_indices}
         output_gene_columns = GENE_COLUMNS
+        selected_samples = _dedupe_selected_sample_names(selected_samples)
         output_header = output_gene_columns + [name for name, _ in selected_samples]
 
         with (
@@ -477,6 +473,28 @@ def _dedupe_metadata_by_sample(rows: list[dict[str, str]]) -> list[dict[str, str
         if sample:
             by_sample[sample] = row
     return list(by_sample.values())
+
+
+def _infer_numeric_sample_columns(header: list[str], preview: list[list[str]]) -> list[tuple[str, int]]:
+    gene_indices = {index for index, name in enumerate(header) if name in GENE_COLUMNS}
+    inferred = []
+    for index, name in enumerate(header):
+        if index in gene_indices:
+            continue
+        values = [_value_at(row, index) for row in preview if index < len(row)]
+        if values and _safe_ratio(sum(_is_number(value) for value in values), len(values)) >= 0.8:
+            inferred.append((name or f"sample_{index + 1}", index))
+    return inferred
+
+
+def _dedupe_selected_sample_names(samples: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    counts: dict[str, int] = {}
+    deduped = []
+    for sample, index in samples:
+        counts[sample] = counts.get(sample, 0) + 1
+        name = sample if counts[sample] == 1 else f"{sample}_{counts[sample]}"
+        deduped.append((name, index))
+    return deduped
 
 
 def _sample_column_indices(header: list[str], sample_names: list[str]) -> dict[str, list[int]]:

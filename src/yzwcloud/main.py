@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -28,6 +28,7 @@ from yzwcloud.task_store import (
     load_graph,
     load_task,
     read_log,
+    save_task_input,
 )
 
 app = FastAPI(title="Yzwcloud Bioinformatics Platform", version="0.1.0")
@@ -70,6 +71,28 @@ def api_delete_task(task_id: str) -> Response:
         return Response(status_code=204)
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc
+
+
+@app.post("/api/tasks/{task_id}/inputs/{input_kind}", response_model=TaskDetail)
+async def api_upload_task_input(
+    task_id: str,
+    input_kind: str,
+    request: Request,
+    filename: str,
+) -> TaskDetail:
+    try:
+        content = await request.body()
+        task, graph = save_task_input(
+            task_id=task_id,
+            input_kind=input_kind,
+            filename=filename,
+            content=content,
+        )
+        return TaskDetail(task=task, graph=graph)
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/tasks/{task_id}/comparison-options", response_model=ComparisonOptionsResponse)

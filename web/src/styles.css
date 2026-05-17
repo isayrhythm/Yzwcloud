@@ -651,6 +651,29 @@ h2 {
   white-space: nowrap;
 }
 
+.upload-controls {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.upload-controls label {
+  display: block;
+  padding: 6px 8px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 107, 87, 0.16);
+  border-radius: 10px;
+  color: var(--accent-strong);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.upload-controls input {
+  display: none;
+}
+
 .node-actions {
   display: flex;
   gap: 6px;

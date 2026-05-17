@@ -84,6 +84,54 @@ def load_graph(task_id: str) -> Graph:
     return Graph.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def save_task_input(
+    task_id: str,
+    input_kind: str,
+    filename: str,
+    content: bytes,
+) -> tuple[TaskState, Graph]:
+    if input_kind not in {"expression_matrix", "sample_metadata"}:
+        raise ValueError("Unsupported input kind")
+    if not content:
+        raise ValueError("Uploaded file is empty")
+
+    task = load_task(task_id)
+    graph = load_graph(task_id)
+    inputs_dir = get_task_dir(task_id) / "inputs"
+    inputs_dir.mkdir(parents=True, exist_ok=True)
+    suffix = Path(filename).suffix.lower()
+    if input_kind == "expression_matrix" and suffix not in {".csv", ".xlsx", ".xlsm"}:
+        raise ValueError("Expression matrix must be .csv, .xlsx or .xlsm")
+    if input_kind == "sample_metadata" and suffix != ".csv":
+        raise ValueError("Sample metadata must be .csv")
+
+    target = inputs_dir / f"{input_kind}{suffix}"
+    target.write_bytes(content)
+    manifest_path = inputs_dir / "manifest.json"
+    manifest = _read_manifest(manifest_path)
+    manifest[input_kind] = {
+        "filename": _safe_filename(filename),
+        "path": str(target.resolve()),
+        "size": len(content),
+        "uploaded_at": datetime.now().isoformat(),
+    }
+    _atomic_write_json(manifest_path, manifest)
+
+    upload_node = next((node for node in graph.nodes if node.id == "upload_expression"), None)
+    if upload_node is None:
+        raise ValueError("Upload node not found")
+    if input_kind == "expression_matrix":
+        upload_node.params["source_path"] = str(target.resolve())
+        upload_node.default_params["source_path"] = str(target.resolve())
+    else:
+        upload_node.params["sample_metadata_path"] = str(target.resolve())
+        upload_node.default_params["sample_metadata_path"] = str(target.resolve())
+    _reset_upload_node_for_new_input(graph)
+    save_graph(graph)
+    append_log(task_id, f"Input uploaded: {input_kind} -> {filename}")
+    return task, graph
+
+
 def create_diff_analysis_branch(
     task_id: str,
     case_condition: str,
@@ -218,6 +266,33 @@ def delete_node_subtree(task_id: str, node_id: str) -> tuple[TaskState, Graph, l
     save_graph(graph)
     append_log(task_id, f"Node subtree deleted: {node_id} -> {sorted(delete_ids)}")
     return task, graph, sorted(delete_ids)
+
+
+def _reset_upload_node_for_new_input(graph: Graph) -> None:
+    nodes = {node.id: node for node in graph.nodes}
+    upload_node = nodes["upload_expression"]
+    descendants = _collect_descendants(graph, "upload_expression")
+    delete_ids = {node_id for node_id in descendants if node_id != "diff_analysis"}
+    graph.nodes = [node for node in graph.nodes if node.id not in delete_ids]
+    graph.edges = [
+        edge
+        for edge in graph.edges
+        if edge["source"] not in delete_ids
+        and edge["target"] not in delete_ids
+        and edge != {"source": "upload_expression", "target": "diff_analysis"}
+    ]
+    upload_node.status = NodeStatus.READY
+    upload_node.output = None
+    upload_node.error = None
+    upload_node.started_at = None
+    upload_node.completed_at = None
+    selector = nodes.get("diff_analysis")
+    if selector:
+        selector.status = NodeStatus.PENDING
+        selector.output = None
+        selector.error = None
+        selector.started_at = None
+        selector.completed_at = None
 
 
 def ensure_diff_downstream_nodes(graph: Graph, diff_node_id: str) -> None:
@@ -358,6 +433,20 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
     temp_path = path.with_suffix(path.suffix + ".tmp")
     temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     temp_path.replace(path)
+
+
+def _read_manifest(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _safe_filename(filename: str) -> str:
+    raw_name = Path(filename).name or "uploaded_file"
+    return "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in raw_name)
 
 
 def _unique_node_id(graph: Graph, base_id: str) -> str:

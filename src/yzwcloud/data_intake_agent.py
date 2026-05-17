@@ -22,6 +22,7 @@ from yzwcloud.prompts import DATA_INTAKE_SYSTEM_PROMPT
 GENE_COLUMNS = ["gene_short_name", "gene_id", "biotype", "strand", "locus", "Length"]
 REQUIRED_MATRIX_GENE_COLUMNS = 6
 DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_MAX_ITERATIONS = 3
 
 
 def run_data_intake_agent(
@@ -40,12 +41,14 @@ def run_data_intake_agent(
         "source_file": str(source_path),
         "metadata_file": str(metadata_path) if metadata_path else "",
         "iterations": [],
+        "attempts": [],
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat(),
     }
     _write_checkpoint(checkpoint_path, checkpoint)
 
     try:
+        max_iterations = max(1, int(params.get("max_iterations", DEFAULT_MAX_ITERATIONS)))
         _emit_progress(progress_callback, "inspect_file", "running", "正在读取数据")
         inspection = _inspect_source(source_path, metadata_path)
         _record_step(checkpoint_path, checkpoint, "inspect_file", "completed", inspection)
@@ -55,27 +58,67 @@ def run_data_intake_agent(
         llm_plan = _classify_with_deepseek(inspection, use_llm=bool(params.get("use_llm", True)))
         _record_step(checkpoint_path, checkpoint, "classify_data", "completed", llm_plan)
         _emit_progress(progress_callback, "classify_data", "completed", "已识别类型")
+        plan = _build_processing_plan(inspection, llm_plan, metadata_path, max_iterations)
+        checkpoint["plan"] = plan
+        _record_step(checkpoint_path, checkpoint, "plan_processing", "completed", plan)
 
-        _emit_progress(progress_callback, "standardize_data", "running", "正在规整数据")
-        standard_result = _standardize_expression_like_table(
-            source_path=source_path,
-            metadata_path=metadata_path,
-            output_dir=output_dir,
-            inspection=inspection,
-            llm_plan=llm_plan,
-        )
-        _record_step(checkpoint_path, checkpoint, "standardize_data", "completed", standard_result)
-        _emit_progress(progress_callback, "standardize_data", "completed", "已规整数据")
+        if not plan["strategies"]:
+            raise ValueError(_plan_stop_message(plan))
 
-        _emit_progress(progress_callback, "validate_output", "running", "正在验证数据")
-        validation = _validate_expression_matrix(
-            matrix_path=Path(standard_result["matrix_file"]),
-            metadata_path=Path(standard_result["sample_metadata_file"]),
-        )
-        _record_step(checkpoint_path, checkpoint, "validate_output", "completed", validation)
-        if not validation["valid"]:
-            raise ValueError("; ".join(validation["errors"]) or "Data intake validation failed")
-        _emit_progress(progress_callback, "validate_output", "completed", "已验证数据")
+        standard_result = None
+        validation = None
+        success_strategy = None
+        last_error = ""
+        for attempt_index, strategy in enumerate(plan["strategies"][:max_iterations], start=1):
+            attempt_label = f"第 {attempt_index} 轮：{strategy['label']}"
+            _emit_progress(progress_callback, "standardize_data", "running", attempt_label)
+            attempt = {
+                "attempt": attempt_index,
+                "strategy_id": strategy["id"],
+                "label": strategy["label"],
+                "status": "running",
+                "started_at": datetime.now().isoformat(),
+            }
+            try:
+                standard_result = _execute_processing_strategy(
+                    source_path=source_path,
+                    metadata_path=metadata_path,
+                    output_dir=output_dir,
+                    inspection=inspection,
+                    llm_plan=llm_plan,
+                    strategy=strategy,
+                )
+                _emit_progress(progress_callback, "standardize_data", "completed", f"{attempt_label} 已规整")
+
+                _emit_progress(progress_callback, "validate_output", "running", f"{attempt_label} 正在验证")
+                validation = _validate_expression_matrix(
+                    matrix_path=Path(standard_result["matrix_file"]),
+                    metadata_path=Path(standard_result["sample_metadata_file"]),
+                )
+                attempt["validation"] = validation
+                if validation["valid"]:
+                    attempt["status"] = "completed"
+                    attempt["completed_at"] = datetime.now().isoformat()
+                    _record_attempt(checkpoint_path, checkpoint, attempt)
+                    success_strategy = strategy
+                    _record_step(checkpoint_path, checkpoint, "validate_output", "completed", validation)
+                    _emit_progress(progress_callback, "validate_output", "completed", f"{attempt_label} 已验证")
+                    break
+
+                last_error = "; ".join(validation["errors"]) or "Data intake validation failed"
+                attempt["status"] = "failed"
+                attempt["error"] = last_error
+                attempt["completed_at"] = datetime.now().isoformat()
+                _record_attempt(checkpoint_path, checkpoint, attempt)
+            except Exception as exc:
+                last_error = str(exc)
+                attempt["status"] = "failed"
+                attempt["error"] = last_error
+                attempt["completed_at"] = datetime.now().isoformat()
+                _record_attempt(checkpoint_path, checkpoint, attempt)
+
+        if success_strategy is None or standard_result is None or validation is None:
+            raise ValueError(last_error or _plan_stop_message(plan))
     except Exception:
         checkpoint["status"] = "failed"
         _write_checkpoint(checkpoint_path, checkpoint)
@@ -83,12 +126,12 @@ def run_data_intake_agent(
         raise
 
     capabilities = _direct_capabilities_for_data_type(
-        data_type="expression_matrix",
+        data_type=str(success_strategy.get("data_type", "expression_matrix")),
         capabilities=_capabilities_for_validation(validation),
     )
     next_analyses = _next_analyses_for_capabilities(capabilities)
     metadata = {
-        "data_type": "expression_matrix",
+        "data_type": str(success_strategy.get("data_type", "expression_matrix")),
         "source_file": str(source_path),
         "sample_metadata_source": str(metadata_path) if metadata_path else "",
         "gene_count": validation["gene_count"],
@@ -108,6 +151,9 @@ def run_data_intake_agent(
             "llm_status": llm_plan.get("llm_status", "unknown"),
             "classification": llm_plan.get("data_type", "expression_matrix"),
             "warnings": validation["warnings"] + llm_plan.get("warnings", []),
+            "max_iterations": max_iterations,
+            "strategy_history": checkpoint.get("attempts", []),
+            "selected_strategy": success_strategy,
         },
         "standardization": standard_result["standardization"],
         "quality": {
@@ -139,12 +185,19 @@ def build_failure_report(checkpoint_path: Path, error_message: str) -> dict[str,
 
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     iterations = checkpoint.get("iterations", [])
+    attempts = checkpoint.get("attempts", [])
+    plan = checkpoint.get("plan", {})
     steps = {item.get("step"): item.get("payload", {}) for item in iterations}
     inspection = steps.get("inspect_file", {})
     validation = steps.get("validate_output", {})
     findings = _failure_findings(inspection, validation)
     reasons = _failure_reasons(error_message, inspection, validation)
     suggestions = _failure_suggestions(error_message, inspection, validation)
+    if attempts:
+        findings.append(f"Agent 共尝试了 {len(attempts)} 种处理策略。")
+        reasons.append(_attempt_stop_reason(attempts, plan))
+    elif plan.get("unsupported_reason"):
+        reasons.append(str(plan["unsupported_reason"]))
 
     return {
         "title": "数据处理失败",
@@ -152,6 +205,7 @@ def build_failure_report(checkpoint_path: Path, error_message: str) -> dict[str,
         "reasons": reasons,
         "findings": findings,
         "suggestions": suggestions,
+        "attempts": attempts,
         "inspection": {
             "file_type": inspection.get("file_type", ""),
             "row_count": inspection.get("row_count", 0),
@@ -298,12 +352,93 @@ def _classify_with_deepseek(inspection: dict[str, Any], use_llm: bool) -> dict[s
         return fallback | {"llm_status": "fallback", "llm_error": str(exc), "model": model}
 
 
+def _build_processing_plan(
+    inspection: dict[str, Any],
+    llm_plan: dict[str, Any],
+    metadata_path: Path | None,
+    max_iterations: int,
+) -> dict[str, Any]:
+    detected_type = str(llm_plan.get("data_type") or "unknown_table")
+    file_type = str(inspection.get("file_type") or "unknown")
+    has_metadata = bool(metadata_path and metadata_path.exists()) or inspection.get("metadata_rows", 0) > 0
+    supports_expression_attempt = detected_type == "expression_matrix" or bool(inspection.get("likely_gene_columns"))
+    strategies: list[dict[str, Any]] = []
+
+    if supports_expression_attempt:
+        if has_metadata:
+            strategies.append(
+                {
+                    "id": f"{file_type}_metadata_last",
+                    "label": "优先按 metadata 匹配样本列",
+                    "data_type": "expression_matrix",
+                    "sample_mode": "metadata",
+                    "duplicate_policy": "last",
+                }
+            )
+        strategies.append(
+            {
+                "id": f"{file_type}_numeric_last",
+                "label": "按数值列推断样本，保留最后一组重复列",
+                "data_type": "expression_matrix",
+                "sample_mode": "numeric",
+                "duplicate_policy": "last",
+            }
+        )
+        strategies.append(
+            {
+                "id": f"{file_type}_numeric_first",
+                "label": "按数值列推断样本，保留第一组重复列",
+                "data_type": "expression_matrix",
+                "sample_mode": "numeric",
+                "duplicate_policy": "first",
+            }
+        )
+
+    strategies = strategies[:max_iterations]
+    unsupported_reason = ""
+    if not strategies:
+        if detected_type == "single_cell_matrix":
+            unsupported_reason = "当前识别结果更像单细胞矩阵，但平台还没有接入单细胞标准化处理器。"
+        elif detected_type == "feature_table":
+            unsupported_reason = "当前识别结果更像机器学习/特征表，而不是可直接进入 bulk RNA 流程的表达矩阵。"
+        else:
+            unsupported_reason = "当前文件没有命中已支持的数据标准化路径。"
+
+    return {
+        "detected_data_type": detected_type,
+        "file_type": file_type,
+        "max_iterations": max_iterations,
+        "has_metadata": has_metadata,
+        "strategies": strategies,
+        "unsupported_reason": unsupported_reason,
+    }
+
+
+def _execute_processing_strategy(
+    source_path: Path,
+    metadata_path: Path | None,
+    output_dir: Path,
+    inspection: dict[str, Any],
+    llm_plan: dict[str, Any],
+    strategy: dict[str, Any],
+) -> dict[str, Any]:
+    return _standardize_expression_like_table(
+        source_path=source_path,
+        metadata_path=metadata_path,
+        output_dir=output_dir,
+        inspection=inspection,
+        llm_plan=llm_plan,
+        strategy=strategy,
+    )
+
+
 def _standardize_expression_like_table(
     source_path: Path,
     metadata_path: Path | None,
     output_dir: Path,
     inspection: dict[str, Any],
     llm_plan: dict[str, Any],
+    strategy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if source_path.suffix.lower() in {".xlsx", ".xlsm"}:
         return _standardize_workbook_expression_table(
@@ -312,6 +447,7 @@ def _standardize_expression_like_table(
             output_dir=output_dir,
             inspection=inspection,
             llm_plan=llm_plan,
+            strategy=strategy,
         )
 
     matrix_path = output_dir / "expression_matrix.csv"
@@ -327,15 +463,18 @@ def _standardize_expression_like_table(
         source_file.seek(0)
         reader = csv.reader(source_file)
         header = next(reader)
-        if sample_metadata:
+        sample_mode = str((strategy or {}).get("sample_mode") or "auto")
+        duplicate_policy = str((strategy or {}).get("duplicate_policy") or "last")
+        if sample_metadata and sample_mode == "metadata":
             sample_indices = _sample_column_indices(header, [row["sample"] for row in sample_metadata])
             selected_samples = []
             for row in sample_metadata:
                 indices = sample_indices.get(row["sample"], [])
                 if indices:
-                    selected_samples.append((row["sample"], indices[-1]))
+                    selected_index = indices[-1] if duplicate_policy == "last" else indices[0]
+                    selected_samples.append((row["sample"], selected_index))
         else:
-            selected_samples = _infer_numeric_sample_columns(header, preview)
+            selected_samples = _infer_numeric_sample_columns(header, preview, duplicate_policy=duplicate_policy)
 
         if not selected_samples:
             raise ValueError("No usable expression sample columns were detected")
@@ -386,11 +525,12 @@ def _standardize_expression_like_table(
         "gene_annotation_file": str(annotation_path),
         "standardization": {
             "mode": "expression_matrix_from_metadata_samples",
-            "sample_column_strategy": "last_duplicate_column",
+            "sample_column_strategy": f"{sample_mode}_{duplicate_policy}_duplicate_column",
             "selected_sample_count": len(selected_samples),
             "gene_column_count": REQUIRED_MATRIX_GENE_COLUMNS,
             "llm_strategy": llm_plan.get("sample_columns_strategy", ""),
             "duplicate_sample_columns": inspection.get("duplicate_sample_columns", {}),
+            "strategy_id": (strategy or {}).get("id", ""),
         },
     }
 
@@ -401,6 +541,7 @@ def _standardize_workbook_expression_table(
     output_dir: Path,
     inspection: dict[str, Any],
     llm_plan: dict[str, Any],
+    strategy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     matrix_path = output_dir / "expression_matrix.csv"
     sample_meta_path = output_dir / "sample_metadata.csv"
@@ -414,13 +555,16 @@ def _standardize_workbook_expression_table(
     group_row = _workbook_row_text(sheet, header_row_number - 1) if header_row_number > 1 else []
     annotation_start = _find_index(header, "GeneID") or len(header)
 
-    if sample_metadata:
+    sample_mode = str((strategy or {}).get("sample_mode") or "auto")
+    duplicate_policy = str((strategy or {}).get("duplicate_policy") or "last")
+    if sample_metadata and sample_mode == "metadata":
         selected_samples = []
         sample_indices = _sample_column_indices(header[:annotation_start], [row["sample"] for row in sample_metadata])
         for row in sample_metadata:
             indices = sample_indices.get(row["sample"], [])
             if indices:
-                selected_samples.append((row["sample"], indices[-1]))
+                selected_index = indices[-1] if duplicate_policy == "last" else indices[0]
+                selected_samples.append((row["sample"], selected_index))
     else:
         preview = [
             [_cell_to_text(cell) for cell in row]
@@ -430,7 +574,11 @@ def _standardize_workbook_expression_table(
                 values_only=True,
             )
         ]
-        selected_samples = _infer_numeric_sample_columns(header[:annotation_start], preview)
+        selected_samples = _infer_numeric_sample_columns(
+            header[:annotation_start],
+            preview,
+            duplicate_policy=duplicate_policy,
+        )
 
     if not selected_samples:
         raise ValueError("No usable expression sample columns were detected in workbook")
@@ -492,11 +640,12 @@ def _standardize_workbook_expression_table(
             "mode": "expression_matrix_from_workbook",
             "sheet_name": sheet.title,
             "header_row": header_row_number,
-            "sample_column_strategy": "last_duplicate_numeric_column_before_annotation",
+            "sample_column_strategy": f"{sample_mode}_{duplicate_policy}_duplicate_numeric_column_before_annotation",
             "selected_sample_count": len(selected_samples),
             "gene_column_count": REQUIRED_MATRIX_GENE_COLUMNS,
             "llm_strategy": llm_plan.get("sample_columns_strategy", ""),
             "duplicate_sample_columns": inspection.get("duplicate_sample_columns", {}),
+            "strategy_id": (strategy or {}).get("id", ""),
         },
     }
 
@@ -567,6 +716,8 @@ def _capabilities_for_validation(validation: dict[str, Any]) -> list[str]:
 def _direct_capabilities_for_data_type(data_type: str, capabilities: list[str]) -> list[str]:
     allowed = {
         "expression_matrix": {"pca", "diff_analysis"},
+        "single_cell_matrix": set(),
+        "feature_table": set(),
         "diff_result": {"heatmap", "volcano", "enrichment"},
         "gene_list": {"enrichment"},
         "sample_metadata": set(),
@@ -596,14 +747,28 @@ def _heuristic_plan(inspection: dict[str, Any]) -> dict[str, Any]:
     likely_expression = bool(inspection.get("likely_gene_columns")) and (
         inspection.get("metadata_rows", 0) > 0 or inspection.get("numeric_column_ratio", 0) > 0.5
     )
+    likely_single_cell = bool(inspection.get("likely_gene_columns")) and inspection.get("column_count", 0) > 1000
+    likely_feature_table = not inspection.get("likely_gene_columns") and inspection.get("numeric_column_ratio", 0) > 0.6
+    if likely_single_cell:
+        data_type = "single_cell_matrix"
+        capabilities: list[str] = []
+    elif likely_expression:
+        data_type = "expression_matrix"
+        capabilities = ["pca", "diff_analysis"]
+    elif likely_feature_table:
+        data_type = "feature_table"
+        capabilities = []
+    else:
+        data_type = "unknown_table"
+        capabilities = []
     return {
-        "data_type": "expression_matrix" if likely_expression else "unknown_table",
-        "confidence": 0.85 if likely_expression else 0.4,
+        "data_type": data_type,
+        "confidence": 0.85 if data_type != "unknown_table" else 0.4,
         "feature_id_column": "gene_id",
         "feature_name_column": "gene_short_name",
         "sample_columns_strategy": "use_metadata_samples_last_duplicate",
         "needs_metadata": True,
-        "capabilities": ["pca", "diff_analysis"] if likely_expression else [],
+        "capabilities": capabilities,
         "warnings": [],
         "model": DEFAULT_MODEL,
     }
@@ -624,6 +789,16 @@ def _record_step(
             "timestamp": datetime.now().isoformat(),
         }
     )
+    checkpoint["updated_at"] = datetime.now().isoformat()
+    _write_checkpoint(checkpoint_path, checkpoint)
+
+
+def _record_attempt(
+    checkpoint_path: Path,
+    checkpoint: dict[str, Any],
+    payload: dict[str, Any],
+) -> None:
+    checkpoint["attempts"].append(payload)
     checkpoint["updated_at"] = datetime.now().isoformat()
     _write_checkpoint(checkpoint_path, checkpoint)
 
@@ -737,6 +912,19 @@ def _failure_suggestions(
     return suggestions
 
 
+def _attempt_stop_reason(attempts: list[dict[str, Any]], plan: dict[str, Any]) -> str:
+    if not attempts:
+        return plan.get("unsupported_reason", "Agent 没有找到可执行的处理策略。")
+    last_attempt = attempts[-1]
+    if len(attempts) >= int(plan.get("max_iterations", DEFAULT_MAX_ITERATIONS)):
+        return f"Agent 已达到最大重试轮次 {plan.get('max_iterations', DEFAULT_MAX_ITERATIONS)}，最后一次失败策略为“{last_attempt.get('label', '')}”。"
+    return f"Agent 已尝试策略“{last_attempt.get('label', '')}”，但仍未得到可用分析输入。"
+
+
+def _plan_stop_message(plan: dict[str, Any]) -> str:
+    return str(plan.get("unsupported_reason") or "当前文件未命中可执行的数据处理策略。")
+
+
 def _env_value(name: str, default: str = "") -> str:
     if name in os.environ:
         return os.environ[name]
@@ -780,7 +968,11 @@ def _dedupe_metadata_by_sample(rows: list[dict[str, str]]) -> list[dict[str, str
     return list(by_sample.values())
 
 
-def _infer_numeric_sample_columns(header: list[str], preview: list[list[str]]) -> list[tuple[str, int]]:
+def _infer_numeric_sample_columns(
+    header: list[str],
+    preview: list[list[str]],
+    duplicate_policy: str = "last",
+) -> list[tuple[str, int]]:
     gene_indices = {index for index, name in enumerate(header) if name in GENE_COLUMNS}
     inferred: dict[str, int] = {}
     for index, name in enumerate(header):
@@ -788,7 +980,10 @@ def _infer_numeric_sample_columns(header: list[str], preview: list[list[str]]) -
             continue
         values = [_value_at(row, index) for row in preview if index < len(row)]
         if values and _safe_ratio(sum(_is_number(value) for value in values), len(values)) >= 0.8:
-            inferred[name or f"sample_{index + 1}"] = index
+            key = name or f"sample_{index + 1}"
+            if duplicate_policy == "first" and key in inferred:
+                continue
+            inferred[key] = index
     return list(inferred.items())
 
 

@@ -28,7 +28,24 @@ DATA_INTAKE_SYSTEM_PROMPT = """
    注意：expression_matrix 不要直接返回 heatmap、volcano、enrichment。
    heatmap 和 volcano 属于 diff_result 的后续能力，不是表达矩阵载入节点的直接下一步。
 
-2. sample_metadata
+2. single_cell_matrix
+   含义：单细胞表达矩阵或其导出表。
+   常见特征：
+   - 列数非常大，远高于 bulk RNA 常见样本数
+   - 可能出现 barcode、cell、feature、gene 等单细胞痕迹
+   - 当前平台暂未直接接入单细胞分析流程
+   可用能力：
+   - []
+
+3. feature_table
+   含义：机器学习特征表、临床特征矩阵、样本 x 特征数值表。
+   常见特征：
+   - 没有 gene_id / gene_short_name 这类基因注释列
+   - 有大量数值列，但更像 feature 而不是表达矩阵
+   可用能力：
+   - []
+
+4. sample_metadata
    含义：样本分组信息表。
    必需列：
    - sample
@@ -36,7 +53,7 @@ DATA_INTAKE_SYSTEM_PROMPT = """
    可用能力：
    - attach_to_expression_matrix
 
-3. diff_result
+5. diff_result
    含义：差异分析结果表。
    常见必需列：
    - gene 或 gene_id
@@ -46,12 +63,12 @@ DATA_INTAKE_SYSTEM_PROMPT = """
    - volcano
    - heatmap，如果同时能找到原始表达矩阵
 
-4. gene_list
+6. gene_list
    含义：一列或多列基因 ID/基因名列表。
    可用能力：
    - enrichment，当前平台暂未接数据库时只返回 planned
 
-5. unknown_table
+7. unknown_table
    含义：无法稳定判断的数据表。
    可用能力：
    - []
@@ -69,7 +86,7 @@ DATA_INTAKE_SYSTEM_PROMPT = """
 }
 
 字段要求：
-- data_type 必须是 expression_matrix、sample_metadata、diff_result、gene_list、unknown_table 之一。
+- data_type 必须是 expression_matrix、single_cell_matrix、feature_table、sample_metadata、diff_result、gene_list、unknown_table 之一。
 - confidence 是 0 到 1 的数字。
 - capabilities 必须是字符串数组。
 - capabilities 只表示当前数据对象能直接创建的下一步分析，不要包含再下游节点的能力。

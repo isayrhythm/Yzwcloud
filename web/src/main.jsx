@@ -795,6 +795,20 @@ function AgentReportModal({ node, onClose }) {
             </ol>
           </div>
         ) : null}
+        {Array.isArray(report.attempts) && report.attempts.length ? (
+          <div className="report-block">
+            <strong>尝试过的处理策略</strong>
+            <ol className="report-timeline">
+              {report.attempts.map((item, index) => (
+                <li key={`attempt-${index}`}>
+                  <span>{item.status}</span>
+                  {item.label}
+                  {item.error ? `：${item.error}` : ""}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
         <div className="modal-actions">
           <button type="button" onClick={onClose}>关闭</button>
         </div>

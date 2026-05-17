@@ -635,7 +635,7 @@ function AnalysisNode({ data }) {
             {uploadedInput ? "更换数据" : "上传数据"}
             <input
               type="file"
-              accept=".csv,.xlsx,.xlsm"
+              accept=".csv,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
               onChange={(event) => {
                 data.onUploadInput("expression_matrix", event.target.files?.[0]);
                 event.target.value = "";

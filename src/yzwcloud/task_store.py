@@ -166,13 +166,15 @@ def save_task_input(
     graph = load_graph(task_id)
     inputs_dir = get_task_dir(task_id) / "inputs"
     inputs_dir.mkdir(parents=True, exist_ok=True)
-    suffix = Path(filename).suffix.lower()
-    if input_kind == "expression_matrix" and suffix not in {".csv", ".xlsx", ".xlsm"}:
-        raise ValueError("Expression matrix must be .csv, .xlsx or .xlsm")
+    normalized_name = _safe_filename(filename)
+    lowered_name = normalized_name.lower()
+    suffix = Path(lowered_name).suffix
+    if input_kind == "expression_matrix" and not _is_supported_expression_upload(lowered_name):
+        raise ValueError("Expression input must be .csv, .xlsx, .xlsm, .zip, .tar, .tar.gz, .tgz or .gz")
     if input_kind == "sample_metadata" and suffix != ".csv":
         raise ValueError("Sample metadata must be .csv")
 
-    target = inputs_dir / f"{input_kind}{suffix}"
+    target = inputs_dir / f"{input_kind}__{normalized_name}"
     target.write_bytes(content)
     manifest_path = inputs_dir / "manifest.json"
     manifest = _read_manifest(manifest_path)
@@ -519,6 +521,10 @@ def _read_manifest(path: Path) -> dict:
 def _safe_filename(filename: str) -> str:
     raw_name = Path(filename).name or "uploaded_file"
     return "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in raw_name)
+
+
+def _is_supported_expression_upload(filename: str) -> bool:
+    return filename.endswith((".csv", ".xlsx", ".xlsm", ".zip", ".tar", ".tar.gz", ".tgz", ".gz"))
 
 
 def _count_values(values) -> dict[str, int]:

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 import os
 import shutil
+import tarfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
@@ -56,8 +59,18 @@ def run_data_intake_agent(
 
     try:
         max_iterations = max(1, int(params.get("max_iterations", DEFAULT_MAX_ITERATIONS)))
+        _emit_progress(progress_callback, "prepare_input", "running", "正在展开输入")
+        prepared = _prepare_source_input(source_path, output_dir)
+        checkpoint["prepared_input"] = prepared
+        _record_step(checkpoint_path, checkpoint, "prepare_input", "completed", prepared)
+        _emit_progress(progress_callback, "prepare_input", "completed", "已展开输入")
+
         _emit_progress(progress_callback, "inspect_file", "running", "正在读取数据")
-        inspection = _inspect_source(source_path, metadata_path)
+        prepared_source_path = Path(prepared["resolved_source_path"])
+        inspection = _inspect_source(prepared_source_path, metadata_path)
+        inspection["original_source_file"] = str(source_path)
+        inspection["resolved_source_file"] = str(prepared_source_path)
+        inspection["input_preprocess"] = prepared
         _record_step(checkpoint_path, checkpoint, "inspect_file", "completed", inspection)
         _emit_progress(progress_callback, "inspect_file", "completed", "已读取数据")
 
@@ -88,7 +101,7 @@ def run_data_intake_agent(
             }
             try:
                 standard_result = execute_processing_strategy(
-                    source_path=source_path,
+                    source_path=prepared_source_path,
                     metadata_path=metadata_path,
                     output_dir=output_dir,
                     inspection=inspection,
@@ -141,6 +154,7 @@ def run_data_intake_agent(
     metadata = {
         "data_type": str(success_strategy.get("data_type", "expression_matrix")),
         "source_file": str(source_path),
+        "resolved_source_file": str(prepared_source_path),
         "sample_metadata_source": str(metadata_path) if metadata_path else "",
         "gene_count": validation["gene_count"],
         "sample_count": validation["sample_count"],
@@ -163,6 +177,7 @@ def run_data_intake_agent(
             "strategy_history": checkpoint.get("attempts", []),
             "selected_strategy": success_strategy,
         },
+        "input_preprocess": prepared,
         "standardization": standard_result["standardization"],
         "quality": {
             "duplicate_sample_columns": inspection.get("duplicate_sample_columns", {}),
@@ -179,6 +194,74 @@ def run_data_intake_agent(
     _write_checkpoint(checkpoint_path, checkpoint)
     _emit_progress(progress_callback, "completed", "completed", "数据已可用于分析")
     return output
+
+
+def _prepare_source_input(source_path: Path, output_dir: Path) -> dict[str, Any]:
+    lower_name = source_path.name.lower()
+    if lower_name.endswith((".csv", ".xlsx", ".xlsm")):
+        return {
+            "kind": "direct_file",
+            "original_source_path": str(source_path),
+            "resolved_source_path": str(source_path),
+        }
+
+    unpack_dir = output_dir / "unpacked_input"
+    if unpack_dir.exists():
+        shutil.rmtree(unpack_dir)
+    unpack_dir.mkdir(parents=True, exist_ok=True)
+
+    if lower_name.endswith(".zip"):
+        with zipfile.ZipFile(source_path) as archive:
+            archive.extractall(unpack_dir)
+    elif lower_name.endswith((".tar", ".tar.gz", ".tgz")):
+        with tarfile.open(source_path, mode="r:*") as archive:
+            archive.extractall(unpack_dir)
+    elif lower_name.endswith(".gz"):
+        target_name = Path(lower_name[:-3]).name or "decompressed_input"
+        target_path = unpack_dir / target_name
+        with gzip.open(source_path, "rb") as gz_file, target_path.open("wb") as output_file:
+            shutil.copyfileobj(gz_file, output_file)
+    else:
+        raise ValueError(f"Unsupported uploaded file type: {source_path.name}")
+
+    entries = sorted(path for path in unpack_dir.rglob("*") if path.is_file())
+    candidate = _select_prepared_candidate(entries)
+    if candidate is None:
+        if _looks_like_10x_directory(entries):
+            raise ValueError("压缩包里更像 10x/单细胞矩阵，当前还没有接入单细胞处理器。")
+        raise ValueError("压缩包已解压，但里面没有找到当前支持的 .csv/.xlsx/.xlsm 数据文件。")
+
+    return {
+        "kind": "archive_extract",
+        "original_source_path": str(source_path),
+        "resolved_source_path": str(candidate),
+        "unpack_dir": str(unpack_dir),
+        "archive_members": [str(path.relative_to(unpack_dir)) for path in entries[:80]],
+        "selected_member": str(candidate.relative_to(unpack_dir)),
+    }
+
+
+def _select_prepared_candidate(entries: list[Path]) -> Path | None:
+    supported = [path for path in entries if path.suffix.lower() in {".csv", ".xlsx", ".xlsm"}]
+    if not supported:
+        return None
+    ranked = sorted(supported, key=_candidate_priority)
+    return ranked[0]
+
+
+def _candidate_priority(path: Path) -> tuple[int, int, str]:
+    name = path.name.lower()
+    preferred_tokens = ("matrix", "expression", "count", "counts", "mrna", "gene")
+    score = 0 if any(token in name for token in preferred_tokens) else 1
+    suffix_score = 0 if path.suffix.lower() == ".csv" else 1
+    return (score, suffix_score, name)
+
+
+def _looks_like_10x_directory(entries: list[Path]) -> bool:
+    names = {path.name.lower() for path in entries}
+    return "matrix.mtx" in names and any(name.startswith("barcodes") for name in names) and any(
+        name.startswith("features") or name.startswith("genes") for name in names
+    )
 
 
 def build_failure_report(checkpoint_path: Path, error_message: str) -> dict[str, Any]:

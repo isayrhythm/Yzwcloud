@@ -27,7 +27,10 @@ def build_processing_plan(
     detected_type = str(llm_plan.get("data_type") or "unknown_table")
     file_type = str(inspection.get("file_type") or "unknown")
     has_metadata = bool(metadata_path and metadata_path.exists()) or inspection.get("metadata_rows", 0) > 0
-    strategies = _strategies_for_data_type(detected_type, file_type, has_metadata)[:max_iterations]
+    routed_type = detected_type
+    if routed_type != "expression_matrix" and inspection.get("likely_gene_columns"):
+        routed_type = "expression_matrix"
+    strategies = _strategies_for_data_type(routed_type, file_type, has_metadata)[:max_iterations]
 
     unsupported_reason = ""
     if not strategies:
@@ -40,6 +43,7 @@ def build_processing_plan(
 
     return {
         "detected_data_type": detected_type,
+        "routed_data_type": routed_type,
         "file_type": file_type,
         "max_iterations": max_iterations,
         "has_metadata": has_metadata,

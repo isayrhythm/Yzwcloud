@@ -34,6 +34,14 @@ def run_node(task_id: str, node_id: str, params: dict) -> None:
 
     merged_params = node.default_params | node.params | params
     node.params = merged_params
+    if node_id == "upload_expression":
+        node.params["agent_progress"] = {
+            "step": "queued",
+            "status": "running",
+            "label": "准备启动 Agent",
+            "history": [],
+            "updated_at": datetime.now().isoformat(),
+        }
     node.status = NodeStatus.RUNNING
     node.error = None
     node.started_at = datetime.now()
@@ -53,6 +61,9 @@ def run_node(task_id: str, node_id: str, params: dict) -> None:
             inputs=inputs,
             params=merged_params,
             output_dir=get_task_dir(task_id) / "outputs",
+            progress_callback=_make_progress_callback(task_id, node_id)
+            if node_id == "upload_expression"
+            else None,
         )
 
         graph = load_graph(task_id)
@@ -74,6 +85,8 @@ def run_node(task_id: str, node_id: str, params: dict) -> None:
         node = _get_node(graph, node_id)
         node.status = NodeStatus.FAILED
         node.error = str(exc)
+        if node_id == "upload_expression":
+            _set_progress(node, "failed", "failed", "处理失败，等待重试")
         node.completed_at = datetime.now()
         task = load_task(task_id)
         task.status = TaskStatus.FAILED
@@ -120,3 +133,35 @@ def _refresh_readiness(graph: Graph) -> None:
 
 def _all_nodes_completed(graph: Graph) -> bool:
     return all(node.status == NodeStatus.COMPLETED for node in graph.nodes)
+
+
+def _make_progress_callback(task_id: str, node_id: str):
+    def callback(step: str, status: str, label: str) -> None:
+        graph = load_graph(task_id)
+        node = _get_node(graph, node_id)
+        _set_progress(node, step, status, label)
+        save_graph(graph)
+        append_log(task_id, f"Agent progress: {step} - {label}")
+
+    return callback
+
+
+def _set_progress(node: GraphNode, step: str, status: str, label: str) -> None:
+    progress = dict(node.params.get("agent_progress") or {})
+    history = list(progress.get("history") or [])
+    if not history or history[-1].get("step") != step or history[-1].get("status") != status:
+        history.append(
+            {
+                "step": step,
+                "status": status,
+                "label": label,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+    node.params["agent_progress"] = {
+        "step": step,
+        "status": status,
+        "label": label,
+        "history": history[-8:],
+        "updated_at": datetime.now().isoformat(),
+    }

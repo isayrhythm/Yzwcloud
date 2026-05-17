@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from yzwcloud.analysis_outputs import (
     create_heatmap_result,
@@ -54,11 +54,16 @@ def execute_demo_node(
     inputs: dict[str, DataObject],
     params: dict[str, Any],
     output_dir: Path,
+    progress_callback: Callable[[str, str, str], None] | None = None,
 ) -> DataObject:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if node_id == "upload_expression":
-        output = prepare_expression_matrix(params=params, output_dir=output_dir)
+        output = prepare_expression_matrix(
+            params=params,
+            output_dir=output_dir,
+            progress_callback=progress_callback,
+        )
         _write_detail(
             output_dir / f"{node_id}_detail.json",
             {

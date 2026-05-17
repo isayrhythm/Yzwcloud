@@ -633,7 +633,9 @@ function AnalysisNode({ data }) {
           ) : null}
         </div>
       ) : null}
-      {node.id === "upload_expression" && node.status === "running" ? <AgentProgress /> : null}
+      {node.id === "upload_expression" && (node.status === "running" || node.params?.agent_progress) ? (
+        <AgentProgress progress={node.params?.agent_progress} />
+      ) : null}
       {previewUrl ? (
         <button className="result-preview nodrag" onClick={() => data.onOpenResult(node)}>
           <img src={previewUrl} alt={`${node.name} 预览`} />
@@ -667,13 +669,32 @@ function ResultModal({ title, url, onClose }) {
   );
 }
 
-function AgentProgress() {
+function AgentProgress({ progress }) {
+  const history = progress?.history || [];
+  const currentStep = progress?.step || "queued";
+  const steps = [
+    { step: "inspect_file", label: "读取数据" },
+    { step: "classify_data", label: "识别类型" },
+    { step: "standardize_data", label: "规整数据" },
+    { step: "validate_output", label: "验证数据" },
+  ];
+  const activeIndex = steps.findIndex((item) => item.step === currentStep);
+  const completedCount = history.filter((item) => item.status === "completed").length;
+  const stepCount =
+    progress?.status === "completed"
+      ? steps.length
+      : activeIndex >= 0
+        ? activeIndex + 1
+        : Math.min(completedCount + 1, steps.length);
+  const lastDone = [...history].reverse().find((item) => item.status === "completed");
   return (
-    <div className="agent-progress">
-      <span>正在读取数据</span>
-      <span>正在识别类型</span>
-      <span>正在规整验证</span>
-      <span>必要时修正重试</span>
+    <div className={`agent-progress compact ${progress?.status || "running"}`}>
+      <span className="agent-pulse" />
+      <div className="agent-copy">
+        <strong key={progress?.label || "Agent 正在准备"}>{progress?.label || "Agent 正在准备"}</strong>
+        {lastDone && progress?.status !== "completed" ? <small>刚完成：{lastDone.label}</small> : null}
+      </div>
+      <span className="agent-step-count">{stepCount}/{steps.length}</span>
     </div>
   );
 }

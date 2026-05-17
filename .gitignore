@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 .pdm-python
 data/tasks/
+data/tmp*/
 logs/
 .tmp-uvicorn.*.log
 node_modules/

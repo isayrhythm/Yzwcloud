@@ -10,7 +10,7 @@ import urllib.request
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from openpyxl import load_workbook
 
@@ -29,6 +29,7 @@ def run_data_intake_agent(
     output_dir: Path,
     metadata_path: Path | None = None,
     params: dict[str, Any] | None = None,
+    progress_callback: Callable[[str, str, str], None] | None = None,
 ) -> DataObject:
     params = params or {}
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -44,30 +45,42 @@ def run_data_intake_agent(
     }
     _write_checkpoint(checkpoint_path, checkpoint)
 
-    inspection = _inspect_source(source_path, metadata_path)
-    _record_step(checkpoint_path, checkpoint, "inspect_file", "completed", inspection)
+    try:
+        _emit_progress(progress_callback, "inspect_file", "running", "正在读取数据")
+        inspection = _inspect_source(source_path, metadata_path)
+        _record_step(checkpoint_path, checkpoint, "inspect_file", "completed", inspection)
+        _emit_progress(progress_callback, "inspect_file", "completed", "已读取数据")
 
-    llm_plan = _classify_with_deepseek(inspection, use_llm=bool(params.get("use_llm", True)))
-    _record_step(checkpoint_path, checkpoint, "classify_data", "completed", llm_plan)
+        _emit_progress(progress_callback, "classify_data", "running", "正在识别类型")
+        llm_plan = _classify_with_deepseek(inspection, use_llm=bool(params.get("use_llm", True)))
+        _record_step(checkpoint_path, checkpoint, "classify_data", "completed", llm_plan)
+        _emit_progress(progress_callback, "classify_data", "completed", "已识别类型")
 
-    standard_result = _standardize_expression_like_table(
-        source_path=source_path,
-        metadata_path=metadata_path,
-        output_dir=output_dir,
-        inspection=inspection,
-        llm_plan=llm_plan,
-    )
-    _record_step(checkpoint_path, checkpoint, "standardize_data", "completed", standard_result)
+        _emit_progress(progress_callback, "standardize_data", "running", "正在规整数据")
+        standard_result = _standardize_expression_like_table(
+            source_path=source_path,
+            metadata_path=metadata_path,
+            output_dir=output_dir,
+            inspection=inspection,
+            llm_plan=llm_plan,
+        )
+        _record_step(checkpoint_path, checkpoint, "standardize_data", "completed", standard_result)
+        _emit_progress(progress_callback, "standardize_data", "completed", "已规整数据")
 
-    validation = _validate_expression_matrix(
-        matrix_path=Path(standard_result["matrix_file"]),
-        metadata_path=Path(standard_result["sample_metadata_file"]),
-    )
-    _record_step(checkpoint_path, checkpoint, "validate_output", "completed", validation)
-    if not validation["valid"]:
+        _emit_progress(progress_callback, "validate_output", "running", "正在验证数据")
+        validation = _validate_expression_matrix(
+            matrix_path=Path(standard_result["matrix_file"]),
+            metadata_path=Path(standard_result["sample_metadata_file"]),
+        )
+        _record_step(checkpoint_path, checkpoint, "validate_output", "completed", validation)
+        if not validation["valid"]:
+            raise ValueError("; ".join(validation["errors"]) or "Data intake validation failed")
+        _emit_progress(progress_callback, "validate_output", "completed", "已验证数据")
+    except Exception:
         checkpoint["status"] = "failed"
         _write_checkpoint(checkpoint_path, checkpoint)
-        raise ValueError("; ".join(validation["errors"]) or "Data intake validation failed")
+        _emit_progress(progress_callback, "failed", "failed", "处理失败，等待重试")
+        raise
 
     capabilities = _direct_capabilities_for_data_type(
         data_type="expression_matrix",
@@ -110,6 +123,7 @@ def run_data_intake_agent(
     checkpoint["status"] = "completed"
     checkpoint["output"] = metadata
     _write_checkpoint(checkpoint_path, checkpoint)
+    _emit_progress(progress_callback, "completed", "completed", "数据已可用于分析")
     return output
 
 
@@ -157,7 +171,31 @@ def _inspect_workbook(source_path: Path, metadata_path: Path | None) -> dict[str
     rows = list(sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 12), values_only=True))
     raw_sample_metadata = _read_sample_metadata(metadata_path) if metadata_path and metadata_path.exists() else []
     sample_metadata = _dedupe_metadata_by_sample(raw_sample_metadata)
-    return {
+    detected_header_row = 0
+    detected_header: list[str] = []
+    duplicate_sample_columns: dict[str, list[int]] = {}
+    numeric_column_ratio = 0.0
+    try:
+        detected_header_row, detected_header = _find_expression_header_row(sheet)
+        annotation_start = _find_index(detected_header, "GeneID") or len(detected_header)
+        preview = [
+            [_cell_to_text(cell) for cell in row]
+            for row in sheet.iter_rows(
+                min_row=detected_header_row + 1,
+                max_row=min(sheet.max_row, detected_header_row + 8),
+                values_only=True,
+            )
+        ]
+        duplicate_sample_columns = {
+            name: indices
+            for name, indices in _all_column_indices(detected_header[:annotation_start]).items()
+            if len(indices) > 1 and name not in GENE_COLUMNS
+        }
+        ratios = _numeric_ratios(preview, annotation_start)
+        numeric_column_ratio = _safe_ratio(sum(ratio > 0.8 for ratio in ratios), len(ratios))
+    except ValueError:
+        pass
+    result = {
         "file_type": "workbook",
         "path": str(source_path),
         "sheet_names": workbook.sheetnames,
@@ -167,7 +205,14 @@ def _inspect_workbook(source_path: Path, metadata_path: Path | None) -> dict[str
         "preview": [[_cell_to_text(cell) for cell in row[:30]] for row in rows[:8]],
         "metadata_rows": len(sample_metadata),
         "metadata_conditions": _count_values(row.get("condition", "") for row in sample_metadata),
+        "detected_header_row": detected_header_row,
+        "header": detected_header[:160],
+        "likely_gene_columns": [name for name in GENE_COLUMNS if name in detected_header],
+        "duplicate_sample_columns": duplicate_sample_columns,
+        "numeric_column_ratio": numeric_column_ratio,
     }
+    workbook.close()
+    return result
 
 
 def _classify_with_deepseek(inspection: dict[str, Any], use_llm: bool) -> dict[str, Any]:
@@ -221,7 +266,13 @@ def _standardize_expression_like_table(
     llm_plan: dict[str, Any],
 ) -> dict[str, Any]:
     if source_path.suffix.lower() in {".xlsx", ".xlsm"}:
-        raise ValueError("Workbook intake is inspected but not standardized yet; use CSV for this MVP")
+        return _standardize_workbook_expression_table(
+            source_path=source_path,
+            metadata_path=metadata_path,
+            output_dir=output_dir,
+            inspection=inspection,
+            llm_plan=llm_plan,
+        )
 
     matrix_path = output_dir / "expression_matrix.csv"
     sample_meta_path = output_dir / "sample_metadata.csv"
@@ -296,6 +347,112 @@ def _standardize_expression_like_table(
         "standardization": {
             "mode": "expression_matrix_from_metadata_samples",
             "sample_column_strategy": "last_duplicate_column",
+            "selected_sample_count": len(selected_samples),
+            "gene_column_count": REQUIRED_MATRIX_GENE_COLUMNS,
+            "llm_strategy": llm_plan.get("sample_columns_strategy", ""),
+            "duplicate_sample_columns": inspection.get("duplicate_sample_columns", {}),
+        },
+    }
+
+
+def _standardize_workbook_expression_table(
+    source_path: Path,
+    metadata_path: Path | None,
+    output_dir: Path,
+    inspection: dict[str, Any],
+    llm_plan: dict[str, Any],
+) -> dict[str, Any]:
+    matrix_path = output_dir / "expression_matrix.csv"
+    sample_meta_path = output_dir / "sample_metadata.csv"
+    annotation_path = output_dir / "gene_annotations.csv"
+    raw_sample_metadata = _read_sample_metadata(metadata_path) if metadata_path and metadata_path.exists() else []
+    sample_metadata = _dedupe_metadata_by_sample(raw_sample_metadata)
+
+    workbook = load_workbook(source_path, read_only=True, data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    header_row_number, header = _find_expression_header_row(sheet)
+    group_row = _workbook_row_text(sheet, header_row_number - 1) if header_row_number > 1 else []
+    annotation_start = _find_index(header, "GeneID") or len(header)
+
+    if sample_metadata:
+        selected_samples = []
+        sample_indices = _sample_column_indices(header[:annotation_start], [row["sample"] for row in sample_metadata])
+        for row in sample_metadata:
+            indices = sample_indices.get(row["sample"], [])
+            if indices:
+                selected_samples.append((row["sample"], indices[-1]))
+    else:
+        preview = [
+            [_cell_to_text(cell) for cell in row]
+            for row in sheet.iter_rows(
+                min_row=header_row_number + 1,
+                max_row=min(sheet.max_row, header_row_number + 20),
+                values_only=True,
+            )
+        ]
+        selected_samples = _infer_numeric_sample_columns(header[:annotation_start], preview)
+
+    if not selected_samples:
+        raise ValueError("No usable expression sample columns were detected in workbook")
+
+    gene_indices = [idx for idx, name in enumerate(header) if name in GENE_COLUMNS]
+    gene_name_to_index = {header[idx]: idx for idx in gene_indices}
+    selected_samples = _dedupe_selected_sample_names(selected_samples)
+    output_header = GENE_COLUMNS + [name for name, _ in selected_samples]
+    annotation_columns = [
+        (name, idx)
+        for idx, name in enumerate(header[annotation_start:], start=annotation_start)
+        if name
+    ]
+
+    with (
+        matrix_path.open("w", encoding="utf-8-sig", newline="") as matrix_file,
+        annotation_path.open("w", encoding="utf-8-sig", newline="") as annotation_file,
+    ):
+        matrix_writer = csv.writer(matrix_file)
+        annotation_writer = csv.writer(annotation_file)
+        matrix_writer.writerow(output_header)
+        annotation_writer.writerow(GENE_COLUMNS + [name for name, _ in annotation_columns])
+
+        for row in sheet.iter_rows(min_row=header_row_number + 1, values_only=True):
+            if not row or len(row) <= max(idx for _, idx in selected_samples):
+                continue
+            gene_values = [
+                _cell_to_text(_value_at(row, gene_name_to_index[column]))
+                if column in gene_name_to_index
+                else ""
+                for column in GENE_COLUMNS
+            ]
+            if not any(gene_values):
+                continue
+            sample_values = [_cell_to_text(_value_at(row, idx)) for _, idx in selected_samples]
+            annotation_values = [_cell_to_text(_value_at(row, idx)) for _, idx in annotation_columns]
+            matrix_writer.writerow(gene_values + sample_values)
+            annotation_writer.writerow(gene_values + annotation_values)
+
+    workbook_conditions = _workbook_conditions_for_samples(group_row, selected_samples)
+    with sample_meta_path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["sample", "group", "condition"])
+        metadata_by_sample = {row["sample"]: row for row in sample_metadata}
+        for sample, _ in selected_samples:
+            row = metadata_by_sample.get(sample, {})
+            inferred_group = _infer_group_from_sample_name(sample)
+            inferred_condition = workbook_conditions.get(sample) or inferred_group
+            group = row.get("group") or inferred_group
+            condition = row.get("condition") or inferred_condition
+            writer.writerow([sample, group, condition])
+
+    workbook.close()
+    return {
+        "matrix_file": str(matrix_path),
+        "sample_metadata_file": str(sample_meta_path),
+        "gene_annotation_file": str(annotation_path),
+        "standardization": {
+            "mode": "expression_matrix_from_workbook",
+            "sheet_name": sheet.title,
+            "header_row": header_row_number,
+            "sample_column_strategy": "last_duplicate_numeric_column_before_annotation",
             "selected_sample_count": len(selected_samples),
             "gene_column_count": REQUIRED_MATRIX_GENE_COLUMNS,
             "llm_strategy": llm_plan.get("sample_columns_strategy", ""),
@@ -435,6 +592,17 @@ def _write_checkpoint(path: Path, checkpoint: dict[str, Any]) -> None:
     path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _emit_progress(
+    callback: Callable[[str, str, str], None] | None,
+    step: str,
+    status: str,
+    label: str,
+) -> None:
+    if callback is None:
+        return
+    callback(step, status, label)
+
+
 def _env_value(name: str, default: str = "") -> str:
     if name in os.environ:
         return os.environ[name]
@@ -502,6 +670,59 @@ def _infer_group_from_sample_name(sample: str) -> str:
     return prefix or "unknown"
 
 
+def _find_expression_header_row(sheet: Any) -> tuple[int, list[str]]:
+    max_scan_row = min(sheet.max_row, 80)
+    for row_number, row in enumerate(
+        sheet.iter_rows(min_row=1, max_row=max_scan_row, values_only=True),
+        start=1,
+    ):
+        header = [_cell_to_text(cell).strip() for cell in row]
+        if all(column in header for column in GENE_COLUMNS):
+            return row_number, header
+    raise ValueError("Could not locate workbook expression header row")
+
+
+def _workbook_row_text(sheet: Any, row_number: int) -> list[str]:
+    row = next(sheet.iter_rows(min_row=row_number, max_row=row_number, values_only=True), [])
+    return [_cell_to_text(cell).strip() for cell in row]
+
+
+def _workbook_conditions_for_samples(
+    group_row: list[str],
+    selected_samples: list[tuple[str, int]],
+) -> dict[str, str]:
+    current = ""
+    index_to_condition: dict[int, str] = {}
+    max_index = max((index for _, index in selected_samples), default=-1)
+    for index in range(max_index + 1):
+        value = group_row[index] if index < len(group_row) else ""
+        if value:
+            current = _normalize_condition_label(value)
+        if current:
+            index_to_condition[index] = current
+    return {sample: index_to_condition.get(index, "") for sample, index in selected_samples}
+
+
+def _normalize_condition_label(value: str) -> str:
+    normalized = value.strip().lower()
+    aliases = {
+        "nor": "normal",
+        "normal": "normal",
+        "ca": "cancer",
+        "cancer": "cancer",
+        "tumor": "cancer",
+        "lm": "lm",
+    }
+    return aliases.get(normalized, normalized or "unknown")
+
+
+def _find_index(values: list[str], target: str) -> int | None:
+    for index, value in enumerate(values):
+        if value == target:
+            return index
+    return None
+
+
 def _dedupe_selected_sample_names(samples: list[tuple[str, int]]) -> list[tuple[str, int]]:
     counts: dict[str, int] = {}
     deduped = []
@@ -518,6 +739,15 @@ def _sample_column_indices(header: list[str], sample_names: list[str]) -> dict[s
     for index, name in enumerate(header):
         if name in wanted:
             mapping[name].append(index)
+    return mapping
+
+
+def _all_column_indices(header: list[str]) -> dict[str, list[int]]:
+    mapping: dict[str, list[int]] = {}
+    for index, name in enumerate(header):
+        if not name:
+            continue
+        mapping.setdefault(name, []).append(index)
     return mapping
 
 

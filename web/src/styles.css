@@ -724,32 +724,77 @@ h2 {
 }
 
 .agent-progress {
-  display: grid;
-  gap: 5px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin: 8px 0;
-  padding: 8px;
+  padding: 7px 8px;
   border-radius: 12px;
   background: linear-gradient(135deg, rgba(72, 255, 224, 0.22), rgba(47, 140, 255, 0.18), rgba(255, 255, 255, 0.55));
   background-size: 240% 240%;
   animation: agent-gradient 1.8s ease-in-out infinite;
 }
 
-.agent-progress span {
-  color: #184639;
+.agent-pulse {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #0f9f7a;
+  box-shadow: 0 0 0 0 rgba(15, 159, 122, 0.36);
+  animation: agent-pulse 1.3s ease-out infinite;
+}
+
+.agent-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.agent-copy strong {
+  overflow: hidden;
+  color: #123a31;
+  font-size: 11px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: agent-copy-in 0.26s ease-out;
+}
+
+.agent-copy small {
+  overflow: hidden;
+  color: #5d756c;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.agent-progress span:nth-child(2) {
-  opacity: 0.78;
+.agent-step-count {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #0f6b57;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 10px;
+  font-weight: 900;
 }
 
-.agent-progress span:nth-child(3) {
-  opacity: 0.62;
+.agent-progress.failed {
+  background: linear-gradient(135deg, rgba(255, 218, 207, 0.92), rgba(255, 246, 229, 0.78));
+  animation: none;
 }
 
-.agent-progress span:nth-child(4) {
-  opacity: 0.48;
+.agent-progress.failed .agent-pulse {
+  background: #c44f3a;
+  animation: none;
+  box-shadow: none;
+}
+
+.agent-progress.completed .agent-pulse {
+  background: #20804f;
+  animation: none;
+  box-shadow: none;
 }
 
 @keyframes agent-gradient {
@@ -763,6 +808,28 @@ h2 {
 
   100% {
     background-position: 0% 50%;
+  }
+}
+
+@keyframes agent-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(15, 159, 122, 0.36);
+  }
+
+  100% {
+    box-shadow: 0 0 0 9px rgba(15, 159, 122, 0);
+  }
+}
+
+@keyframes agent-copy-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

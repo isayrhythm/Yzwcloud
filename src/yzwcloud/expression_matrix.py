@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from openpyxl import load_workbook
 
@@ -26,7 +26,11 @@ GENE_INFO_COLUMNS = {
 ANNOTATION_START = "GeneID"
 
 
-def prepare_expression_matrix(params: dict[str, Any], output_dir: Path) -> DataObject:
+def prepare_expression_matrix(
+    params: dict[str, Any],
+    output_dir: Path,
+    progress_callback: Callable[[str, str, str], None] | None = None,
+) -> DataObject:
     source_path = _resolve_source_path(str(params.get("source_path") or DEFAULT_EXPRESSION_FILE))
     metadata_path = _optional_source_path(str(params.get("sample_metadata_path") or DEFAULT_SAMPLE_METADATA_FILE))
     if params.get("agent_enabled", True):
@@ -35,6 +39,7 @@ def prepare_expression_matrix(params: dict[str, Any], output_dir: Path) -> DataO
             metadata_path=metadata_path,
             output_dir=output_dir,
             params=params,
+            progress_callback=progress_callback,
         )
 
     if source_path.suffix.lower() == ".csv":

@@ -780,6 +780,16 @@ h2 {
   font-weight: 900;
 }
 
+.agent-report-link {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #9b2f24;
+  background: rgba(255, 255, 255, 0.76);
+  font-size: 10px;
+  font-weight: 900;
+}
+
 .agent-progress.failed {
   background: linear-gradient(135deg, rgba(255, 218, 207, 0.92), rgba(255, 246, 229, 0.78));
   animation: none;
@@ -888,9 +898,18 @@ h2 {
   box-shadow: 0 8px 18px rgba(15, 107, 87, 0.22);
 }
 
-.flow-edge {
-  stroke: #b48a4c;
-  stroke-width: 2.4;
+.react-flow__edge.flow-edge .react-flow__edge-path {
+  stroke: #0f6b57;
+  stroke-width: 4;
+  filter: drop-shadow(0 2px 3px rgba(15, 107, 87, 0.24));
+}
+
+.react-flow__edge.flow-edge .react-flow__edge-text {
+  fill: #0f6b57;
+}
+
+.react-flow__edge.flow-edge.animated .react-flow__edge-path {
+  stroke-dasharray: 8 7;
 }
 
 .logs {
@@ -1014,6 +1033,83 @@ h2 {
 
 .group-modal {
   width: min(720px, 100%);
+}
+
+.agent-report-modal {
+  width: min(620px, 100%);
+}
+
+.report-block {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.report-block strong,
+.report-grid span {
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.report-block pre {
+  max-height: 180px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid rgba(155, 47, 36, 0.16);
+  border-radius: 12px;
+  color: #7f2b21;
+  background: #fff2ed;
+  white-space: pre-wrap;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+
+.report-grid strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-timeline {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.report-timeline li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: #314036;
+  background: white;
+  font-size: 12px;
+}
+
+.report-timeline span {
+  min-width: 72px;
+  color: #0f6b57;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .group-editor-list {

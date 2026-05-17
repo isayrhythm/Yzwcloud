@@ -128,6 +128,12 @@ def _refresh_readiness(graph: Graph) -> None:
     for node in graph.nodes:
         if node.status in {NodeStatus.COMPLETED, NodeStatus.RUNNING, NodeStatus.FAILED}:
             continue
+        if node.id == "diff_analysis" and not any(
+            edge["source"] == "upload_expression" and edge["target"] == "diff_analysis"
+            for edge in graph.edges
+        ):
+            node.status = NodeStatus.PENDING
+            continue
         node.status = NodeStatus.READY if _dependencies_completed(graph, node) else NodeStatus.BLOCKED
 
 

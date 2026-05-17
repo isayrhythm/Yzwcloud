@@ -5,6 +5,7 @@ import {
   Controls,
   Handle,
   MiniMap,
+  MarkerType,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -116,7 +117,7 @@ function App() {
       setEdges([]);
       return;
     }
-    const graphNodes = visibleGraphNodes(detail.graph.nodes);
+    const graphNodes = visibleGraphNodes(detail.graph.nodes, detail.graph.edges);
     const flowNodes = graphNodes.map((node, index) => ({
       id: node.id,
       type: "analysisNode",
@@ -130,6 +131,7 @@ function App() {
         onEditGroups: openGroupEditor,
         onAddNext: openNextModal,
         onOpenResult: openResultModal,
+        onOpenAgentReport: openAgentReport,
       },
     }));
     const visibleIds = new Set(graphNodes.map((node) => node.id));
@@ -141,6 +143,13 @@ function App() {
         target: edge.target,
         animated: true,
         className: "flow-edge",
+        style: { strokeWidth: 4 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 18,
+          height: 18,
+          color: "#0f6b57",
+        },
       }));
     setNodes(flowNodes);
     setEdges(flowEdges);
@@ -208,6 +217,10 @@ function App() {
       title: node.name,
       url: outputUrl(activeTaskId, htmlFile),
     });
+  }
+
+  function openAgentReport(node) {
+    setModal({ kind: "agentReport", node });
   }
 
   async function openGroupEditor() {
@@ -452,6 +465,9 @@ function App() {
       {modal?.kind === "result" ? (
         <ResultModal title={modal.title} url={modal.url} onClose={() => setModal(null)} />
       ) : null}
+      {modal?.kind === "agentReport" ? (
+        <AgentReportModal node={modal.node} onClose={() => setModal(null)} />
+      ) : null}
       {modal?.kind === "groups" ? (
         <GroupEditorModal
           payload={modal.payload}
@@ -634,7 +650,11 @@ function AnalysisNode({ data }) {
         </div>
       ) : null}
       {node.id === "upload_expression" && (node.status === "running" || node.params?.agent_progress) ? (
-        <AgentProgress progress={node.params?.agent_progress} />
+        <AgentProgress
+          progress={node.params?.agent_progress}
+          failed={node.status === "failed"}
+          onOpenReport={() => data.onOpenAgentReport(node)}
+        />
       ) : null}
       {previewUrl ? (
         <button className="result-preview nodrag" onClick={() => data.onOpenResult(node)}>
@@ -669,7 +689,7 @@ function ResultModal({ title, url, onClose }) {
   );
 }
 
-function AgentProgress({ progress }) {
+function AgentProgress({ progress, failed, onOpenReport }) {
   const history = progress?.history || [];
   const currentStep = progress?.step || "queued";
   const steps = [
@@ -688,14 +708,61 @@ function AgentProgress({ progress }) {
         : Math.min(completedCount + 1, steps.length);
   const lastDone = [...history].reverse().find((item) => item.status === "completed");
   return (
-    <div className={`agent-progress compact ${progress?.status || "running"}`}>
+    <div className={`agent-progress compact ${failed ? "failed" : progress?.status || "running"}`}>
       <span className="agent-pulse" />
       <div className="agent-copy">
         <strong key={progress?.label || "Agent 正在准备"}>{progress?.label || "Agent 正在准备"}</strong>
         {lastDone && progress?.status !== "completed" ? <small>刚完成：{lastDone.label}</small> : null}
       </div>
       <span className="agent-step-count">{stepCount}/{steps.length}</span>
+      {failed ? (
+        <button className="agent-report-link nodrag" type="button" onClick={onOpenReport}>
+          查看报告
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+function AgentReportModal({ node, onClose }) {
+  const progress = node.params?.agent_progress || {};
+  const history = progress.history || [];
+  const uploaded = node.params?.uploaded_inputs?.expression_matrix;
+  return (
+    <Modal onClose={onClose}>
+      <section className="modal agent-report-modal">
+        <h2>数据处理报告</h2>
+        <p>Agent 没有把这个文件规整成当前流程可用的数据对象。</p>
+        <div className="report-block">
+          <strong>失败原因</strong>
+          <pre>{node.error || progress.label || "未知错误"}</pre>
+        </div>
+        {uploaded ? (
+          <div className="report-grid">
+            <span>文件</span>
+            <strong title={uploaded.filename}>{uploaded.filename}</strong>
+            <span>大小</span>
+            <strong>{formatBytes(uploaded.size)}</strong>
+          </div>
+        ) : null}
+        {history.length ? (
+          <div className="report-block">
+            <strong>处理过程</strong>
+            <ol className="report-timeline">
+              {history.map((item, index) => (
+                <li key={`${item.step}-${item.status}-${index}`}>
+                  <span>{item.status}</span>
+                  {item.label}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
+        <div className="modal-actions">
+          <button type="button" onClick={onClose}>关闭</button>
+        </div>
+      </section>
+    </Modal>
   );
 }
 
@@ -865,8 +932,14 @@ function Modal({ children, onClose }) {
   );
 }
 
-function visibleGraphNodes(nodes) {
-  return nodes.filter((node) => node.status !== "pending" && node.status !== "blocked");
+function visibleGraphNodes(nodes, edges) {
+  return nodes.filter((node) => {
+    if (node.status === "pending" || node.status === "blocked") return false;
+    if (node.id === "diff_analysis") {
+      return edges.some((edge) => edge.source === "upload_expression" && edge.target === "diff_analysis");
+    }
+    return true;
+  });
 }
 
 function nextAnalysisOptions(node, detail) {

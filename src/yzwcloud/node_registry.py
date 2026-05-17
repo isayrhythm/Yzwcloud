@@ -43,10 +43,8 @@ NODE_DEFINITIONS: dict[str, NodeDefinition] = {
 
 
 def build_initial_edges() -> list[dict[str, str]]:
-    edges: list[dict[str, str]] = []
-    for node in NODE_DEFINITIONS.values():
-        edges.extend({"source": dep, "target": node.id} for dep in node.depends_on)
-    return edges
+    # The diff selector is hidden until the user explicitly creates it from "+".
+    return []
 
 
 def execute_demo_node(

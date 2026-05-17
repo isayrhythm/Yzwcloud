@@ -8,6 +8,7 @@ from typing import Any
 from openpyxl import load_workbook
 
 from yzwcloud.config import PROJECT_ROOT
+from yzwcloud.data_intake_agent import run_data_intake_agent
 from yzwcloud.models import DataObject
 
 
@@ -27,6 +28,15 @@ ANNOTATION_START = "GeneID"
 
 def prepare_expression_matrix(params: dict[str, Any], output_dir: Path) -> DataObject:
     source_path = _resolve_source_path(str(params.get("source_path") or DEFAULT_EXPRESSION_FILE))
+    metadata_path = _optional_source_path(str(params.get("sample_metadata_path") or DEFAULT_SAMPLE_METADATA_FILE))
+    if params.get("agent_enabled", True):
+        return run_data_intake_agent(
+            source_path=source_path,
+            metadata_path=metadata_path,
+            output_dir=output_dir,
+            params=params,
+        )
+
     if source_path.suffix.lower() == ".csv":
         return _prepare_csv_expression_matrix(params=params, source_path=source_path, output_dir=output_dir)
 
@@ -120,6 +130,12 @@ def _resolve_source_path(value: str) -> Path:
     if not path.exists():
         raise FileNotFoundError(f"Expression matrix file not found: {path}")
     return path.resolve()
+
+
+def _optional_source_path(value: str) -> Path | None:
+    raw_path = Path(value)
+    path = raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
+    return path.resolve() if path.exists() else None
 
 
 def _read_row(worksheet, row_number: int) -> list[Any]:

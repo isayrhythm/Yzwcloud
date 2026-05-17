@@ -1,0 +1,551 @@
+from __future__ import annotations
+
+import csv
+import json
+import os
+import shutil
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Iterable
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from openpyxl import load_workbook
+
+from yzwcloud.config import PROJECT_ROOT
+from yzwcloud.models import DataObject
+from yzwcloud.prompts import DATA_INTAKE_SYSTEM_PROMPT
+
+
+GENE_COLUMNS = ["gene_short_name", "gene_id", "biotype", "strand", "locus", "Length"]
+REQUIRED_MATRIX_GENE_COLUMNS = 6
+DEFAULT_MODEL = "deepseek-v4-flash"
+
+
+def run_data_intake_agent(
+    source_path: Path,
+    output_dir: Path,
+    metadata_path: Path | None = None,
+    params: dict[str, Any] | None = None,
+) -> DataObject:
+    params = params or {}
+    output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = output_dir / "data_intake_checkpoint.json"
+    checkpoint = {
+        "agent": "data_intake_agent",
+        "status": "running",
+        "source_file": str(source_path),
+        "metadata_file": str(metadata_path) if metadata_path else "",
+        "iterations": [],
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+    _write_checkpoint(checkpoint_path, checkpoint)
+
+    inspection = _inspect_source(source_path, metadata_path)
+    _record_step(checkpoint_path, checkpoint, "inspect_file", "completed", inspection)
+
+    llm_plan = _classify_with_deepseek(inspection, use_llm=bool(params.get("use_llm", True)))
+    _record_step(checkpoint_path, checkpoint, "classify_data", "completed", llm_plan)
+
+    standard_result = _standardize_expression_like_table(
+        source_path=source_path,
+        metadata_path=metadata_path,
+        output_dir=output_dir,
+        inspection=inspection,
+        llm_plan=llm_plan,
+    )
+    _record_step(checkpoint_path, checkpoint, "standardize_data", "completed", standard_result)
+
+    validation = _validate_expression_matrix(
+        matrix_path=Path(standard_result["matrix_file"]),
+        metadata_path=Path(standard_result["sample_metadata_file"]),
+    )
+    _record_step(checkpoint_path, checkpoint, "validate_output", "completed", validation)
+    if not validation["valid"]:
+        checkpoint["status"] = "failed"
+        _write_checkpoint(checkpoint_path, checkpoint)
+        raise ValueError("; ".join(validation["errors"]) or "Data intake validation failed")
+
+    capabilities = _direct_capabilities_for_data_type(
+        data_type="expression_matrix",
+        capabilities=_capabilities_for_validation(validation),
+    )
+    next_analyses = _next_analyses_for_capabilities(capabilities)
+    metadata = {
+        "data_type": "expression_matrix",
+        "source_file": str(source_path),
+        "sample_metadata_source": str(metadata_path) if metadata_path else "",
+        "gene_count": validation["gene_count"],
+        "sample_count": validation["sample_count"],
+        "sample_groups": validation["sample_groups"],
+        "conditions": validation["conditions"],
+        "condition_options": sorted(validation["conditions"]),
+        "matrix_file": standard_result["matrix_file"],
+        "sample_metadata_file": standard_result["sample_metadata_file"],
+        "gene_annotation_file": standard_result.get("gene_annotation_file", ""),
+        "capabilities": capabilities,
+        "next_analyses": next_analyses,
+        "checkpoint_file": str(checkpoint_path),
+        "agent": {
+            "name": "data_intake_agent",
+            "model": llm_plan.get("model", DEFAULT_MODEL),
+            "llm_status": llm_plan.get("llm_status", "unknown"),
+            "classification": llm_plan.get("data_type", "expression_matrix"),
+            "warnings": validation["warnings"] + llm_plan.get("warnings", []),
+        },
+        "standardization": standard_result["standardization"],
+        "quality": {
+            "duplicate_sample_columns": inspection.get("duplicate_sample_columns", {}),
+            "numeric_sample_column_ratio": inspection.get("numeric_sample_column_ratio", 0),
+        },
+    }
+    output = DataObject(type="expression_matrix", data=standard_result["matrix_file"], meta=metadata)
+    (output_dir / "data_intake_output.json").write_text(
+        output.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    checkpoint["status"] = "completed"
+    checkpoint["output"] = metadata
+    _write_checkpoint(checkpoint_path, checkpoint)
+    return output
+
+
+def _inspect_source(source_path: Path, metadata_path: Path | None) -> dict[str, Any]:
+    if source_path.suffix.lower() in {".xlsx", ".xlsm"}:
+        return _inspect_workbook(source_path, metadata_path)
+    return _inspect_csv(source_path, metadata_path)
+
+
+def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any]:
+    with source_path.open(encoding="utf-8-sig", newline="") as file:
+        reader = csv.reader(file)
+        header = next(reader)
+        preview = [row for _, row in zip(range(8), reader)]
+
+    duplicate_columns = _duplicates(header)
+    numeric_ratios = _numeric_ratios(preview, len(header))
+    raw_sample_metadata = _read_sample_metadata(metadata_path) if metadata_path and metadata_path.exists() else []
+    sample_metadata = _dedupe_metadata_by_sample(raw_sample_metadata)
+    sample_names = [row["sample"] for row in sample_metadata]
+    sample_column_indices = _sample_column_indices(header, sample_names)
+
+    return {
+        "file_type": "csv",
+        "path": str(source_path),
+        "column_count": len(header),
+        "row_count": _count_csv_rows(source_path),
+        "header": header[:160],
+        "preview": preview[:3],
+        "duplicate_columns": duplicate_columns,
+        "duplicate_sample_columns": {
+            name: indices for name, indices in sample_column_indices.items() if len(indices) > 1
+        },
+        "metadata_rows": len(sample_metadata),
+        "metadata_conditions": _count_values(row.get("condition", "") for row in sample_metadata),
+        "numeric_column_ratio": _safe_ratio(sum(ratio > 0.8 for ratio in numeric_ratios), len(numeric_ratios)),
+        "numeric_sample_column_ratio": _numeric_sample_ratio(preview, sample_column_indices),
+        "likely_gene_columns": [name for name in GENE_COLUMNS if name in header],
+    }
+
+
+def _inspect_workbook(source_path: Path, metadata_path: Path | None) -> dict[str, Any]:
+    workbook = load_workbook(source_path, read_only=True, data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    rows = list(sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 12), values_only=True))
+    raw_sample_metadata = _read_sample_metadata(metadata_path) if metadata_path and metadata_path.exists() else []
+    sample_metadata = _dedupe_metadata_by_sample(raw_sample_metadata)
+    return {
+        "file_type": "workbook",
+        "path": str(source_path),
+        "sheet_names": workbook.sheetnames,
+        "first_sheet": sheet.title,
+        "row_count": sheet.max_row,
+        "column_count": sheet.max_column,
+        "preview": [[_cell_to_text(cell) for cell in row[:30]] for row in rows[:8]],
+        "metadata_rows": len(sample_metadata),
+        "metadata_conditions": _count_values(row.get("condition", "") for row in sample_metadata),
+    }
+
+
+def _classify_with_deepseek(inspection: dict[str, Any], use_llm: bool) -> dict[str, Any]:
+    fallback = _heuristic_plan(inspection)
+    if not use_llm:
+        return fallback | {"llm_status": "disabled"}
+
+    api_key = _env_value("DEEPSEEK_API_KEY")
+    if not api_key:
+        return fallback | {"llm_status": "missing_api_key"}
+
+    base_url = _env_value("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    model = _env_value("DEEPSEEK_ROUTER_MODEL", DEFAULT_MODEL)
+    user_prompt = "请返回 JSON。inspection JSON:\n" + json.dumps(
+        _compact_for_prompt(inspection),
+        ensure_ascii=False,
+    )
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": DATA_INTAKE_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        "response_format": {"type": "json_object"},
+        "max_tokens": 1200,
+        "temperature": 0.1,
+    }
+    request = urllib.request.Request(
+        f"{base_url}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+        content = raw["choices"][0]["message"].get("content") or ""
+        if not content.strip():
+            return fallback | {"llm_status": "empty_content", "model": model}
+        parsed = json.loads(content)
+        return fallback | parsed | {"llm_status": "ok", "model": model}
+    except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as exc:
+        return fallback | {"llm_status": "fallback", "llm_error": str(exc), "model": model}
+
+
+def _standardize_expression_like_table(
+    source_path: Path,
+    metadata_path: Path | None,
+    output_dir: Path,
+    inspection: dict[str, Any],
+    llm_plan: dict[str, Any],
+) -> dict[str, Any]:
+    if source_path.suffix.lower() in {".xlsx", ".xlsm"}:
+        raise ValueError("Workbook intake is inspected but not standardized yet; use CSV for this MVP")
+
+    matrix_path = output_dir / "expression_matrix.csv"
+    sample_meta_path = output_dir / "sample_metadata.csv"
+    annotation_path = output_dir / "gene_annotations.csv"
+    raw_sample_metadata = _read_sample_metadata(metadata_path) if metadata_path and metadata_path.exists() else []
+    sample_metadata = _dedupe_metadata_by_sample(raw_sample_metadata)
+
+    with source_path.open(encoding="utf-8-sig", newline="") as source_file:
+        reader = csv.reader(source_file)
+        header = next(reader)
+        sample_indices = _sample_column_indices(header, [row["sample"] for row in sample_metadata])
+        selected_samples = []
+        for row in sample_metadata:
+            indices = sample_indices.get(row["sample"], [])
+            if indices:
+                selected_samples.append((row["sample"], indices[-1]))
+
+        if not selected_samples:
+            shutil.copyfile(source_path, matrix_path)
+            if metadata_path:
+                shutil.copyfile(metadata_path, sample_meta_path)
+            return {
+                "matrix_file": str(matrix_path),
+                "sample_metadata_file": str(sample_meta_path),
+                "gene_annotation_file": "",
+                "standardization": {
+                    "mode": "copied_input",
+                    "reason": "metadata sample names did not match matrix columns",
+                    "llm_strategy": llm_plan.get("sample_columns_strategy", ""),
+                },
+            }
+
+        gene_indices = [idx for idx, name in enumerate(header) if name in GENE_COLUMNS]
+        gene_name_to_index = {header[idx]: idx for idx in gene_indices}
+        output_gene_columns = GENE_COLUMNS
+        output_header = output_gene_columns + [name for name, _ in selected_samples]
+
+        with (
+            matrix_path.open("w", encoding="utf-8-sig", newline="") as matrix_file,
+            annotation_path.open("w", encoding="utf-8-sig", newline="") as annotation_file,
+        ):
+            matrix_writer = csv.writer(matrix_file)
+            annotation_writer = csv.writer(annotation_file)
+            matrix_writer.writerow(output_header)
+            annotation_writer.writerow(output_gene_columns)
+            for row in reader:
+                if not row or len(row) <= max(idx for _, idx in selected_samples):
+                    continue
+                gene_values = [
+                    _value_at(row, gene_name_to_index[column])
+                    if column in gene_name_to_index
+                    else ""
+                    for column in output_gene_columns
+                ]
+                sample_values = [_value_at(row, idx) for _, idx in selected_samples]
+                if not any(gene_values):
+                    continue
+                matrix_writer.writerow(gene_values + sample_values)
+                annotation_writer.writerow(gene_values)
+
+    with sample_meta_path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["sample", "group", "condition"])
+        metadata_by_sample = {row["sample"]: row for row in sample_metadata}
+        for sample, _ in selected_samples:
+            row = metadata_by_sample.get(sample, {})
+            writer.writerow([sample, row.get("group", "unknown"), row.get("condition", "unknown")])
+
+    return {
+        "matrix_file": str(matrix_path),
+        "sample_metadata_file": str(sample_meta_path),
+        "gene_annotation_file": str(annotation_path),
+        "standardization": {
+            "mode": "expression_matrix_from_metadata_samples",
+            "sample_column_strategy": "last_duplicate_column",
+            "selected_sample_count": len(selected_samples),
+            "gene_column_count": REQUIRED_MATRIX_GENE_COLUMNS,
+            "llm_strategy": llm_plan.get("sample_columns_strategy", ""),
+            "duplicate_sample_columns": inspection.get("duplicate_sample_columns", {}),
+        },
+    }
+
+
+def _validate_expression_matrix(matrix_path: Path, metadata_path: Path) -> dict[str, Any]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    if not matrix_path.exists():
+        errors.append("standard matrix file missing")
+    if not metadata_path.exists():
+        errors.append("sample metadata file missing")
+    if errors:
+        return {"valid": False, "errors": errors, "warnings": warnings}
+
+    with matrix_path.open(encoding="utf-8-sig", newline="") as file:
+        reader = csv.reader(file)
+        header = next(reader, [])
+        preview = [row for _, row in zip(range(20), reader)]
+    metadata = _read_sample_metadata(metadata_path)
+    sample_names = [row["sample"] for row in metadata]
+    sample_indices = [header.index(sample) for sample in sample_names if sample in header]
+    if not sample_indices:
+        errors.append("no metadata samples matched matrix columns")
+    if len(sample_indices) < 2:
+        errors.append("expression matrix requires at least 2 sample columns")
+
+    numeric_ok = 0
+    numeric_total = 0
+    for row in preview:
+        for idx in sample_indices:
+            if idx >= len(row):
+                continue
+            numeric_total += 1
+            if _is_number(row[idx]):
+                numeric_ok += 1
+    numeric_ratio = _safe_ratio(numeric_ok, numeric_total)
+    if numeric_ratio < 0.8:
+        errors.append("sample columns are not numeric enough for expression analysis")
+
+    conditions = _count_values(row["condition"] for row in metadata)
+    groups = _count_values(row["group"] for row in metadata)
+    if len(conditions) < 2:
+        warnings.append("metadata has fewer than 2 conditions; diff analysis will be unavailable")
+
+    gene_count = _count_csv_rows(matrix_path)
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "gene_count": gene_count,
+        "sample_count": len(sample_indices),
+        "sample_groups": groups,
+        "conditions": conditions,
+        "numeric_sample_value_ratio": numeric_ratio,
+    }
+
+
+def _capabilities_for_validation(validation: dict[str, Any]) -> list[str]:
+    capabilities = []
+    if validation["valid"] and validation["sample_count"] >= 2:
+        capabilities.append("pca")
+    condition_counts = validation.get("conditions", {})
+    if len(condition_counts) >= 2 and all(count >= 2 for count in condition_counts.values()):
+        capabilities.append("diff_analysis")
+    return capabilities
+
+
+def _direct_capabilities_for_data_type(data_type: str, capabilities: list[str]) -> list[str]:
+    allowed = {
+        "expression_matrix": {"pca", "diff_analysis"},
+        "diff_result": {"heatmap", "volcano", "enrichment"},
+        "gene_list": {"enrichment"},
+        "sample_metadata": set(),
+        "unknown_table": set(),
+    }
+    allowed_set = allowed.get(data_type, set())
+    return [capability for capability in capabilities if capability in allowed_set]
+
+
+def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, str]]:
+    specs = {
+        "pca": {
+            "type": "pca",
+            "label": "PCA",
+            "description": "基于表达矩阵查看样本整体分布。",
+        },
+        "diff_analysis": {
+            "type": "diff_analysis",
+            "label": "差异分析",
+            "description": "选择两个样本分组进行差异表达分析。",
+        },
+    }
+    return [specs[item] for item in capabilities if item in specs]
+
+
+def _heuristic_plan(inspection: dict[str, Any]) -> dict[str, Any]:
+    likely_expression = bool(inspection.get("likely_gene_columns")) and (
+        inspection.get("metadata_rows", 0) > 0 or inspection.get("numeric_column_ratio", 0) > 0.5
+    )
+    return {
+        "data_type": "expression_matrix" if likely_expression else "unknown_table",
+        "confidence": 0.85 if likely_expression else 0.4,
+        "feature_id_column": "gene_id",
+        "feature_name_column": "gene_short_name",
+        "sample_columns_strategy": "use_metadata_samples_last_duplicate",
+        "needs_metadata": True,
+        "capabilities": ["pca", "diff_analysis"] if likely_expression else [],
+        "warnings": [],
+        "model": DEFAULT_MODEL,
+    }
+
+
+def _record_step(
+    checkpoint_path: Path,
+    checkpoint: dict[str, Any],
+    name: str,
+    status: str,
+    payload: dict[str, Any],
+) -> None:
+    checkpoint["iterations"].append(
+        {
+            "step": name,
+            "status": status,
+            "payload": payload,
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
+    checkpoint["updated_at"] = datetime.now().isoformat()
+    _write_checkpoint(checkpoint_path, checkpoint)
+
+
+def _write_checkpoint(path: Path, checkpoint: dict[str, Any]) -> None:
+    path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _env_value(name: str, default: str = "") -> str:
+    if name in os.environ:
+        return os.environ[name]
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return default
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() == name:
+            return value.strip().strip('"').strip("'")
+    return default
+
+
+def _compact_for_prompt(inspection: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in inspection.items()
+        if key not in {"preview"} or isinstance(value, (str, int, float))
+    } | {"preview": inspection.get("preview", [])[:2]}
+
+
+def _read_sample_metadata(path: Path | None) -> list[dict[str, str]]:
+    if path is None or not path.exists():
+        return []
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        rows = list(csv.DictReader(file))
+    required = {"sample", "group", "condition"}
+    if not rows or not required.issubset(rows[0]):
+        return []
+    return rows
+
+
+def _dedupe_metadata_by_sample(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    by_sample: dict[str, dict[str, str]] = {}
+    for row in rows:
+        sample = row.get("sample", "")
+        if sample:
+            by_sample[sample] = row
+    return list(by_sample.values())
+
+
+def _sample_column_indices(header: list[str], sample_names: list[str]) -> dict[str, list[int]]:
+    wanted = set(sample_names)
+    mapping = {sample: [] for sample in sample_names}
+    for index, name in enumerate(header):
+        if name in wanted:
+            mapping[name].append(index)
+    return mapping
+
+
+def _numeric_ratios(rows: list[list[str]], column_count: int) -> list[float]:
+    ratios = []
+    for idx in range(column_count):
+        values = [_value_at(row, idx) for row in rows if idx < len(row)]
+        ratios.append(_safe_ratio(sum(_is_number(value) for value in values), len(values)))
+    return ratios
+
+
+def _numeric_sample_ratio(rows: list[list[str]], sample_indices: dict[str, list[int]]) -> float:
+    values = []
+    for indices in sample_indices.values():
+        values.extend(indices)
+    total = 0
+    numeric = 0
+    for row in rows:
+        for idx in values:
+            if idx >= len(row):
+                continue
+            total += 1
+            numeric += int(_is_number(row[idx]))
+    return _safe_ratio(numeric, total)
+
+
+def _duplicates(values: Iterable[str]) -> dict[str, int]:
+    counts = _count_values(values)
+    return {key: value for key, value in counts.items() if value > 1}
+
+
+def _count_values(values: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key = str(value)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _count_csv_rows(path: Path) -> int:
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        reader = csv.reader(file)
+        next(reader, None)
+        return sum(1 for row in reader if row)
+
+
+def _value_at(row: list[str], index: int) -> str:
+    return row[index] if index < len(row) else ""
+
+
+def _is_number(value: Any) -> bool:
+    try:
+        float(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _safe_ratio(numerator: int, denominator: int) -> float:
+    return numerator / denominator if denominator else 0.0
+
+
+def _cell_to_text(value: Any) -> str:
+    return "" if value is None else str(value)

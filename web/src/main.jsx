@@ -700,10 +700,23 @@ function visibleGraphNodes(nodes) {
 function nextAnalysisOptions(node, detail) {
   if (node.status !== "completed") return [];
   if (node.id === "upload_expression") {
-    const hasSelector = detail?.graph.edges.some(
+    const nextAnalyses = node.output?.meta?.next_analyses;
+    if (Array.isArray(nextAnalyses)) {
+      const created = {
+        diff_analysis: detail?.graph.edges.some(
+          (edge) => edge.source === "upload_expression" && edge.target === "diff_analysis",
+        ),
+        pca: detail?.graph.edges.some(
+          (edge) => edge.source === "upload_expression" && edge.target.startsWith("pca__"),
+        ),
+      };
+      return nextAnalyses.filter((analysis) => !created[analysis.type]);
+    }
+    const capabilities = new Set(node.output?.meta?.capabilities || ["pca", "diff_analysis"]);
+    const hasSelector = !capabilities.has("diff_analysis") || detail?.graph.edges.some(
       (edge) => edge.source === "upload_expression" && edge.target === "diff_analysis",
     );
-    const hasPca = detail?.graph.edges.some(
+    const hasPca = !capabilities.has("pca") || detail?.graph.edges.some(
       (edge) => edge.source === "upload_expression" && edge.target.startsWith("pca__"),
     );
     const options = [];

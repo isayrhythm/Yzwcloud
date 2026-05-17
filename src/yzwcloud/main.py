@@ -15,6 +15,7 @@ from yzwcloud.models import (
     RunNodeRequest,
     TaskDetail,
     TaskState,
+    UpdateSampleGroupsRequest,
 )
 from yzwcloud.task_store import (
     TaskNotFoundError,
@@ -28,7 +29,9 @@ from yzwcloud.task_store import (
     load_graph,
     load_task,
     read_log,
+    read_sample_groups,
     save_task_input,
+    update_sample_groups,
 )
 
 app = FastAPI(title="Yzwcloud Bioinformatics Platform", version="0.1.0")
@@ -125,6 +128,27 @@ def api_create_analysis_node(task_id: str, payload: CreateAnalysisNodeRequest) -
             source_node_id=payload.source_node_id,
             analysis_type=payload.analysis_type,
         )
+        return TaskDetail(task=task, graph=graph)
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/tasks/{task_id}/sample-groups")
+def api_get_sample_groups(task_id: str) -> dict[str, list[dict[str, str]]]:
+    try:
+        return {"samples": read_sample_groups(task_id)}
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.put("/api/tasks/{task_id}/sample-groups", response_model=TaskDetail)
+def api_update_sample_groups(task_id: str, payload: UpdateSampleGroupsRequest) -> TaskDetail:
+    try:
+        task, graph = update_sample_groups(task_id, payload.assignments)
         return TaskDetail(task=task, graph=graph)
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc

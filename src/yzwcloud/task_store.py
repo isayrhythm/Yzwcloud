@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import csv
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -84,6 +85,72 @@ def load_graph(task_id: str) -> Graph:
     return Graph.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def read_sample_groups(task_id: str) -> list[dict[str, str]]:
+    graph = load_graph(task_id)
+    upload_node = next((node for node in graph.nodes if node.id == "upload_expression"), None)
+    if upload_node is None or upload_node.output is None:
+        raise ValueError("Data upload node has no output")
+    metadata_file = upload_node.output.meta.get("sample_metadata_file")
+    if not metadata_file:
+        raise ValueError("No sample metadata is available")
+    path = Path(str(metadata_file))
+    if not path.exists():
+        raise ValueError("Sample metadata file not found")
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        return list(csv.DictReader(file))
+
+
+def update_sample_groups(
+    task_id: str,
+    assignments: dict[str, str],
+) -> tuple[TaskState, Graph]:
+    task = load_task(task_id)
+    graph = load_graph(task_id)
+    upload_node = next((node for node in graph.nodes if node.id == "upload_expression"), None)
+    if upload_node is None or upload_node.output is None:
+        raise ValueError("Data upload node has no output")
+    metadata_file = upload_node.output.meta.get("sample_metadata_file")
+    if not metadata_file:
+        raise ValueError("No sample metadata is available")
+    path = Path(str(metadata_file))
+    if not path.exists():
+        raise ValueError("Sample metadata file not found")
+
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        rows = list(csv.DictReader(file))
+    required = {"sample", "group", "condition"}
+    if not rows or not required.issubset(rows[0]):
+        raise ValueError("Sample metadata must contain sample, group, condition")
+
+    normalized = {sample: condition.strip() for sample, condition in assignments.items() if condition.strip()}
+    for row in rows:
+        sample = row["sample"]
+        if sample in normalized:
+            row["condition"] = normalized[sample]
+            row["group"] = normalized[sample]
+
+    with path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=["sample", "group", "condition"])
+        writer.writeheader()
+        writer.writerows(rows)
+
+    conditions = _count_values(row["condition"] for row in rows)
+    groups = _count_values(row["group"] for row in rows)
+    capabilities = ["pca"]
+    if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()):
+        capabilities.append("diff_analysis")
+    upload_node.output.meta["conditions"] = conditions
+    upload_node.output.meta["condition_options"] = sorted(conditions)
+    upload_node.output.meta["sample_groups"] = groups
+    upload_node.output.meta["capabilities"] = capabilities
+    upload_node.output.meta["next_analyses"] = _next_analyses_for_capabilities(capabilities)
+    _reset_upload_node_for_new_input(graph, keep_upload_output=True)
+    upload_node.status = NodeStatus.COMPLETED
+    save_graph(graph)
+    append_log(task_id, "Sample groups corrected manually")
+    return task, graph
+
+
 def save_task_input(
     task_id: str,
     input_kind: str,
@@ -123,6 +190,8 @@ def save_task_input(
     if input_kind == "expression_matrix":
         upload_node.params["source_path"] = str(target.resolve())
         upload_node.default_params["source_path"] = str(target.resolve())
+        upload_node.params["sample_metadata_path"] = "__missing_sample_metadata__.csv"
+        upload_node.default_params["sample_metadata_path"] = "__missing_sample_metadata__.csv"
     else:
         upload_node.params["sample_metadata_path"] = str(target.resolve())
         upload_node.default_params["sample_metadata_path"] = str(target.resolve())
@@ -268,7 +337,7 @@ def delete_node_subtree(task_id: str, node_id: str) -> tuple[TaskState, Graph, l
     return task, graph, sorted(delete_ids)
 
 
-def _reset_upload_node_for_new_input(graph: Graph) -> None:
+def _reset_upload_node_for_new_input(graph: Graph, keep_upload_output: bool = False) -> None:
     nodes = {node.id: node for node in graph.nodes}
     upload_node = nodes["upload_expression"]
     descendants = _collect_descendants(graph, "upload_expression")
@@ -282,7 +351,8 @@ def _reset_upload_node_for_new_input(graph: Graph) -> None:
         and edge != {"source": "upload_expression", "target": "diff_analysis"}
     ]
     upload_node.status = NodeStatus.READY
-    upload_node.output = None
+    if not keep_upload_output:
+        upload_node.output = None
     upload_node.error = None
     upload_node.started_at = None
     upload_node.completed_at = None
@@ -447,6 +517,30 @@ def _read_manifest(path: Path) -> dict:
 def _safe_filename(filename: str) -> str:
     raw_name = Path(filename).name or "uploaded_file"
     return "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in raw_name)
+
+
+def _count_values(values) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key = str(value)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, str]]:
+    specs = {
+        "pca": {
+            "type": "pca",
+            "label": "PCA",
+            "description": "基于表达矩阵查看样本整体分布。",
+        },
+        "diff_analysis": {
+            "type": "diff_analysis",
+            "label": "差异分析",
+            "description": "选择两个样本分组进行差异表达分析。",
+        },
+    }
+    return [specs[item] for item in capabilities if item in specs]
 
 
 def _unique_node_id(graph: Graph, base_id: str) -> str:

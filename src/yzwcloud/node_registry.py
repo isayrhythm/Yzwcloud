@@ -21,8 +21,8 @@ from yzwcloud.models import DataObject, NodeDefinition
 NODE_DEFINITIONS: dict[str, NodeDefinition] = {
     "upload_expression": NodeDefinition(
         id="upload_expression",
-        name="读取表达矩阵",
-        description="读取根目录 expression_matrix.csv 和 sample_metadata.csv，作为演示输入。",
+        name="数据上传",
+        description="上传数据文件后由 Agent 自动识别、规整、验证，并返回可用分析入口。",
         input_types=[],
         output_type="expression_matrix",
         default_params={

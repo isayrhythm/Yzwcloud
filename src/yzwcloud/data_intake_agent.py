@@ -284,7 +284,10 @@ def _standardize_expression_like_table(
         metadata_by_sample = {row["sample"]: row for row in sample_metadata}
         for sample, _ in selected_samples:
             row = metadata_by_sample.get(sample, {})
-            writer.writerow([sample, row.get("group", "unknown"), row.get("condition", "unknown")])
+            inferred_group = _infer_group_from_sample_name(sample)
+            group = row.get("group") or inferred_group
+            condition = row.get("condition") or inferred_group
+            writer.writerow([sample, group, condition])
 
     return {
         "matrix_file": str(matrix_path),
@@ -477,14 +480,26 @@ def _dedupe_metadata_by_sample(rows: list[dict[str, str]]) -> list[dict[str, str
 
 def _infer_numeric_sample_columns(header: list[str], preview: list[list[str]]) -> list[tuple[str, int]]:
     gene_indices = {index for index, name in enumerate(header) if name in GENE_COLUMNS}
-    inferred = []
+    inferred: dict[str, int] = {}
     for index, name in enumerate(header):
         if index in gene_indices:
             continue
         values = [_value_at(row, index) for row in preview if index < len(row)]
         if values and _safe_ratio(sum(_is_number(value) for value in values), len(values)) >= 0.8:
-            inferred.append((name or f"sample_{index + 1}", index))
-    return inferred
+            inferred[name or f"sample_{index + 1}"] = index
+    return list(inferred.items())
+
+
+def _infer_group_from_sample_name(sample: str) -> str:
+    name = sample.rsplit("_", 1)[0] if sample.rsplit("_", 1)[-1].isdigit() else sample
+    if "-" in name:
+        prefix = name.split("-", 1)[0].strip()
+    elif "_" in name:
+        prefix = name.split("_", 1)[0].strip()
+    else:
+        prefix = "unknown"
+    prefix = prefix.removeprefix("Group ").strip()
+    return prefix or "unknown"
 
 
 def _dedupe_selected_sample_names(samples: list[tuple[str, int]]) -> list[tuple[str, int]]:

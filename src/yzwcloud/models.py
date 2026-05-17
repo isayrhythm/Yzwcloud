@@ -92,6 +92,10 @@ class CreateAnalysisNodeRequest(BaseModel):
     analysis_type: str
 
 
+class UpdateSampleGroupsRequest(BaseModel):
+    assignments: dict[str, str] = Field(default_factory=dict)
+
+
 class ComparisonOptionsResponse(BaseModel):
     conditions: list[str]
     counts: dict[str, int]

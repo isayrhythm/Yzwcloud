@@ -127,6 +127,7 @@ function App() {
         onRun: runNode,
         onDelete: deleteNode,
         onUploadInput: uploadInputFile,
+        onEditGroups: openGroupEditor,
         onAddNext: openNextModal,
         onOpenResult: openResultModal,
       },
@@ -209,6 +210,16 @@ function App() {
     });
   }
 
+  async function openGroupEditor() {
+    if (!activeTaskId) return;
+    try {
+      const response = await api(`/api/tasks/${activeTaskId}/sample-groups`);
+      setModal({ kind: "groups", payload: await response.json() });
+    } catch (error) {
+      window.alert(`无法读取分组信息：${error.message}`);
+    }
+  }
+
   async function openComparisonModal() {
     try {
       const response = await api(`/api/tasks/${activeTaskId}/comparison-options`);
@@ -247,6 +258,15 @@ function App() {
       window.alert(`上传失败：${detail}`);
       return;
     }
+    await loadDetail(activeTaskId);
+  };
+
+  const updateSampleGroups = async (assignments) => {
+    await api(`/api/tasks/${activeTaskId}/sample-groups`, {
+      method: "PUT",
+      body: JSON.stringify({ assignments }),
+    });
+    setModal(null);
     await loadDetail(activeTaskId);
   };
 
@@ -432,6 +452,13 @@ function App() {
       {modal?.kind === "result" ? (
         <ResultModal title={modal.title} url={modal.url} onClose={() => setModal(null)} />
       ) : null}
+      {modal?.kind === "groups" ? (
+        <GroupEditorModal
+          payload={modal.payload}
+          onClose={() => setModal(null)}
+          onSubmit={updateSampleGroups}
+        />
+      ) : null}
     </main>
     </AppChrome>
   );
@@ -534,7 +561,7 @@ function DocsPage({ onStart }) {
       </section>
       <section className="doc-grid">
         <DocStep index="01" title="创建任务" text="进入分析台后点击创建示例任务，任务会出现在左侧列表。" />
-        <DocStep index="02" title="读取表达矩阵" text="执行读取表达矩阵节点，系统会读取项目根目录的 expression_matrix.csv 和 sample_metadata.csv。" />
+        <DocStep index="02" title="上传数据" text="在数据上传节点选择数据文件，Agent 会自动识别类型、规整格式，并判断下一步可做哪些分析。" />
         <DocStep index="03" title="创建 PCA" text="表达矩阵节点完成后点击节点上的 +，选择 PCA，执行后点击预览打开交互图。" />
         <DocStep index="04" title="做差异分析" text="点击 + 选择差异分析，再选择 case/control 分组，例如 cancer vs normal。" />
         <DocStep index="05" title="生成图表" text="差异分析完成后点击该分支节点的 +，选择热图或火山图，执行后点击预览查看大图。" />
@@ -577,7 +604,7 @@ function AnalysisNode({ data }) {
       {node.id === "upload_expression" ? (
         <div className="upload-controls nodrag">
           <label>
-            上传表达矩阵
+            上传数据
             <input
               type="file"
               accept=".csv,.xlsx,.xlsm"
@@ -587,19 +614,14 @@ function AnalysisNode({ data }) {
               }}
             />
           </label>
-          <label>
-            上传分组表
-            <input
-              type="file"
-              accept=".csv"
-              onChange={(event) => {
-                data.onUploadInput("sample_metadata", event.target.files?.[0]);
-                event.target.value = "";
-              }}
-            />
-          </label>
+          {node.output?.meta?.sample_metadata_file ? (
+            <button type="button" onClick={() => data.onEditGroups()}>
+              矫正分组
+            </button>
+          ) : null}
         </div>
       ) : null}
+      {node.id === "upload_expression" && node.status === "running" ? <AgentProgress /> : null}
       {previewUrl ? (
         <button className="result-preview nodrag" onClick={() => data.onOpenResult(node)}>
           <img src={previewUrl} alt={`${node.name} 预览`} />
@@ -630,6 +652,73 @@ function ResultModal({ title, url, onClose }) {
         <iframe title={title} src={url} />
       </section>
     </div>
+  );
+}
+
+function AgentProgress() {
+  return (
+    <div className="agent-progress">
+      <span>正在读取数据</span>
+      <span>正在识别类型</span>
+      <span>正在规整验证</span>
+      <span>必要时修正重试</span>
+    </div>
+  );
+}
+
+function GroupEditorModal({ payload, onClose, onSubmit }) {
+  const samples = payload.samples || [];
+  const [assignments, setAssignments] = useState(
+    Object.fromEntries(samples.map((sample) => [sample.sample, sample.condition || "unknown"])),
+  );
+  const [busy, setBusy] = useState(false);
+  const conditions = Array.from(new Set(Object.values(assignments))).filter(Boolean);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await onSubmit(assignments);
+    } catch (error) {
+      window.alert(error.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose}>
+      <form className="modal group-modal" onSubmit={submit}>
+        <h2>矫正样本分组</h2>
+        <p>修改 condition 后会重新计算该数据节点的下一步分析入口。至少两个分组且每组样本数足够时，才会开放差异分析。</p>
+        <div className="condition-grid">
+          {conditions.map((condition) => (
+            <span key={condition}>
+              {condition} <strong>{Object.values(assignments).filter((item) => item === condition).length}</strong>
+            </span>
+          ))}
+        </div>
+        <div className="group-editor-list">
+          {samples.map((sample) => (
+            <label key={sample.sample}>
+              <span>{sample.sample}</span>
+              <input
+                value={assignments[sample.sample] || ""}
+                onChange={(event) =>
+                  setAssignments((current) => ({
+                    ...current,
+                    [sample.sample]: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="ghost" onClick={onClose}>取消</button>
+          <button className="primary compact" disabled={busy}>{busy ? "保存中..." : "保存分组"}</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

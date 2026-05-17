@@ -15,6 +15,14 @@ from typing import Any, Callable
 from openpyxl import load_workbook
 
 from yzwcloud.config import PROJECT_ROOT
+from yzwcloud.data_intake_registry import (
+    DEFAULT_MAX_ITERATIONS,
+    attempt_stop_reason,
+    build_processing_plan,
+    direct_capabilities_for_data_type,
+    execute_processing_strategy,
+    plan_stop_message,
+)
 from yzwcloud.models import DataObject
 from yzwcloud.prompts import DATA_INTAKE_SYSTEM_PROMPT
 
@@ -22,7 +30,6 @@ from yzwcloud.prompts import DATA_INTAKE_SYSTEM_PROMPT
 GENE_COLUMNS = ["gene_short_name", "gene_id", "biotype", "strand", "locus", "Length"]
 REQUIRED_MATRIX_GENE_COLUMNS = 6
 DEFAULT_MODEL = "deepseek-v4-flash"
-DEFAULT_MAX_ITERATIONS = 3
 
 
 def run_data_intake_agent(
@@ -58,12 +65,12 @@ def run_data_intake_agent(
         llm_plan = _classify_with_deepseek(inspection, use_llm=bool(params.get("use_llm", True)))
         _record_step(checkpoint_path, checkpoint, "classify_data", "completed", llm_plan)
         _emit_progress(progress_callback, "classify_data", "completed", "已识别类型")
-        plan = _build_processing_plan(inspection, llm_plan, metadata_path, max_iterations)
+        plan = build_processing_plan(inspection, llm_plan, metadata_path, max_iterations)
         checkpoint["plan"] = plan
         _record_step(checkpoint_path, checkpoint, "plan_processing", "completed", plan)
 
         if not plan["strategies"]:
-            raise ValueError(_plan_stop_message(plan))
+            raise ValueError(plan_stop_message(plan))
 
         standard_result = None
         validation = None
@@ -80,13 +87,14 @@ def run_data_intake_agent(
                 "started_at": datetime.now().isoformat(),
             }
             try:
-                standard_result = _execute_processing_strategy(
+                standard_result = execute_processing_strategy(
                     source_path=source_path,
                     metadata_path=metadata_path,
                     output_dir=output_dir,
                     inspection=inspection,
                     llm_plan=llm_plan,
                     strategy=strategy,
+                    standardizers={"expression_matrix": _standardize_expression_like_table},
                 )
                 _emit_progress(progress_callback, "standardize_data", "completed", f"{attempt_label} 已规整")
 
@@ -118,14 +126,14 @@ def run_data_intake_agent(
                 _record_attempt(checkpoint_path, checkpoint, attempt)
 
         if success_strategy is None or standard_result is None or validation is None:
-            raise ValueError(last_error or _plan_stop_message(plan))
+            raise ValueError(last_error or plan_stop_message(plan))
     except Exception:
         checkpoint["status"] = "failed"
         _write_checkpoint(checkpoint_path, checkpoint)
         _emit_progress(progress_callback, "failed", "failed", "处理失败，等待重试")
         raise
 
-    capabilities = _direct_capabilities_for_data_type(
+    capabilities = direct_capabilities_for_data_type(
         data_type=str(success_strategy.get("data_type", "expression_matrix")),
         capabilities=_capabilities_for_validation(validation),
     )
@@ -195,7 +203,7 @@ def build_failure_report(checkpoint_path: Path, error_message: str) -> dict[str,
     suggestions = _failure_suggestions(error_message, inspection, validation)
     if attempts:
         findings.append(f"Agent 共尝试了 {len(attempts)} 种处理策略。")
-        reasons.append(_attempt_stop_reason(attempts, plan))
+        reasons.append(attempt_stop_reason(attempts, plan))
     elif plan.get("unsupported_reason"):
         reasons.append(str(plan["unsupported_reason"]))
 
@@ -350,86 +358,6 @@ def _classify_with_deepseek(inspection: dict[str, Any], use_llm: bool) -> dict[s
         return fallback | parsed | {"llm_status": "ok", "model": model}
     except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as exc:
         return fallback | {"llm_status": "fallback", "llm_error": str(exc), "model": model}
-
-
-def _build_processing_plan(
-    inspection: dict[str, Any],
-    llm_plan: dict[str, Any],
-    metadata_path: Path | None,
-    max_iterations: int,
-) -> dict[str, Any]:
-    detected_type = str(llm_plan.get("data_type") or "unknown_table")
-    file_type = str(inspection.get("file_type") or "unknown")
-    has_metadata = bool(metadata_path and metadata_path.exists()) or inspection.get("metadata_rows", 0) > 0
-    supports_expression_attempt = detected_type == "expression_matrix" or bool(inspection.get("likely_gene_columns"))
-    strategies: list[dict[str, Any]] = []
-
-    if supports_expression_attempt:
-        if has_metadata:
-            strategies.append(
-                {
-                    "id": f"{file_type}_metadata_last",
-                    "label": "优先按 metadata 匹配样本列",
-                    "data_type": "expression_matrix",
-                    "sample_mode": "metadata",
-                    "duplicate_policy": "last",
-                }
-            )
-        strategies.append(
-            {
-                "id": f"{file_type}_numeric_last",
-                "label": "按数值列推断样本，保留最后一组重复列",
-                "data_type": "expression_matrix",
-                "sample_mode": "numeric",
-                "duplicate_policy": "last",
-            }
-        )
-        strategies.append(
-            {
-                "id": f"{file_type}_numeric_first",
-                "label": "按数值列推断样本，保留第一组重复列",
-                "data_type": "expression_matrix",
-                "sample_mode": "numeric",
-                "duplicate_policy": "first",
-            }
-        )
-
-    strategies = strategies[:max_iterations]
-    unsupported_reason = ""
-    if not strategies:
-        if detected_type == "single_cell_matrix":
-            unsupported_reason = "当前识别结果更像单细胞矩阵，但平台还没有接入单细胞标准化处理器。"
-        elif detected_type == "feature_table":
-            unsupported_reason = "当前识别结果更像机器学习/特征表，而不是可直接进入 bulk RNA 流程的表达矩阵。"
-        else:
-            unsupported_reason = "当前文件没有命中已支持的数据标准化路径。"
-
-    return {
-        "detected_data_type": detected_type,
-        "file_type": file_type,
-        "max_iterations": max_iterations,
-        "has_metadata": has_metadata,
-        "strategies": strategies,
-        "unsupported_reason": unsupported_reason,
-    }
-
-
-def _execute_processing_strategy(
-    source_path: Path,
-    metadata_path: Path | None,
-    output_dir: Path,
-    inspection: dict[str, Any],
-    llm_plan: dict[str, Any],
-    strategy: dict[str, Any],
-) -> dict[str, Any]:
-    return _standardize_expression_like_table(
-        source_path=source_path,
-        metadata_path=metadata_path,
-        output_dir=output_dir,
-        inspection=inspection,
-        llm_plan=llm_plan,
-        strategy=strategy,
-    )
 
 
 def _standardize_expression_like_table(
@@ -713,20 +641,6 @@ def _capabilities_for_validation(validation: dict[str, Any]) -> list[str]:
     return capabilities
 
 
-def _direct_capabilities_for_data_type(data_type: str, capabilities: list[str]) -> list[str]:
-    allowed = {
-        "expression_matrix": {"pca", "diff_analysis"},
-        "single_cell_matrix": set(),
-        "feature_table": set(),
-        "diff_result": {"heatmap", "volcano", "enrichment"},
-        "gene_list": {"enrichment"},
-        "sample_metadata": set(),
-        "unknown_table": set(),
-    }
-    allowed_set = allowed.get(data_type, set())
-    return [capability for capability in capabilities if capability in allowed_set]
-
-
 def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, str]]:
     specs = {
         "pca": {
@@ -912,17 +826,6 @@ def _failure_suggestions(
     return suggestions
 
 
-def _attempt_stop_reason(attempts: list[dict[str, Any]], plan: dict[str, Any]) -> str:
-    if not attempts:
-        return plan.get("unsupported_reason", "Agent 没有找到可执行的处理策略。")
-    last_attempt = attempts[-1]
-    if len(attempts) >= int(plan.get("max_iterations", DEFAULT_MAX_ITERATIONS)):
-        return f"Agent 已达到最大重试轮次 {plan.get('max_iterations', DEFAULT_MAX_ITERATIONS)}，最后一次失败策略为“{last_attempt.get('label', '')}”。"
-    return f"Agent 已尝试策略“{last_attempt.get('label', '')}”，但仍未得到可用分析输入。"
-
-
-def _plan_stop_message(plan: dict[str, Any]) -> str:
-    return str(plan.get("unsupported_reason") or "当前文件未命中可执行的数据处理策略。")
 
 
 def _env_value(name: str, default: str = "") -> str:

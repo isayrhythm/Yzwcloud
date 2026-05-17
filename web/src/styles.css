@@ -1052,6 +1052,18 @@ h2 {
   font-weight: 900;
 }
 
+.report-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: #314036;
+}
+
+.report-list li {
+  line-height: 1.5;
+}
+
 .report-block pre {
   max-height: 180px;
   margin: 0;

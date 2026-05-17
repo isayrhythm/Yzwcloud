@@ -726,16 +726,47 @@ function AgentProgress({ progress, failed, onOpenReport }) {
 
 function AgentReportModal({ node, onClose }) {
   const progress = node.params?.agent_progress || {};
+  const report = node.params?.agent_report || {};
   const history = progress.history || [];
   const uploaded = node.params?.uploaded_inputs?.expression_matrix;
   return (
     <Modal onClose={onClose}>
       <section className="modal agent-report-modal">
-        <h2>数据处理报告</h2>
-        <p>Agent 没有把这个文件规整成当前流程可用的数据对象。</p>
+        <h2>{report.title || "数据处理报告"}</h2>
+        <p>{report.summary || "Agent 没有把这个文件规整成当前流程可用的数据对象。"}</p>
+        {Array.isArray(report.reasons) && report.reasons.length ? (
+          <div className="report-block">
+            <strong>为什么现在不能分析</strong>
+            <ul className="report-list">
+              {report.reasons.map((item, index) => (
+                <li key={`reason-${index}`}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {Array.isArray(report.findings) && report.findings.length ? (
+          <div className="report-block">
+            <strong>Agent 实际看到了什么</strong>
+            <ul className="report-list">
+              {report.findings.map((item, index) => (
+                <li key={`finding-${index}`}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {Array.isArray(report.suggestions) && report.suggestions.length ? (
+          <div className="report-block">
+            <strong>建议怎么改</strong>
+            <ul className="report-list">
+              {report.suggestions.map((item, index) => (
+                <li key={`suggestion-${index}`}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="report-block">
-          <strong>失败原因</strong>
-          <pre>{node.error || progress.label || "未知错误"}</pre>
+          <strong>原始报错</strong>
+          <pre>{report.raw_error || node.error || progress.label || "未知错误"}</pre>
         </div>
         {uploaded ? (
           <div className="report-grid">
@@ -743,6 +774,12 @@ function AgentReportModal({ node, onClose }) {
             <strong title={uploaded.filename}>{uploaded.filename}</strong>
             <span>大小</span>
             <strong>{formatBytes(uploaded.size)}</strong>
+          </div>
+        ) : null}
+        {report.inspection?.header_preview?.length ? (
+          <div className="report-block">
+            <strong>识别到的前几列表头</strong>
+            <pre>{report.inspection.header_preview.join(", ")}</pre>
           </div>
         ) : null}
         {history.length ? (

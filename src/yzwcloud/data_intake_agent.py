@@ -127,6 +127,46 @@ def run_data_intake_agent(
     return output
 
 
+def build_failure_report(checkpoint_path: Path, error_message: str) -> dict[str, Any]:
+    if not checkpoint_path.exists():
+        return {
+            "title": "数据处理失败",
+            "summary": "Agent 未生成检查快照，暂时无法给出更具体的结构化原因。",
+            "reasons": [error_message],
+            "findings": [],
+            "suggestions": ["重新上传文件后再试一次。"],
+        }
+
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    iterations = checkpoint.get("iterations", [])
+    steps = {item.get("step"): item.get("payload", {}) for item in iterations}
+    inspection = steps.get("inspect_file", {})
+    validation = steps.get("validate_output", {})
+    findings = _failure_findings(inspection, validation)
+    reasons = _failure_reasons(error_message, inspection, validation)
+    suggestions = _failure_suggestions(error_message, inspection, validation)
+
+    return {
+        "title": "数据处理失败",
+        "summary": _failure_summary(inspection, validation),
+        "reasons": reasons,
+        "findings": findings,
+        "suggestions": suggestions,
+        "inspection": {
+            "file_type": inspection.get("file_type", ""),
+            "row_count": inspection.get("row_count", 0),
+            "column_count": inspection.get("column_count", 0),
+            "header_preview": inspection.get("header", [])[:12],
+            "likely_gene_columns": inspection.get("likely_gene_columns", []),
+            "numeric_column_ratio": inspection.get("numeric_column_ratio", 0),
+            "numeric_sample_column_ratio": inspection.get("numeric_sample_column_ratio", 0),
+            "metadata_rows": inspection.get("metadata_rows", 0),
+            "duplicate_sample_columns": inspection.get("duplicate_sample_columns", {}),
+        },
+        "raw_error": error_message,
+    }
+
+
 def _inspect_source(source_path: Path, metadata_path: Path | None) -> dict[str, Any]:
     if source_path.suffix.lower() in {".xlsx", ".xlsm"}:
         return _inspect_workbook(source_path, metadata_path)
@@ -601,6 +641,100 @@ def _emit_progress(
     if callback is None:
         return
     callback(step, status, label)
+
+
+def _failure_summary(inspection: dict[str, Any], validation: dict[str, Any]) -> str:
+    file_type = inspection.get("file_type") or "unknown"
+    column_count = inspection.get("column_count", 0)
+    row_count = inspection.get("row_count", 0)
+    if validation.get("errors"):
+        return "文件已被读取，但标准化后的样本列或分组信息不满足当前分析流程要求。"
+    if inspection.get("likely_gene_columns"):
+        return (
+            f"文件已读取为 {file_type}，共 {row_count} 行、{column_count} 列，"
+            "但没有成功定位出可直接用于表达分析的样本表达列。"
+        )
+    return (
+        f"文件已读取为 {file_type}，共 {row_count} 行、{column_count} 列，"
+        "但整体结构不像当前支持的 bulk RNA 表达矩阵。"
+    )
+
+
+def _failure_findings(inspection: dict[str, Any], validation: dict[str, Any]) -> list[str]:
+    findings: list[str] = []
+    gene_columns = inspection.get("likely_gene_columns", [])
+    if gene_columns:
+        findings.append(f"识别到的基因注释列：{', '.join(gene_columns)}")
+    else:
+        findings.append("没有识别到表达矩阵常见的基因注释列，如 gene_short_name、gene_id、Length。")
+
+    numeric_ratio = float(inspection.get("numeric_column_ratio", 0) or 0)
+    if numeric_ratio:
+        findings.append(f"整表数值列占比约为 {numeric_ratio:.0%}。")
+
+    sample_numeric_ratio = float(inspection.get("numeric_sample_column_ratio", 0) or 0)
+    if sample_numeric_ratio:
+        findings.append(f"候选样本列中的数值占比约为 {sample_numeric_ratio:.0%}。")
+
+    duplicate_samples = inspection.get("duplicate_sample_columns", {})
+    if duplicate_samples:
+        findings.append(f"发现重复样本列 {len(duplicate_samples)} 组，Agent 会优先尝试使用后出现的一组。")
+
+    for error in validation.get("errors", []):
+        findings.append(f"验证结果：{error}")
+    return findings
+
+
+def _failure_reasons(
+    error_message: str,
+    inspection: dict[str, Any],
+    validation: dict[str, Any],
+) -> list[str]:
+    reasons: list[str] = []
+    if "No usable expression sample columns were detected" in error_message:
+        reasons.append("Agent 没有在基因注释列之后找到足够稳定的数值样本列。")
+        reasons.append("这通常意味着样本表达值不是按列摆放，或者列里混入了大量文字/备注，无法当作表达矩阵。")
+    if "Could not locate workbook expression header row" in error_message:
+        reasons.append("工作表中没有找到包含 gene_short_name、gene_id、Length 等关键列名的表头。")
+    if "expression matrix requires at least 2 sample columns" in error_message:
+        reasons.append("当前可识别的表达样本列少于 2 列，无法进行 PCA 或差异分析。")
+    if "sample columns are not numeric enough" in error_message:
+        reasons.append("识别到的候选样本列里，数值比例过低，说明这些列不是纯表达量列。")
+    if "no metadata samples matched matrix columns" in error_message:
+        reasons.append("样本分组表中的 sample 名称和表达矩阵列名对不上。")
+
+    if not reasons:
+        if not inspection.get("likely_gene_columns"):
+            reasons.append("文件结构不像当前支持的 bulk RNA 表达矩阵。")
+        elif validation.get("errors"):
+            reasons.append("标准化后仍未通过当前流程的表达矩阵校验。")
+        else:
+            reasons.append(error_message)
+    return reasons
+
+
+def _failure_suggestions(
+    error_message: str,
+    inspection: dict[str, Any],
+    validation: dict[str, Any],
+) -> list[str]:
+    suggestions: list[str] = []
+    if not inspection.get("likely_gene_columns"):
+        suggestions.append("确认文件里有一行真实表头，并包含 gene_short_name、gene_id、Length 这类基因注释列。")
+    if "No usable expression sample columns were detected" in error_message:
+        suggestions.append("确认样本是按列排列，每个样本列都应主要由数值表达量组成。")
+        suggestions.append("去掉说明文字、合并单元格影响区、备注列和统计汇总列后再上传。")
+    if "sample columns are not numeric enough" in error_message:
+        suggestions.append("只保留表达量矩阵本身，不要混入注释文本列。")
+    if "no metadata samples matched matrix columns" in error_message:
+        suggestions.append("如果你后续单独提供分组信息，sample 列必须和表达矩阵列名完全一致。")
+    if "expression matrix requires at least 2 sample columns" in error_message:
+        suggestions.append("至少需要 2 个样本列，且更适合每组不少于 2 个样本。")
+    if not suggestions and validation.get("errors"):
+        suggestions.append("优先检查样本列是否为纯数值、分组列名是否一致。")
+    if not suggestions:
+        suggestions.append("如果这是单细胞矩阵或其他非 bulk RNA 表格，需要补对应的数据标准化器后再支持。")
+    return suggestions
 
 
 def _env_value(name: str, default: str = "") -> str:

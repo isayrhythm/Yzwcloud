@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from datetime import datetime
 
+from yzwcloud.data_intake_agent import build_failure_report
 from yzwcloud.models import DataObject, Graph, GraphNode, NodeStatus, TaskStatus
 from yzwcloud.node_registry import execute_demo_node
 from yzwcloud.task_store import (
@@ -86,6 +87,8 @@ def run_node(task_id: str, node_id: str, params: dict) -> None:
         node.status = NodeStatus.FAILED
         node.error = str(exc)
         if node_id == "upload_expression":
+            checkpoint_path = get_task_dir(task_id) / "outputs" / "data_intake_checkpoint.json"
+            node.params["agent_report"] = build_failure_report(checkpoint_path, str(exc))
             _set_progress(node, "failed", "failed", "处理失败，等待重试")
         node.completed_at = datetime.now()
         task = load_task(task_id)

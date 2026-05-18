@@ -201,6 +201,13 @@ button {
   text-decoration: none;
 }
 
+.hero-ghost {
+  padding: 14px 18px;
+  border: 1px solid rgba(232, 252, 255, 0.24);
+  color: #e8fcff;
+  background: rgba(232, 252, 255, 0.08);
+}
+
 .hero-visual {
   position: relative;
   z-index: 1;
@@ -1214,16 +1221,113 @@ h2 {
   padding: 22px 0 58px;
 }
 
+.reports-page {
+  display: grid;
+  gap: 18px;
+}
+
 .lab-hero,
-.lab-card {
+.lab-card,
+.report-surface {
   border: 1px solid var(--line);
   background: var(--card);
   box-shadow: 0 24px 80px rgba(47, 39, 22, 0.1);
 }
 
-.lab-hero {
+.lab-hero,
+.report-hero {
   padding: 32px;
   border-radius: 28px;
+}
+
+.reports-layout {
+  align-items: start;
+}
+
+.reports-workspace {
+  display: grid;
+  gap: 18px;
+}
+
+.report-summary-grid,
+.report-section-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.report-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.report-section-grid {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.95fr);
+}
+
+.report-surface {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 20px;
+}
+
+.report-insight-list,
+.report-output-list {
+  display: grid;
+  gap: 12px;
+}
+
+.report-insight,
+.report-output-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: white;
+}
+
+.report-insight strong,
+.report-output-card strong {
+  color: var(--accent-strong);
+}
+
+.report-insight p,
+.report-output-card p,
+.report-output-card small {
+  margin: 0;
+}
+
+.report-insight p,
+.report-output-card p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.report-insight.positive {
+  border-color: rgba(32, 128, 79, 0.24);
+  background: rgba(228, 247, 239, 0.7);
+}
+
+.report-insight.warning {
+  border-color: rgba(185, 61, 47, 0.2);
+  background: rgba(255, 229, 226, 0.7);
+}
+
+.report-output-card div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-output-card span,
+.report-output-card small {
+  color: var(--muted);
+}
+
+.report-log {
+  margin: 0;
+  min-height: 180px;
 }
 
 .lab-grid {
@@ -1501,6 +1605,10 @@ h2 {
   gap: 12px;
 }
 
+.lab-risk-grid.single {
+  grid-template-columns: 1fr;
+}
+
 .risk-card {
   display: grid;
   gap: 12px;
@@ -1544,10 +1652,18 @@ h2 {
 .restriction-row {
   display: grid;
   gap: 6px;
+  width: 100%;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
+  text-align: left;
   background: white;
+}
+
+.restriction-row.active {
+  border-color: var(--accent);
+  background: #f2fcfd;
+  box-shadow: inset 0 0 0 1px rgba(15, 138, 143, 0.14);
 }
 
 .orf-row span,
@@ -1560,6 +1676,30 @@ h2 {
 .restriction-row code {
   overflow-wrap: anywhere;
   color: #17342e;
+}
+
+.restriction-sequence-box {
+  gap: 12px;
+}
+
+.restriction-sequence-preview {
+  overflow-wrap: anywhere;
+  font-family: "Cascadia Code", "Consolas", "SFMono-Regular", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.restriction-highlight {
+  padding: 1px 0;
+  border-radius: 4px;
+  color: #0e5160;
+  background: rgba(15, 138, 143, 0.16);
+}
+
+.restriction-highlight.active {
+  color: #083641;
+  background: rgba(15, 138, 143, 0.3);
+  box-shadow: 0 0 0 1px rgba(15, 138, 143, 0.18);
 }
 
 @media (max-width: 900px) {
@@ -1582,7 +1722,9 @@ h2 {
   .doc-grid,
   .lab-grid,
   .lab-module-picker,
-  .lab-risk-grid {
+  .lab-risk-grid,
+  .report-summary-grid,
+  .report-section-grid {
     grid-template-columns: 1fr;
   }
 

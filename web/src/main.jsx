@@ -373,8 +373,89 @@ function scanRestrictionSites(sequence) {
       ...enzyme,
       positions,
       count: positions.length,
+      ranges: positions.map((position) => ({
+        start: position - 1,
+        end: position - 1 + enzyme.site.length,
+      })),
     };
   }).filter((enzyme) => enzyme.count > 0);
+}
+
+function summarizeTaskGraph(detail) {
+  if (!detail) {
+    return {
+      totalNodes: 0,
+      completedNodes: 0,
+      failedNodes: 0,
+      outputNodes: 0,
+    };
+  }
+  const nodes = detail.graph.nodes || [];
+  return {
+    totalNodes: nodes.length,
+    completedNodes: nodes.filter((node) => node.status === "completed").length,
+    failedNodes: nodes.filter((node) => node.status === "failed").length,
+    outputNodes: nodes.filter((node) => node.output).length,
+  };
+}
+
+function collectReportOutputs(detail) {
+  if (!detail) return [];
+  return (detail.graph.nodes || [])
+    .filter((node) => node.output)
+    .map((node) => ({
+      id: node.id,
+      name: node.name,
+      status: node.status,
+      type: node.output?.type || "-",
+      summary: summarizeOutput(node.output),
+      hasPreview: Boolean(node.output?.meta?.preview_file),
+      hasHtml: Boolean(node.output?.meta?.html_file),
+    }));
+}
+
+function buildReportInsights(detail) {
+  if (!detail) return [];
+  const outputs = collectReportOutputs(detail);
+  const nodes = detail.graph.nodes || [];
+  const expressionNode = nodes.find((node) => node.id === "upload_expression");
+  const diffNodes = nodes.filter((node) => node.id.startsWith("diff_analysis__") && node.output);
+  const failedNodes = nodes.filter((node) => node.status === "failed");
+  const insights = [];
+
+  if (expressionNode?.output?.meta?.sample_count) {
+    insights.push({
+      title: "Matrix intake",
+      text: `Expression matrix loaded with ${expressionNode.output.meta.sample_count} samples and ${expressionNode.output.meta.gene_count || 0} genes.`,
+      tone: "neutral",
+    });
+  }
+
+  if (diffNodes.length) {
+    insights.push({
+      title: "Differential branches ready",
+      text: `${diffNodes.length} differential comparison branch${diffNodes.length > 1 ? "es are" : " is"} available for downstream plots and export.`,
+      tone: "positive",
+    });
+  }
+
+  if (failedNodes.length) {
+    insights.push({
+      title: "Rerun required",
+      text: `${failedNodes.length} node${failedNodes.length > 1 ? "s" : ""} failed. Clean up the failed branch before exporting a final report.`,
+      tone: "warning",
+    });
+  }
+
+  if (!outputs.length) {
+    insights.push({
+      title: "No reportable output yet",
+      text: "Run the upload node and at least one downstream analysis node before using the report view.",
+      tone: "warning",
+    });
+  }
+
+  return insights;
 }
 
 function App() {
@@ -663,7 +744,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (page !== "workbench") return undefined;
+    if (!["workbench", "analysis"].includes(page)) return undefined;
 
     const panel = flowPanelRef.current;
     if (!panel) return undefined;
@@ -683,12 +764,14 @@ function App() {
     return () => panel.removeEventListener("wheel", handleWheel, { capture: true });
   }, [getViewport, page, revealMiniMap, setViewport]);
 
-  const openWorkbench = () => setPage("workbench");
+  const openWorkbench = () => setPage("analysis");
+  const openExperimentDesign = () => setPage("design");
+  const openReports = () => setPage("reports");
 
   if (page === "home") {
     return (
       <AppChrome page={page} onNavigate={setPage}>
-        <HomePage onStart={openWorkbench} />
+        <HomePage onStart={openWorkbench} onOpenDesign={openExperimentDesign} onOpenReports={openReports} />
       </AppChrome>
     );
   }
@@ -701,10 +784,25 @@ function App() {
     );
   }
 
-  if (page === "lab") {
+  if (page === "design" || page === "lab") {
     return (
       <AppChrome page={page} onNavigate={setPage}>
         <MolecularLabPage />
+      </AppChrome>
+    );
+  }
+
+  if (page === "reports") {
+    return (
+      <AppChrome page={page} onNavigate={setPage}>
+        <ReportsPage
+          tasks={tasks}
+          activeTaskId={activeTaskId}
+          detail={detail}
+          logs={logs}
+          onSelectTask={setActiveTaskId}
+          onOpenAnalysis={openWorkbench}
+        />
       </AppChrome>
     );
   }
@@ -819,10 +917,10 @@ function App() {
 
 function AppChrome({ page, onNavigate, children }) {
   const items = [
-    { id: "home", label: "首页" },
-    { id: "workbench", label: "开始分析" },
-    { id: "docs", label: "操作文档" },
-    { id: "lab", label: "Molecular Lab" },
+    { id: "home", label: "Home" },
+    { id: "design", label: "Experiment Design" },
+    { id: "analysis", label: "Analysis Workspace" },
+    { id: "reports", label: "Reports" },
   ];
 
   return (
@@ -852,19 +950,20 @@ function AppChrome({ page, onNavigate, children }) {
   );
 }
 
-function HomePage({ onStart }) {
+function HomePage({ onStart, onOpenDesign, onOpenReports }) {
   return (
     <main className="landing">
       <section className="landing-hero">
         <div className="hero-copy">
           <p className="eyebrow">YZW Bioinformatics Cloud</p>
-          <h1>把表达矩阵拖进流程，让分析结果自己长出来</h1>
+          <h1>实验设计、轻量分析、结果解释放到同一张工作台里</h1>
           <p>
-            面向演示和轻量分析的生信流程工作台。读取表达矩阵后，可以按需创建 PCA、差异分析、热图和火山图节点，结果以交互页面呈现。
+            这不是通用生信平台，而是面向固定实验与表达分析任务的工作台。前面做实验设计，后面接分析流程，最后把结果整理成可读的报告出口。
           </p>
           <div className="hero-actions">
-            <button className="primary launch" onClick={onStart}>开始分析</button>
-            <a href="#capabilities">查看能力</a>
+            <button className="primary launch" onClick={onStart}>Open Analysis Workspace</button>
+            <button className="ghost hero-ghost" onClick={onOpenDesign}>Open Experiment Design</button>
+            <button className="ghost hero-ghost" onClick={onOpenReports}>Open Reports</button>
           </div>
         </div>
         <div className="hero-visual" aria-hidden="true">
@@ -886,9 +985,9 @@ function HomePage({ onStart }) {
       </section>
 
       <section className="capabilities" id="capabilities">
-        <FeatureCard title="流程化分析" text="每一步都是可拖动节点，前置节点完成后再按需创建后续节点。" />
-        <FeatureCard title="真实图形输出" text="PCA、热图、火山图会生成预览和可交互的大图页面。" />
-        <FeatureCard title="适合演示扩展" text="当前保持轻量实现，后续可以继续接入调度、数据库和更多分析模块。" />
+        <FeatureCard title="Experiment Design" text="引物、序列、酶切和翻译工具先收口到一个模块页，作为实验前输入检查和参数建议入口。" />
+        <FeatureCard title="Analysis Workspace" text="表达矩阵上传后走固定分析路径，重点是 PCA、QC、差异分析和常用作图，而不是通用工作流编排。" />
+        <FeatureCard title="Reports" text="把输出结果、关键提示和日志尾部整理成一个可以阅读和导出的总结视图。" />
       </section>
     </main>
   );
@@ -935,6 +1034,103 @@ function DocStep({ index, title, text }) {
   );
 }
 
+function ReportsPage({ tasks, activeTaskId, detail, logs, onSelectTask, onOpenAnalysis }) {
+  const summary = summarizeTaskGraph(detail);
+  const outputs = collectReportOutputs(detail);
+  const insights = buildReportInsights(detail);
+  const logPreview = String(logs || "").split(/\r?\n/).filter(Boolean).slice(-12).join("\n");
+
+  return (
+    <main className="reports-page shell">
+      <section className="hero report-hero">
+        <div>
+          <p className="eyebrow">Reports</p>
+          <h1>Interpretation And Export</h1>
+          <p className="summary">
+            Review finished outputs, flag failed branches, and package the current task into a report-friendly summary.
+          </p>
+        </div>
+        <button className="primary" onClick={onOpenAnalysis}>Back To Analysis Workspace</button>
+      </section>
+
+      <section className="layout reports-layout">
+        <aside className="panel">
+          <div className="panel-title">
+            <h2>Tasks</h2>
+            <span className="muted">{tasks.length} total</span>
+          </div>
+          <div className="task-list">
+            {tasks.length === 0 ? <p className="muted">No task yet.</p> : null}
+            {tasks.map((task) => (
+              <div className={`task-item ${task.task_id === activeTaskId ? "active" : ""}`} key={task.task_id}>
+                <button className="task-select" onClick={() => onSelectTask(task.task_id)}>
+                  <strong>{task.name}</strong>
+                  <span className="task-id">{task.status} · {task.task_id}</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <section className="workspace reports-workspace">
+          <div className="panel-title">
+            <h2>{detail ? detail.task.name : "Report Summary"}</h2>
+            <span className="muted">{detail ? `${detail.task.status} · ${detail.task.task_id}` : "Select a task"}</span>
+          </div>
+          <div className="report-summary-grid">
+            <Metric label="Nodes" value={detail ? `${summary.totalNodes}` : "-"} />
+            <Metric label="Completed" value={detail ? `${summary.completedNodes}` : "-"} />
+            <Metric label="Failed" value={detail ? `${summary.failedNodes}` : "-"} />
+            <Metric label="Outputs" value={detail ? `${summary.outputNodes}` : "-"} />
+          </div>
+          <div className="report-section-grid">
+            <section className="report-surface">
+              <div className="panel-title">
+                <h2>Key Findings</h2>
+              </div>
+              <div className="report-insight-list">
+                {insights.length ? insights.map((insight) => (
+                  <article key={insight.title} className={`report-insight ${insight.tone || "neutral"}`}>
+                    <strong>{insight.title}</strong>
+                    <p>{insight.text}</p>
+                  </article>
+                )) : <p className="muted">Run analysis nodes to populate interpretation cards.</p>}
+              </div>
+            </section>
+            <section className="report-surface">
+              <div className="panel-title">
+                <h2>Outputs</h2>
+              </div>
+              <div className="report-output-list">
+                {outputs.length ? outputs.map((output) => (
+                  <article key={output.id} className="report-output-card">
+                    <div>
+                      <strong>{output.name}</strong>
+                      <span>{output.type}</span>
+                    </div>
+                    <p>{output.summary}</p>
+                    <small>
+                      {output.status}
+                      {output.hasHtml ? " · interactive" : ""}
+                      {output.hasPreview ? " · preview" : ""}
+                    </small>
+                  </article>
+                )) : <p className="muted">No output object is ready for reporting yet.</p>}
+              </div>
+            </section>
+          </div>
+          <section className="report-surface">
+            <div className="panel-title">
+              <h2>Log Tail</h2>
+            </div>
+            <pre className="logs report-log">{logPreview || "No log yet."}</pre>
+          </section>
+        </section>
+      </section>
+    </main>
+  );
+}
+
 function MolecularLabPage() {
   const [activeModule, setActiveModule] = useState("primer_tm");
   const activeModuleMeta = LAB_MODULES.find((item) => item.id === activeModule) || LAB_MODULES[0];
@@ -943,11 +1139,11 @@ function MolecularLabPage() {
     <main className="lab-page">
       <section className="lab-hero">
         <div>
-          <p className="eyebrow">Molecular Biology</p>
-          <h1>Molecular Lab</h1>
+          <p className="eyebrow">Experiment Design</p>
+          <h1>Experiment Design</h1>
           <p className="summary">
-            Experiment design utilities organized as selectable units. Invalid characters stay visible and are
-            highlighted instead of being hard-blocked.
+            Selectable modules for primer work, sequence handling, cloning checks, and translation. Inputs keep invalid
+            symbols visible and flag them for cleanup.
           </p>
         </div>
       </section>
@@ -1180,6 +1376,47 @@ function renderHighlightedSequence(value, mode) {
   });
 }
 
+function buildRestrictionSegments(sequence, hits, activeEnzyme) {
+  const normalized = normalizeSequence(sequence);
+  if (!normalized) return [];
+  const ranges = hits
+    .filter((hit) => !activeEnzyme || hit.name === activeEnzyme)
+    .flatMap((hit) =>
+      hit.ranges.map((range) => ({
+        ...range,
+        enzyme: hit.name,
+      })),
+    )
+    .sort((left, right) => left.start - right.start);
+
+  if (!ranges.length) {
+    return [{ text: normalized, enzyme: null }];
+  }
+
+  const segments = [];
+  let cursor = 0;
+  ranges.forEach((range) => {
+    if (range.start > cursor) {
+      segments.push({
+        text: normalized.slice(cursor, range.start),
+        enzyme: null,
+      });
+    }
+    segments.push({
+      text: normalized.slice(range.start, range.end),
+      enzyme: range.enzyme,
+    });
+    cursor = Math.max(cursor, range.end);
+  });
+  if (cursor < normalized.length) {
+    segments.push({
+      text: normalized.slice(cursor),
+      enzyme: null,
+    });
+  }
+  return segments.filter((segment) => segment.text);
+}
+
 function PrimerTmWorkbench() {
   const [sequence, setSequence] = useState("");
   const [primerConcentration, setPrimerConcentration] = useState("250");
@@ -1267,6 +1504,20 @@ function PrimerPairWorkbench() {
         <Metric label="Forward GC%" value={!left.error && left.length ? `${left.gcPercent.toFixed(1)}%` : "-"} />
         <Metric label="Reverse GC%" value={!right.error && right.length ? `${right.gcPercent.toFixed(1)}%` : "-"} />
         <Metric label="Pair balance" value={tmGap === null ? "-" : tmGap <= 2 ? "Tight" : tmGap <= 5 ? "Usable" : "Poor"} />
+      </div>
+      <div className="lab-risk-grid single">
+        <RiskCard
+          title="Primer pair recommendation"
+          data={{
+            risk: tmGap === null ? "Pending" : tmGap <= 2 ? "Low" : tmGap <= 5 ? "Medium" : "High",
+            matchLength: tmGap === null ? 0 : Number(tmGap.toFixed(2)),
+            threePrimeMatch: 0,
+            seed: tmGap === null ? "Provide both primers to compare Tm and GC balance." : tmGap <= 2 ? "Tm gap is within a tight PCR-friendly range." : tmGap <= 5 ? "Tm gap is workable but should be checked against annealing conditions." : "Tm gap is large. Redesign one primer before moving into PCR setup.",
+            metricLabel: "Tm gap",
+            metricUnit: "degC",
+            secondaryLabel: "3' match",
+          }}
+        />
       </div>
     </section>
   );
@@ -1409,7 +1660,10 @@ function TranslationWorkbench() {
 
 function RestrictionScanWorkbench() {
   const [sequence, setSequence] = useState("");
+  const [activeEnzyme, setActiveEnzyme] = useState("");
   const hits = useMemo(() => scanRestrictionSites(sequence), [sequence]);
+  const segments = useMemo(() => buildRestrictionSegments(sequence, hits, activeEnzyme), [activeEnzyme, hits, sequence]);
+  const activeHit = hits.find((hit) => hit.name === activeEnzyme) || null;
 
   return (
     <section className="lab-card">
@@ -1417,21 +1671,65 @@ function RestrictionScanWorkbench() {
         <span>DNA sequence</span>
         <HighlightedSequenceInput rows={8} value={sequence} onChange={(event) => setSequence(event.target.value)} placeholder="Paste a DNA sequence to scan common restriction sites." />
       </label>
+      <div className="sequence-result restriction-sequence-box">
+        <div className="sequence-result-top">
+          <strong>Restriction map preview</strong>
+          <span className="muted">{activeHit ? `${activeHit.name} selected` : "All detected sites"}</span>
+        </div>
+        <code className="restriction-sequence-preview">
+          {segments.length ? segments.map((segment, index) => (
+            <span
+              key={`${segment.enzyme || "plain"}-${index}`}
+              className={segment.enzyme ? `restriction-highlight ${activeEnzyme === segment.enzyme ? "active" : ""}` : ""}
+              title={segment.enzyme || undefined}
+            >
+              {segment.text}
+            </span>
+          )) : "-"}
+        </code>
+      </div>
       <div className="restriction-table">
         {hits.length ? hits.map((hit) => (
-          <div key={hit.name} className="restriction-row">
+          <button
+            key={hit.name}
+            type="button"
+            className={`restriction-row ${activeEnzyme === hit.name ? "active" : ""}`}
+            onClick={() => setActiveEnzyme((current) => current === hit.name ? "" : hit.name)}
+          >
             <strong>{hit.name}</strong>
             <span>{hit.site}</span>
             <span>{hit.count} site(s)</span>
             <code>{hit.positions.join(", ")}</code>
-          </div>
+          </button>
         )) : <p className="muted">No common sites detected in the current panel.</p>}
+      </div>
+      <div className="lab-risk-grid single">
+        <RiskCard
+          title="Cloning note"
+          data={{
+            risk: !hits.length ? "Low" : hits.some((hit) => hit.count > 3) ? "High" : hits.length > 4 ? "Medium" : "Low",
+            matchLength: activeHit ? activeHit.count : hits.length,
+            threePrimeMatch: activeHit ? activeHit.site.length : 0,
+            seed: !hits.length ? "No common site detected in the scanned panel." : activeHit ? `${activeHit.name} cuts at ${activeHit.positions.join(", ")}. Use the preview to inspect whether the site distribution fits your cloning plan.` : "Multiple common restriction sites are present. Select an enzyme row to inspect exact site positions in the sequence preview.",
+            metricLabel: activeHit ? "Site count" : "Detected enzymes",
+            metricUnit: "",
+            secondaryLabel: activeHit ? "Motif length" : "Motif length",
+            secondaryUnit: "bp",
+          }}
+        />
       </div>
     </section>
   );
 }
 
 function RiskCard({ title, data }) {
+  const primaryLabel = data.metricLabel || "Longest seed";
+  const primaryUnit = data.metricUnit || "bp";
+  const secondaryLabel = data.secondaryLabel || "3' match";
+  const secondaryUnit = data.secondaryUnit || "bp";
+  const primaryValue = data.matchLength ? `${data.matchLength} ${primaryUnit}`.trim() : "-";
+  const secondaryValue = data.threePrimeMatch ? `${data.threePrimeMatch} ${secondaryUnit}`.trim() : "-";
+
   return (
     <div className={`risk-card risk-${String(data.risk || "").toLowerCase()}`}>
       <div className="sequence-result-top">
@@ -1439,8 +1737,8 @@ function RiskCard({ title, data }) {
         <span className="risk-badge">{data.risk}</span>
       </div>
       <div className="lab-metric-grid compact">
-        <Metric label="Longest seed" value={data.matchLength ? `${data.matchLength} bp` : "-"} />
-        <Metric label="3' match" value={data.threePrimeMatch ? `${data.threePrimeMatch} bp` : "-"} />
+        <Metric label={primaryLabel} value={primaryValue} />
+        <Metric label={secondaryLabel} value={secondaryValue} />
       </div>
       <code>{data.seed || "-"}</code>
     </div>

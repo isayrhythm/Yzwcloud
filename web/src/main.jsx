@@ -14,6 +14,8 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { Modal } from "./components/Modal.jsx";
+import { NodeParamsModal } from "./components/NodeParamsModal.jsx";
 import "./styles.css";
 
 const statusLabel = {
@@ -36,10 +38,10 @@ const statusColor = {
 
 const defaultPositions = {
   upload_expression: { x: 80, y: 210 },
-  diff_analysis: { x: 360, y: 210 },
-  pca__expression: { x: 640, y: 390 },
-  qc__expression: { x: 640, y: 70 },
+  qc__expression: { x: 360, y: 210 },
+  pca__expression: { x: 640, y: 70 },
   correlation__expression: { x: 640, y: 210 },
+  diff_analysis: { x: 640, y: 390 },
   expression_heatmap__expression: { x: 640, y: 530 },
 };
 
@@ -401,6 +403,7 @@ function summarizeTaskGraph(detail) {
 
 function collectReportOutputs(detail) {
   if (!detail) return [];
+  const taskId = detail.task?.task_id;
   return (detail.graph.nodes || [])
     .filter((node) => node.output)
     .map((node) => ({
@@ -411,6 +414,8 @@ function collectReportOutputs(detail) {
       summary: summarizeOutput(node.output),
       hasPreview: Boolean(node.output?.meta?.preview_file),
       hasHtml: Boolean(node.output?.meta?.html_file),
+      previewUrl: taskId && node.output?.meta?.preview_file ? outputUrl(taskId, node.output.meta.preview_file) : "",
+      htmlUrl: taskId && node.output?.meta?.html_file ? outputUrl(taskId, node.output.meta.html_file) : "",
     }));
 }
 
@@ -458,10 +463,47 @@ function buildReportInsights(detail) {
   return insights;
 }
 
+function buildReportSections(detail, summary, outputs, insights) {
+  const warnings = insights.filter((item) => item.tone === "warning");
+  const failedCount = summary.failedNodes;
+  const completedCount = summary.completedNodes;
+  return [
+    {
+      title: "Summary",
+      text: detail
+        ? `Current task has ${summary.totalNodes} nodes, ${completedCount} completed nodes, and ${outputs.length} reportable outputs.`
+        : "Select or create an analysis task before preparing a report.",
+      tone: "neutral",
+    },
+    {
+      title: "Findings",
+      text: outputs.length
+        ? `${outputs.length} outputs are available for review. Open plots and exports from the output list before final interpretation.`
+        : "No analysis output is ready yet. Run upload and downstream analysis nodes first.",
+      tone: outputs.length ? "positive" : "warning",
+    },
+    {
+      title: "Warnings",
+      text: warnings.length || failedCount
+        ? `${warnings.length + failedCount} warning signal(s) need review before this report is final.`
+        : "No failed node or warning signal is currently detected.",
+      tone: warnings.length || failedCount ? "warning" : "positive",
+    },
+    {
+      title: "Next Steps",
+      text: outputs.length
+        ? "Review each output, rerun failed branches if needed, then generate the report-agent interpretation."
+        : "Return to Analysis Workspace, finish the core workflow, then come back to Reports.",
+      tone: "neutral",
+    },
+  ];
+}
+
 function buildReportModel(detail, logs) {
   const summary = summarizeTaskGraph(detail);
   const outputs = collectReportOutputs(detail);
   const insights = buildReportInsights(detail);
+  const sections = buildReportSections(detail, summary, outputs, insights);
   const logLines = String(logs || "").split(/\r?\n/).filter(Boolean);
 
   return {
@@ -469,6 +511,7 @@ function buildReportModel(detail, logs) {
     summary,
     outputs,
     insights,
+    sections,
     warnings: insights.filter((item) => item.tone === "warning"),
     logTail: logLines.slice(-12).join("\n"),
     logLineCount: logLines.length,
@@ -608,6 +651,11 @@ function App() {
       await openComparisonModal();
       return;
     }
+    const node = detail?.graph.nodes.find((item) => item.id === nodeId);
+    if (nodeId.startsWith("qc__") && node) {
+      setModal({ kind: "nodeParams", node });
+      return;
+    }
     if (nodeId.startsWith("gene_expression__")) {
       const gene = window.prompt("请输入基因名或 gene_id");
       if (!gene) return;
@@ -622,6 +670,16 @@ function App() {
       method: "POST",
       body: JSON.stringify({ params: {} }),
     });
+    await loadDetail(activeTaskId);
+  }
+
+  async function runNodeWithParams(nodeId, params) {
+    if (!activeTaskId) return;
+    await api(`/api/tasks/${activeTaskId}/nodes/${encodeURIComponent(nodeId)}/run`, {
+      method: "POST",
+      body: JSON.stringify({ params }),
+    });
+    setModal(null);
     await loadDetail(activeTaskId);
   }
 
@@ -648,10 +706,11 @@ function App() {
   function openResultModal(node) {
     const htmlFile = node.output?.meta?.html_file;
     if (!htmlFile) return;
+    const version = encodeURIComponent(node.completed_at || Date.now());
     setModal({
       kind: "result",
       title: node.name,
-      url: outputUrl(activeTaskId, htmlFile),
+      url: `${outputUrl(activeTaskId, htmlFile)}?v=${version}`,
     });
   }
 
@@ -791,6 +850,7 @@ function App() {
   }, [getViewport, page, revealMiniMap, setViewport]);
 
   const openWorkbench = () => setPage("workbench");
+  const openReports = () => setPage("reports");
 
   if (page === "home") {
     return (
@@ -819,7 +879,7 @@ function App() {
   if (page === "reports") {
     return (
       <AppChrome page={page} onNavigate={setPage}>
-        <ReportsPage
+        <ReportsPageV2
           tasks={tasks}
           activeTaskId={activeTaskId}
           report={reportModel}
@@ -841,7 +901,10 @@ function App() {
             表达矩阵读取、分组差异分析、后续分析节点按需创建。节点可拖拽、缩放、删除子图。
           </p>
         </div>
-        <button className="primary" onClick={createTask}>创建示例任务</button>
+        <div className="hero-actions">
+          <button className="primary" onClick={createTask}>Create Task</button>
+          <button className="ghost" onClick={openReports} disabled={!detail}>View Report</button>
+        </div>
       </section>
 
       <section className="layout">
@@ -891,7 +954,7 @@ function App() {
                 proOptions={{ hideAttribution: true }}
                 deleteKeyCode={null}
               >
-                <Background gap={28} color="#d9cbb7" />
+                <Background gap={28} color="#b9cbd8" />
                 <Controls position="top-right" />
                 {showMiniMap ? (
                   <MiniMap pannable zoomable nodeColor={(node) => statusColor[node.data.node.status] || "#d2cabd"} />
@@ -926,6 +989,13 @@ function App() {
       {modal?.kind === "agentReport" ? (
         <AgentReportModal node={modal.node} onClose={() => setModal(null)} />
       ) : null}
+      {modal?.kind === "nodeParams" ? (
+        <NodeParamsModal
+          node={modal.node}
+          onClose={() => setModal(null)}
+          onSubmit={(params) => runNodeWithParams(modal.node.id, params)}
+        />
+      ) : null}
       {modal?.kind === "groups" ? (
         <GroupEditorModal
           payload={modal.payload}
@@ -940,9 +1010,9 @@ function App() {
 
 function AppChrome({ page, onNavigate, children }) {
   const items = [
-    { id: "home", label: "首页" },
-    { id: "workbench", label: "开始分析" },
-    { id: "docs", label: "操作文档" },
+    { id: "home", label: "Home" },
+    { id: "workbench", label: "Analysis Workspace" },
+    { id: "docs", label: "Guide" },
     { id: "lab", label: "Experiment Design" },
     { id: "reports", label: "Reports" },
   ];
@@ -1054,6 +1124,125 @@ function DocStep({ index, title, text }) {
       <h2>{title}</h2>
       <p>{text}</p>
     </article>
+  );
+}
+
+function ReportsPageV2({ tasks, activeTaskId, report, onSelectTask, onOpenAnalysis }) {
+  const task = report?.task || null;
+  const summary = report?.summary || summarizeTaskGraph(null);
+  const outputs = report?.outputs || [];
+  const sections = report?.sections || [];
+  const logPreview = report?.logTail || "";
+
+  return (
+    <main className="reports-page shell">
+      <section className="hero report-hero">
+        <div>
+          <p className="eyebrow">Reports</p>
+          <h1>Report Workspace</h1>
+          <p className="summary">
+            Analysis outputs are collected into a fixed report structure before the report agent is attached.
+          </p>
+        </div>
+        <button className="primary" onClick={onOpenAnalysis}>Back To Analysis Workspace</button>
+      </section>
+
+      <section className="layout reports-layout">
+        <aside className="panel">
+          <div className="panel-title">
+            <h2>Tasks</h2>
+            <span className="muted">{tasks.length} total</span>
+          </div>
+          <div className="task-list">
+            {tasks.length === 0 ? <p className="muted">No task yet.</p> : null}
+            {tasks.map((item) => (
+              <div className={`task-item ${item.task_id === activeTaskId ? "active" : ""}`} key={item.task_id}>
+                <button className="task-select" onClick={() => onSelectTask(item.task_id)}>
+                  <strong>{item.name}</strong>
+                  <span className="task-id">{item.status} / {item.task_id}</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <section className="workspace reports-workspace">
+          <div className="panel-title">
+            <h2>{task ? task.name : "Report Summary"}</h2>
+            <span className="muted">{task ? `${task.status} / ${task.task_id}` : "Select a task"}</span>
+          </div>
+
+          <div className="report-summary-grid">
+            <Metric label="Nodes" value={task ? `${summary.totalNodes}` : "-"} />
+            <Metric label="Completed" value={task ? `${summary.completedNodes}` : "-"} />
+            <Metric label="Failed" value={task ? `${summary.failedNodes}` : "-"} />
+            <Metric label="Outputs" value={task ? `${summary.outputNodes}` : "-"} />
+          </div>
+
+          <section className="report-surface">
+            <div className="panel-title">
+              <h2>Report Structure</h2>
+              <span className="muted">{report?.readyForAgent ? "agent context ready" : "pending analysis"}</span>
+            </div>
+            <div className="report-structure-grid">
+              {sections.map((section) => (
+                <article key={section.title} className={`report-insight ${section.tone || "neutral"}`}>
+                  <strong>{section.title}</strong>
+                  <p>{section.text}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="report-surface">
+            <div className="panel-title">
+              <h2>Outputs</h2>
+              <span className="muted">{outputs.length} item(s)</span>
+            </div>
+            <div className="report-output-list">
+              {outputs.length ? outputs.map((output) => {
+                const href = output.htmlUrl || output.previewUrl;
+                return (
+                  <article key={output.id} className="report-output-card">
+                    <div>
+                      <strong>{output.name}</strong>
+                      <span>{output.type}</span>
+                    </div>
+                    <p>{output.summary}</p>
+                    <small>
+                      {output.status}
+                      {output.hasHtml ? " / interactive" : ""}
+                      {output.hasPreview ? " / preview" : ""}
+                    </small>
+                    {href ? <a href={href} target="_blank" rel="noreferrer">Open output</a> : null}
+                  </article>
+                );
+              }) : <p className="muted">No output object is ready for reporting yet.</p>}
+            </div>
+          </section>
+
+          <section className="report-surface">
+            <div className="panel-title">
+              <h2>Report Agent Input</h2>
+              <span className="muted">{report?.readyForAgent ? "ready" : "pending"}</span>
+            </div>
+            <div className="report-summary-grid">
+              <Metric label="Warnings" value={`${report?.warnings?.length || 0}`} />
+              <Metric label="Outputs" value={`${outputs.length}`} />
+              <Metric label="Log lines" value={`${report?.logLineCount || 0}`} />
+              <Metric label="Nodes in context" value={`${report?.agentContext?.nodes?.length || 0}`} />
+            </div>
+          </section>
+
+          <section className="report-surface">
+            <div className="panel-title">
+              <h2>Log Tail</h2>
+            </div>
+            <pre className="logs report-log">{logPreview || "No log yet."}</pre>
+          </section>
+        </section>
+      </section>
+    </main>
   );
 }
 
@@ -1947,19 +2136,11 @@ function NextAnalysisModal({ options, onClose, onSubmit }) {
   );
 }
 
-function Modal({ children, onClose }) {
-  return (
-    <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      {children}
-    </div>
-  );
-}
-
 function visibleGraphNodes(nodes, edges) {
   return nodes.filter((node) => {
     if (node.status === "pending" || node.status === "blocked") return false;
     if (node.id === "diff_analysis") {
-      return edges.some((edge) => edge.source === "upload_expression" && edge.target === "diff_analysis");
+      return edges.some((edge) => edge.target === "diff_analysis");
     }
     return true;
   });
@@ -1968,6 +2149,11 @@ function visibleGraphNodes(nodes, edges) {
 function nextAnalysisOptions(node, detail) {
   if (node.status !== "completed") return [];
   if (node.id === "upload_expression") {
+    const hasQcGate = detail?.graph.edges.some(
+      (edge) => edge.source === "upload_expression" && edge.target.startsWith("qc__"),
+    );
+    return hasQcGate ? [] : [{ type: "qc", label: "Multi-sample QC" }];
+
     const nextAnalyses = node.output?.meta?.next_analyses;
     if (Array.isArray(nextAnalyses)) {
       const created = {
@@ -2014,7 +2200,53 @@ function nextAnalysisOptions(node, detail) {
     if (!hasPca) options.push({ type: "pca", label: "PCA" });
     return options;
   }
+  if (node.id.startsWith("qc__")) {
+    const uploadNode = detail?.graph.nodes.find((item) => item.id === "upload_expression");
+    const capabilities = new Set(
+      uploadNode?.output?.meta?.capabilities || [
+        "sample_correlation",
+        "expression_heatmap",
+        "gene_expression",
+        "pca",
+        "diff_analysis",
+        "paired_differential",
+        "multigroup_differential",
+        "wgcna",
+      ],
+    );
+    const createdFromQc = (type, matcher) => {
+      if (!capabilities.has(type)) return true;
+      return detail?.graph.edges.some((edge) => edge.source === node.id && matcher(edge.target));
+    };
+    const hasPca = createdFromQc("pca", (target) => target.startsWith("pca__"));
+    const hasCorrelation = createdFromQc("sample_correlation", (target) => target.startsWith("correlation__"));
+    const hasExpressionHeatmap = createdFromQc("expression_heatmap", (target) =>
+      target.startsWith("expression_heatmap__"),
+    );
+    const hasSelector = createdFromQc("diff_analysis", (target) => target === "diff_analysis");
+    const hasPaired = createdFromQc("paired_differential", (target) => target.startsWith("paired_differential__"));
+    const hasMultigroup = createdFromQc("multigroup_differential", (target) =>
+      target.startsWith("multigroup_differential__"),
+    );
+    const hasWgcna = createdFromQc("wgcna", (target) => target.startsWith("wgcna__"));
+    const options = [];
+    if (!hasPca) options.push({ type: "pca", label: "PCA sample map" });
+    if (!hasCorrelation) options.push({ type: "sample_correlation", label: "Sample correlation" });
+    if (!hasExpressionHeatmap) options.push({ type: "expression_heatmap", label: "Top variable genes heatmap" });
+    if (capabilities.has("gene_expression")) options.push({ type: "gene_expression", label: "Single gene expression" });
+    if (!hasSelector) options.push({ type: "diff_analysis", label: "Pairwise differential analysis" });
+    if (!hasPaired) options.push({ type: "paired_differential", label: "Paired differential analysis" });
+    if (!hasMultigroup) options.push({ type: "multigroup_differential", label: "Multi-group differential plan" });
+    if (!hasWgcna) options.push({ type: "wgcna", label: "WGCNA plan" });
+    return options;
+  }
   if (node.id.startsWith("diff_analysis__")) {
+    return [
+      { type: "heatmap", label: "DE genes heatmap" },
+      { type: "volcano", label: "Volcano plot" },
+      { type: "diff_export", label: "Result export" },
+      { type: "enrichment", label: "Enrichment analysis" },
+    ];
     return [
       { type: "heatmap", label: "热图" },
       { type: "volcano", label: "火山图" },
@@ -2038,6 +2270,9 @@ function summarizeOutput(output) {
     return `${meta.sample_count} 样本 PCA`;
   }
   if (output.type === "qc_report" && meta.sample_count) {
+    if (typeof meta.passed_sample_count === "number") {
+      return `${meta.passed_sample_count}/${meta.sample_count} samples passed QC`;
+    }
     return `${meta.sample_count} 样本 QC`;
   }
   if (output.type === "sample_correlation_plot" && meta.sample_count) {
@@ -2051,6 +2286,9 @@ function summarizeOutput(output) {
   }
   if (output.type === "diff_export" && meta.row_count) {
     return `${meta.row_count} 行结果`;
+  }
+  if (output.type === "planned_analysis" && meta.analysis_family) {
+    return `${meta.analysis_family} planned`;
   }
   return output.type;
 }
@@ -2083,10 +2321,16 @@ function fallbackPosition(node, index, nodes) {
   const diffBranches = nodes.filter((item) => item.id.startsWith("diff_analysis__"));
   if (node.id.startsWith("diff_analysis__")) {
     const branchIndex = Math.max(0, diffBranches.findIndex((item) => item.id === node.id));
-    return { x: 680, y: 120 + branchIndex * 190 };
+    return { x: 920, y: 120 + branchIndex * 190 };
   }
   if (node.id.startsWith("pca__")) {
-    return { x: 640, y: 390 };
+    return { x: 640, y: 70 };
+  }
+  if (node.id.startsWith("correlation__")) {
+    return { x: 640, y: 210 };
+  }
+  if (node.id.startsWith("expression_heatmap__")) {
+    return { x: 640, y: 530 };
   }
   if (node.id.startsWith("gene_expression__")) {
     const geneNodes = nodes.filter((item) => item.id.startsWith("gene_expression__"));
@@ -2098,7 +2342,7 @@ function fallbackPosition(node, index, nodes) {
     const diffId = node.depends_on?.[0];
     const branchIndex = Math.max(0, diffBranches.findIndex((item) => item.id === diffId));
     const offset = node.id.startsWith("heatmap__") ? -90 : node.id.startsWith("volcano__") ? 10 : node.id.startsWith("diff_export__") ? 110 : 210;
-    return { x: 1000, y: 120 + branchIndex * 190 + offset };
+    return { x: 1200, y: 120 + branchIndex * 190 + offset };
   }
   return { x: 100 + (index % 4) * 280, y: 120 + Math.floor(index / 4) * 180 };
 }

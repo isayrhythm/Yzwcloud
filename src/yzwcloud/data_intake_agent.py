@@ -719,13 +719,26 @@ def _capabilities_for_validation(validation: dict[str, Any]) -> list[str]:
     if validation["valid"] and validation["sample_count"] >= 2:
         capabilities.extend(["qc", "sample_correlation", "expression_heatmap", "gene_expression"])
         capabilities.append("pca")
+    if validation["valid"] and validation["sample_count"] >= 15:
+        capabilities.append("wgcna")
     condition_counts = validation.get("conditions", {})
     if len(condition_counts) >= 2 and all(count >= 2 for count in condition_counts.values()):
         capabilities.append("diff_analysis")
+        capabilities.append("paired_differential")
+    if len(condition_counts) >= 3:
+        capabilities.append("multigroup_differential")
     return capabilities
 
 
 def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, str]]:
+    if "qc" in capabilities:
+        return [
+            {
+                "type": "qc",
+                "label": "Multi-sample QC",
+                "description": "Gate expression data through sample QC before downstream analysis.",
+            }
+        ]
     specs = {
         "qc": {
             "type": "qc",

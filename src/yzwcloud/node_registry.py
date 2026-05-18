@@ -96,7 +96,12 @@ def execute_demo_node(
         )
 
     if node_id.startswith("qc__"):
-        return create_qc_result(source=inputs["upload_expression"], output_dir=output_dir, node_id=node_id)
+        return create_qc_result(
+            source=inputs["upload_expression"],
+            output_dir=output_dir,
+            node_id=node_id,
+            params=params,
+        )
 
     if node_id.startswith("correlation__"):
         return create_sample_correlation_result(
@@ -118,6 +123,24 @@ def execute_demo_node(
             params=params,
             output_dir=output_dir,
             node_id=node_id,
+        )
+
+    if (
+        node_id.startswith("paired_differential__")
+        or node_id.startswith("multigroup_differential__")
+        or node_id.startswith("wgcna__")
+    ):
+        return _execute_plot_node(
+            node_id=node_id,
+            output_type="planned_analysis",
+            message="Planned analysis node. Algorithm integration is pending.",
+            meta={
+                "analysis_family": node_id.split("__", 1)[0],
+                "ready_for_agent": True,
+                "sample_count": inputs["upload_expression"].meta.get("sample_count"),
+            },
+            params=params,
+            output_dir=output_dir,
         )
 
     if node_id.startswith("heatmap__"):

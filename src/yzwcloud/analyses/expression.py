@@ -4,6 +4,7 @@ import csv
 import html
 import json
 import math
+from datetime import datetime
 from pathlib import Path
 from statistics import fmean
 from typing import Any
@@ -73,19 +74,108 @@ def create_pca_result(source: DataObject, output_dir: Path, node_id: str) -> Dat
     return write_data_output(output_json, "pca_plot", meta)
 
 
-def create_qc_result(source: DataObject, output_dir: Path, node_id: str) -> DataObject:
+def create_qc_result(
+    source: DataObject,
+    output_dir: Path,
+    node_id: str,
+    params: dict[str, Any] | None = None,
+) -> DataObject:
+    qc_params = resolve_qc_params(params or {})
     matrix_path = Path(str(source.meta["matrix_file"]))
     metadata_path = Path(str(source.meta["sample_metadata_file"]))
     sample_columns = load_sample_columns(matrix_path, metadata_path)
     series = load_sample_series(matrix_path, sample_columns)
     stats = [sample_qc_stats(column, values) for column, values in zip(sample_columns, series, strict=False)]
-    html_path = output_dir / f"{node_id}.html"
-    preview_path = output_dir / f"{node_id}_preview.svg"
-    output_json = output_dir / f"{node_id}_output.json"
-    write_qc_html(html_path, stats)
-    write_qc_preview(preview_path, stats)
-    meta = {"html_file": str(html_path), "preview_file": str(preview_path), "sample_count": len(stats), "metric_count": 4}
+    median_total = quantile(sorted(item["total"] for item in stats), 0.5) if stats else 0.0
+    min_total = median_total * float(qc_params["min_total_ratio"])
+    max_values = sorted(item["max"] for item in stats)
+    max_q1 = quantile(max_values, 0.25) if max_values else 0.0
+    max_q3 = quantile(max_values, 0.75) if max_values else 0.0
+    max_iqr = max_q3 - max_q1
+    max_value_upper = max_q3 + float(qc_params["max_value_iqr_multiplier"]) * max_iqr
+    distribution_scores = robust_distribution_scores(stats)
+    after_stats = []
+    for item in stats:
+        reasons = []
+        distribution_score = distribution_scores.get(item["sample"], 0.0)
+        item["distribution_mad_score"] = round(distribution_score, 3)
+        item["max_value_upper"] = round(max_value_upper, 4)
+        if item["total"] < min_total:
+            reasons.append("low_total")
+        if item["zero_ratio"] > float(qc_params["max_zero_ratio"]):
+            reasons.append("high_zero_ratio")
+        if item["detected_genes"] < int(qc_params["min_detected_genes"]):
+            reasons.append("low_detected_genes")
+        if distribution_score > float(qc_params["max_distribution_mad"]):
+            reasons.append("expression_distribution_outlier")
+        if item["max"] > max_value_upper:
+            reasons.append("high_max_expression_outlier")
+        item["qc_pass"] = not reasons
+        item["qc_reasons"] = reasons
+        if item["qc_pass"]:
+            after_stats.append(item)
+    run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    html_path = output_dir / f"{node_id}_{run_stamp}.html"
+    preview_path = output_dir / f"{node_id}_{run_stamp}_preview.svg"
+    output_json = output_dir / f"{node_id}_{run_stamp}_output.json"
+    write_qc_html(html_path, stats, after_stats, qc_params)
+    write_qc_preview(preview_path, stats, after_stats)
+    meta = {
+        "html_file": str(html_path),
+        "preview_file": str(preview_path),
+        "sample_count": len(stats),
+        "passed_sample_count": len(after_stats),
+        "failed_sample_count": len(stats) - len(after_stats),
+        "metric_count": 5,
+        "run_id": run_stamp,
+        "params": qc_params,
+        "thresholds": {
+            "min_total": round(min_total, 4),
+            "max_distribution_mad": float(qc_params["max_distribution_mad"]),
+            "max_value_upper": round(max_value_upper, 4),
+        },
+    }
     return write_data_output(output_json, "qc_report", meta)
+
+
+def resolve_qc_params(params: dict[str, Any]) -> dict[str, Any]:
+    presets = {
+        "loose": {
+            "min_total_ratio": 0.15,
+            "max_zero_ratio": 0.7,
+            "min_detected_genes": 500,
+            "max_distribution_mad": 5.0,
+            "max_value_iqr_multiplier": 3.0,
+        },
+        "normal": {
+            "min_total_ratio": 0.25,
+            "max_zero_ratio": 0.5,
+            "min_detected_genes": 1000,
+            "max_distribution_mad": 3.5,
+            "max_value_iqr_multiplier": 1.5,
+        },
+        "strict": {
+            "min_total_ratio": 0.4,
+            "max_zero_ratio": 0.35,
+            "min_detected_genes": 1500,
+            "max_distribution_mad": 2.5,
+            "max_value_iqr_multiplier": 1.0,
+        },
+    }
+    preset = str(params.get("qc_preset") or "normal").lower()
+    if preset not in presets:
+        preset = "normal"
+    resolved = {"qc_preset": preset, **presets[preset]}
+    for key in [
+        "min_total_ratio",
+        "max_zero_ratio",
+        "min_detected_genes",
+        "max_distribution_mad",
+        "max_value_iqr_multiplier",
+    ]:
+        if key in params and params[key] not in {None, ""}:
+            resolved[key] = params[key]
+    return resolved
 
 
 def create_sample_correlation_result(source: DataObject, output_dir: Path, node_id: str) -> DataObject:
@@ -229,8 +319,25 @@ def sample_qc_stats(column: SampleColumn, values: list[float]) -> dict[str, Any]
         "min": round(sorted_values[0], 4) if sorted_values else 0.0,
         "max": round(sorted_values[-1], 4) if sorted_values else 0.0,
         "zero_ratio": round(safe_ratio(sum(value == 0 for value in values), len(values)), 4),
+        "detected_genes": sum(value > 0 for value in values),
         "total": round(sum(values), 4),
     }
+
+
+def robust_distribution_scores(stats: list[dict[str, Any]]) -> dict[str, float]:
+    metrics = ["total", "median", "q3", "max"]
+    scores: dict[str, float] = {item["sample"]: 0.0 for item in stats}
+    for metric in metrics:
+        values = sorted(float(item.get(metric, 0.0)) for item in stats)
+        center = quantile(values, 0.5) if values else 0.0
+        deviations = sorted(abs(value - center) for value in values)
+        mad = quantile(deviations, 0.5) if deviations else 0.0
+        scale = mad * 1.4826 or 1.0
+        for item in stats:
+            sample = item["sample"]
+            score = abs(float(item.get(metric, 0.0)) - center) / scale
+            scores[sample] = max(scores[sample], score)
+    return scores
 
 
 def top_variable_heatmap_genes(
@@ -463,6 +570,277 @@ def write_qc_preview(path: Path, stats: list[dict[str, Any]]) -> None:
         bars.append(f'<rect x="{16 + index * 9}" y="{92 - height:.1f}" width="6" height="{height:.1f}" fill="#0f6b57" opacity=".65"/>')
     path.write_text(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#fffaf0"/><text x="12" y="17" font-size="11" fill="#17211b">表达矩阵 QC</text>{"".join(bars)}</svg>',
+        encoding="utf-8",
+    )
+
+
+def write_qc_html(
+    path: Path,
+    before_stats: list[dict[str, Any]],
+    after_stats: list[dict[str, Any]],
+    params: dict[str, Any],
+) -> None:
+    payload = json.dumps({"before": before_stats, "after": after_stats, "params": params}, ensure_ascii=False)
+    path.write_text(
+        f"""<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>QC</title>
+<style>
+body{{margin:0;font-family:Inter,'Segoe UI','Microsoft YaHei',sans-serif;background:#f5f9fc;color:#172635}}
+.wrap{{padding:24px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:0 0 18px}}
+.card{{padding:12px 14px;border:1px solid #d8e5ee;border-radius:12px;background:white}}
+.plots{{display:grid;grid-template-columns:1fr;gap:18px}}canvas{{display:block;max-width:100%;border:1px solid #d8e5ee;border-radius:14px;background:white}}
+.flagged{{margin-top:16px;border:1px solid #d8e5ee;border-radius:12px;background:white;overflow:hidden}}
+.flagged table{{width:100%;border-collapse:collapse;font-size:13px}}.flagged th,.flagged td{{padding:8px 10px;border-bottom:1px solid #edf3f7;text-align:left}}
+.pass{{color:#087a55}}.fail{{color:#bd3f32}}
+.tip{{position:fixed;display:none;z-index:20;max-width:280px;padding:10px 12px;border-radius:10px;background:#172635;color:white;font-size:12px;line-height:1.5;box-shadow:0 12px 28px rgba(23,38,53,.22);pointer-events:none}}
+</style></head><body><div class="wrap"><h1>Multi-sample QC</h1>
+<div class="grid" id="summary"></div><div class="plots"><canvas id="before" width="1200" height="500"></canvas><canvas id="after" width="1200" height="500"></canvas></div>
+<section class="flagged"><table><thead><tr><th>Sample</th><th>Condition</th><th>Status</th><th>Total</th><th>Zero %</th><th>Detected genes</th><th>Outlier / reason</th></tr></thead><tbody id="rows"></tbody></table></section>
+</div><div class="tip" id="tip"></div><script>
+const data = {payload};
+const before = data.before;
+const after = data.after;
+const failed = before.filter(x => !x.qc_pass);
+const tip = document.getElementById('tip');
+const chartState = {{}};
+const mean = (items, key) => items.reduce((s, x) => s + Number(x[key] || 0), 0) / Math.max(items.length, 1);
+document.getElementById('summary').innerHTML = `
+  <div class="card"><strong>Before QC</strong><div>${{before.length}} samples</div></div>
+  <div class="card"><strong>After QC</strong><div>${{after.length}} samples</div></div>
+  <div class="card"><strong>Flagged</strong><div>${{failed.length}} samples</div></div>
+  <div class="card"><strong>Parameters</strong><div>total >= median * ${{data.params.min_total_ratio}}, zero <= ${{data.params.max_zero_ratio}}, detected >= ${{data.params.min_detected_genes}}, outlier score <= ${{data.params.max_distribution_mad}}, max <= Q3 + ${{data.params.max_value_iqr_multiplier}} * IQR</div></div>
+`;
+document.getElementById('rows').innerHTML = before.map(item => `
+  <tr><td>${{item.sample}}</td><td>${{item.condition}}</td><td class="${{item.qc_pass ? 'pass' : 'fail'}}">${{item.qc_pass ? 'pass' : 'flagged'}}</td>
+  <td>${{Number(item.total).toFixed(2)}}</td><td>${{(Number(item.zero_ratio)*100).toFixed(1)}}%</td><td>${{item.detected_genes}}</td><td>${{Number(item.distribution_mad_score || 0).toFixed(2)}} / ${{(item.qc_reasons || []).join(', ') || '-'}}</td></tr>
+`).join('');
+function draw(canvasId, items, title) {{
+  const canvas = document.getElementById(canvasId), ctx = canvas.getContext('2d');
+  const left = 116, right = 44, top = 72, bottom = 124, width = canvas.width - left - right, height = canvas.height - top - bottom;
+  const boxes = [];
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#172635'; ctx.font = '18px Inter, sans-serif'; ctx.fillText(title, left, 25);
+  ctx.strokeStyle = '#d8e5ee'; ctx.beginPath(); ctx.moveTo(left, top); ctx.lineTo(left, top+height); ctx.lineTo(left+width, top+height); ctx.stroke();
+  ctx.fillStyle = '#172635'; ctx.font = '700 14px Inter, sans-serif';
+  ctx.fillText('Y: expression value per gene', left, 52);
+  ctx.fillText('X: samples ordered as input metadata', left + width / 2 - 128, top + height + 98);
+  ctx.save();
+  ctx.translate(28, top + height / 2 + 92);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('expression value per gene', 0, 0);
+  ctx.restore();
+  const vmax = Math.max(...before.map(x => x.max), 1);
+  const sy = v => top + height - Number(v || 0) / vmax * height;
+  [0, 0.25, 0.5, 0.75, 1].forEach(fraction => {{
+    const y = top + height - fraction * height;
+    const value = fraction * vmax;
+    ctx.strokeStyle = '#edf3f7'; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + width, y); ctx.stroke();
+    ctx.fillStyle = '#5f7284'; ctx.fillText(value.toFixed(0), 34, y + 4);
+  }});
+  items.forEach((item, index) => {{
+    const x = left + (index + 0.5) / Math.max(items.length, 1) * width;
+    ctx.strokeStyle = item.qc_pass ? '#0f8a8f' : '#bd3f32';
+    ctx.fillStyle = item.qc_pass ? 'rgba(15,138,143,.18)' : 'rgba(189,63,50,.18)';
+    ctx.beginPath(); ctx.moveTo(x, sy(item.min)); ctx.lineTo(x, sy(item.max)); ctx.stroke();
+    const boxTop = sy(item.q3), boxHeight = Math.max(3, sy(item.q1) - sy(item.q3));
+    ctx.fillRect(x - 6, boxTop, 12, boxHeight); ctx.strokeRect(x - 6, boxTop, 12, boxHeight);
+    ctx.fillStyle = '#172635'; ctx.fillRect(x - 7, sy(item.median) - 1, 14, 2);
+    boxes.push({{item, index, x, yTop: sy(item.max), yBottom: sy(item.min), boxTop, boxBottom: boxTop + boxHeight}});
+  }});
+  const tickEvery = Math.max(1, Math.ceil(items.length / 12));
+  items.forEach((item, index) => {{
+    if (index % tickEvery !== 0 && index !== items.length - 1) return;
+    const x = left + (index + 0.5) / Math.max(items.length, 1) * width;
+    ctx.strokeStyle = '#b9cbd8'; ctx.beginPath(); ctx.moveTo(x, top + height); ctx.lineTo(x, top + height + 6); ctx.stroke();
+    ctx.save();
+    ctx.translate(x - 4, top + height + 14);
+    ctx.rotate(-Math.PI / 4);
+    ctx.fillStyle = '#5f7284';
+    ctx.font = '11px Inter, sans-serif';
+    ctx.fillText(String(item.sample || index + 1).slice(0, 18), 0, 0);
+    ctx.restore();
+  }});
+  ctx.fillStyle = '#5f7284'; ctx.font = '13px Inter, sans-serif';
+  ctx.fillText(`mean total: ${{mean(items, 'total').toFixed(2)}} / mean zero: ${{(mean(items, 'zero_ratio')*100).toFixed(1)}}% / red = flagged before filtering`, left, canvas.height - 36);
+  chartState[canvasId] = {{left, top, width, height, boxes}};
+}}
+draw('before', before, 'Before QC: all uploaded samples');
+draw('after', after, 'After QC: samples passing current thresholds');
+function bindHover(canvasId) {{
+  const canvas = document.getElementById(canvasId);
+  canvas.addEventListener('mousemove', event => {{
+    const state = chartState[canvasId];
+    if (!state) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (event.clientX - rect.left) * canvas.width / rect.width;
+    const y = (event.clientY - rect.top) * canvas.height / rect.height;
+    let best = null;
+    let bestDistance = Infinity;
+    for (const box of state.boxes) {{
+      const dx = Math.abs(box.x - x);
+      const withinY = y >= Math.min(box.yTop, box.boxTop) - 8 && y <= Math.max(box.yBottom, box.boxBottom) + 8;
+      if (dx < bestDistance && dx < 12 && withinY) {{
+        best = box;
+        bestDistance = dx;
+      }}
+    }}
+    if (!best) {{
+      tip.style.display = 'none';
+      return;
+    }}
+    const item = best.item;
+    tip.style.display = 'block';
+    tip.style.left = `${{event.clientX + 14}}px`;
+    tip.style.top = `${{event.clientY + 14}}px`;
+    tip.innerHTML = `
+      <strong>${{item.sample}}</strong><br>
+      condition: ${{item.condition}} / group: ${{item.group}}<br>
+      status: ${{item.qc_pass ? 'pass' : 'flagged'}}<br>
+      total: ${{Number(item.total).toFixed(2)}} / zero: ${{(Number(item.zero_ratio) * 100).toFixed(1)}}%<br>
+      detected genes: ${{item.detected_genes}}<br>
+      median: ${{Number(item.median).toFixed(2)}} / max: ${{Number(item.max).toFixed(2)}}<br>
+      reason: ${{(item.qc_reasons || []).join(', ') || '-'}}
+    `;
+  }});
+  canvas.addEventListener('mouseleave', () => {{
+    tip.style.display = 'none';
+  }});
+}}
+bindHover('before');
+bindHover('after');
+</script></body></html>""",
+        encoding="utf-8",
+    )
+
+
+def write_qc_preview(path: Path, before_stats: list[dict[str, Any]], after_stats: list[dict[str, Any]]) -> None:
+    max_total = max((item["total"] for item in before_stats), default=1)
+    before_bars = []
+    after_names = {item["sample"] for item in after_stats}
+    for index, item in enumerate(before_stats[:20]):
+        height = item["total"] / max_total * 48
+        color = "#0f8a8f" if item["sample"] in after_names else "#bd3f32"
+        before_bars.append(f'<rect x="{16 + index * 9}" y="{86 - height:.1f}" width="6" height="{height:.1f}" fill="{color}" opacity=".72"/>')
+    path.write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="12" fill="#f5f9fc"/><text x="12" y="17" font-size="11" fill="#172635">QC before / after</text><text x="12" y="106" font-size="10" fill="#5f7284">{len(after_stats)}/{len(before_stats)} samples passed</text>{"".join(before_bars)}</svg>',
+        encoding="utf-8",
+    )
+
+
+def write_qc_html(
+    path: Path,
+    before_stats: list[dict[str, Any]],
+    after_stats: list[dict[str, Any]],
+    params: dict[str, Any],
+) -> None:
+    payload = json.dumps({"before": before_stats, "after": after_stats, "params": params}, ensure_ascii=False)
+    path.write_text(
+        f"""<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>QC</title>
+<style>
+body{{margin:0;font-family:Inter,'Segoe UI','Microsoft YaHei',sans-serif;background:#f5f9fc;color:#172635}}
+.wrap{{padding:24px}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:0 0 18px}}
+.card{{padding:12px 14px;border:1px solid #d8e5ee;border-radius:10px;background:white}}
+.plots{{display:grid;grid-template-columns:1fr;gap:18px}}
+.plot-card{{padding:14px 16px;border:1px solid #d8e5ee;border-radius:12px;background:white;overflow:auto}}
+svg{{display:block;min-width:1080px;width:100%;height:auto}}
+.axis{{stroke:#40566a;stroke-width:1.5}}
+.grid-line{{stroke:#edf3f7;stroke-width:1}}
+.tick text,.axis-label{{fill:#172635;font-size:14px;font-weight:700}}
+.tick-value{{fill:#5f7284;font-size:12px}}
+.sample-line{{stroke-width:1.5}}
+.sample-box{{stroke-width:1.4}}
+.sample-median{{stroke:#172635;stroke-width:2}}
+.sample-row{{cursor:crosshair}}
+.sample-row:hover .sample-line,.sample-row:hover .sample-box{{stroke:#315fd6;stroke-width:2.4}}
+.flagged{{margin-top:16px;border:1px solid #d8e5ee;border-radius:12px;background:white;overflow:auto}}
+.flagged table{{width:100%;border-collapse:collapse;font-size:13px}}
+.flagged th,.flagged td{{padding:8px 10px;border-bottom:1px solid #edf3f7;text-align:left;white-space:nowrap}}
+.pass{{color:#087a55}}.fail{{color:#bd3f32}}
+.tip{{position:fixed;display:none;z-index:20;max-width:300px;padding:10px 12px;border-radius:10px;background:#172635;color:white;font-size:12px;line-height:1.5;box-shadow:0 12px 28px rgba(23,38,53,.22);pointer-events:none}}
+</style></head><body><div class="wrap"><h1>Multi-sample QC</h1>
+<div class="grid" id="summary"></div>
+<div class="plots">
+  <section class="plot-card"><div id="beforePlot"></div></section>
+  <section class="plot-card"><div id="afterPlot"></div></section>
+</div>
+<section class="flagged"><table><thead><tr><th>Sample</th><th>Condition</th><th>Status</th><th>Total</th><th>Zero %</th><th>Detected genes</th><th>Outlier / reason</th></tr></thead><tbody id="rows"></tbody></table></section>
+</div><div class="tip" id="tip"></div><script>
+const data = {payload};
+const before = data.before;
+const after = data.after;
+const failed = before.filter(item => !item.qc_pass);
+const tip = document.getElementById('tip');
+const mean = (items, key) => items.reduce((sum, item) => sum + Number(item[key] || 0), 0) / Math.max(items.length, 1);
+document.getElementById('summary').innerHTML = `
+  <div class="card"><strong>Before QC</strong><div>${{before.length}} samples</div></div>
+  <div class="card"><strong>After QC</strong><div>${{after.length}} samples</div></div>
+  <div class="card"><strong>Flagged</strong><div>${{failed.length}} samples</div></div>
+  <div class="card"><strong>QC preset</strong><div>${{data.params.qc_preset || 'normal'}}</div></div>
+  <div class="card"><strong>Parameters</strong><div>total >= median * ${{data.params.min_total_ratio}}, zero <= ${{data.params.max_zero_ratio}}, detected >= ${{data.params.min_detected_genes}}, max <= Q3 + ${{data.params.max_value_iqr_multiplier}} * IQR</div></div>
+`;
+document.getElementById('rows').innerHTML = before.map(item => `
+  <tr><td>${{item.sample}}</td><td>${{item.condition}}</td><td class="${{item.qc_pass ? 'pass' : 'fail'}}">${{item.qc_pass ? 'pass' : 'flagged'}}</td>
+  <td>${{Number(item.total).toFixed(2)}}</td><td>${{(Number(item.zero_ratio)*100).toFixed(1)}}%</td><td>${{item.detected_genes}}</td><td>${{Number(item.distribution_mad_score || 0).toFixed(2)}} / ${{(item.qc_reasons || []).join(', ') || '-'}}</td></tr>
+`).join('');
+function svgEl(name, attrs = {{}}, text = '') {{
+  const el = document.createElementNS('http://www.w3.org/2000/svg', name);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  if (text) el.textContent = text;
+  return el;
+}}
+function renderPlot(containerId, items, title) {{
+  const container = document.getElementById(containerId);
+  const svg = svgEl('svg', {{viewBox: '0 0 1200 560', role: 'img', 'aria-label': title}});
+  const left = 118, right = 34, top = 72, bottom = 124;
+  const plotWidth = 1200 - left - right;
+  const plotHeight = 560 - top - bottom;
+  const vmax = Math.max(...before.map(item => Number(item.max || 0)), 1);
+  const sy = value => top + plotHeight - Number(value || 0) / vmax * plotHeight;
+  svg.appendChild(svgEl('text', {{x: left, y: 28, fill: '#172635', 'font-size': 20, 'font-weight': 700}}, title));
+  svg.appendChild(svgEl('text', {{x: left, y: 54, class: 'axis-label'}}, 'Y: expression value per gene'));
+  svg.appendChild(svgEl('text', {{x: left + plotWidth / 2 - 138, y: top + plotHeight + 104, class: 'axis-label'}}, 'X: samples ordered as input metadata'));
+  const yLabel = svgEl('text', {{x: 24, y: top + plotHeight / 2 + 90, class: 'axis-label', transform: `rotate(-90 24 ${{top + plotHeight / 2 + 90}})`}}, 'expression value per gene');
+  svg.appendChild(yLabel);
+  svg.appendChild(svgEl('line', {{x1: left, y1: top, x2: left, y2: top + plotHeight, class: 'axis'}}));
+  svg.appendChild(svgEl('line', {{x1: left, y1: top + plotHeight, x2: left + plotWidth, y2: top + plotHeight, class: 'axis'}}));
+  [0, 0.25, 0.5, 0.75, 1].forEach(fraction => {{
+    const y = top + plotHeight - fraction * plotHeight;
+    const value = fraction * vmax;
+    svg.appendChild(svgEl('line', {{x1: left, y1: y, x2: left + plotWidth, y2: y, class: 'grid-line'}}));
+    svg.appendChild(svgEl('text', {{x: left - 12, y: y + 4, 'text-anchor': 'end', class: 'tick-value'}}, value.toFixed(0)));
+  }});
+  const tickEvery = Math.max(1, Math.ceil(items.length / 12));
+  items.forEach((item, index) => {{
+    const x = left + (index + 0.5) / Math.max(items.length, 1) * plotWidth;
+    const color = item.qc_pass ? '#0f8a8f' : '#bd3f32';
+    const group = svgEl('g', {{class: 'sample-row'}});
+    group.appendChild(svgEl('line', {{x1: x, y1: sy(item.min), x2: x, y2: sy(item.max), stroke: color, class: 'sample-line'}}));
+    const boxTop = sy(item.q3);
+    const boxHeight = Math.max(3, sy(item.q1) - sy(item.q3));
+    group.appendChild(svgEl('rect', {{x: x - 6, y: boxTop, width: 12, height: boxHeight, fill: item.qc_pass ? 'rgba(15,138,143,.18)' : 'rgba(189,63,50,.18)', stroke: color, class: 'sample-box'}}));
+    group.appendChild(svgEl('line', {{x1: x - 8, y1: sy(item.median), x2: x + 8, y2: sy(item.median), class: 'sample-median'}}));
+    group.addEventListener('mousemove', event => {{
+      tip.style.display = 'block';
+      tip.style.left = `${{event.clientX + 14}}px`;
+      tip.style.top = `${{event.clientY + 14}}px`;
+      tip.innerHTML = `<strong>${{item.sample}}</strong><br>condition: ${{item.condition}} / group: ${{item.group}}<br>status: ${{item.qc_pass ? 'pass' : 'flagged'}}<br>total: ${{Number(item.total).toFixed(2)}} / zero: ${{(Number(item.zero_ratio) * 100).toFixed(1)}}%<br>detected genes: ${{item.detected_genes}}<br>median: ${{Number(item.median).toFixed(2)}} / max: ${{Number(item.max).toFixed(2)}}<br>reason: ${{(item.qc_reasons || []).join(', ') || '-'}}`;
+    }});
+    group.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
+    svg.appendChild(group);
+    if (index % tickEvery === 0 || index === items.length - 1) {{
+      svg.appendChild(svgEl('line', {{x1: x, y1: top + plotHeight, x2: x, y2: top + plotHeight + 7, stroke: '#8799aa'}}));
+      const label = svgEl('text', {{x: x - 5, y: top + plotHeight + 20, class: 'tick-value', transform: `rotate(-38 ${{x - 5}} ${{top + plotHeight + 20}})`}}, String(item.sample || index + 1).slice(0, 18));
+      svg.appendChild(label);
+    }}
+  }});
+  svg.appendChild(svgEl('text', {{x: left, y: 536, fill: '#5f7284', 'font-size': 13}}, `mean total: ${{mean(items, 'total').toFixed(2)}} / mean zero: ${{(mean(items, 'zero_ratio') * 100).toFixed(1)}}% / red = flagged`));
+  container.replaceChildren(svg);
+}}
+renderPlot('beforePlot', before, 'Before QC: all uploaded samples');
+renderPlot('afterPlot', after, 'After QC: samples passing current thresholds');
+</script></body></html>""",
         encoding="utf-8",
     )
 

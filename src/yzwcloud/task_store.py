@@ -137,8 +137,13 @@ def update_sample_groups(
     conditions = _count_values(row["condition"] for row in rows)
     groups = _count_values(row["group"] for row in rows)
     capabilities = ["qc", "sample_correlation", "expression_heatmap", "gene_expression", "pca"]
+    if sum(conditions.values()) >= 15:
+        capabilities.append("wgcna")
     if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()):
         capabilities.append("diff_analysis")
+        capabilities.append("paired_differential")
+    if len(conditions) >= 3:
+        capabilities.append("multigroup_differential")
     upload_node.output.meta["conditions"] = conditions
     upload_node.output.meta["condition_options"] = sorted(conditions)
     upload_node.output.meta["sample_groups"] = groups
@@ -238,7 +243,7 @@ def create_diff_analysis_branch(
         raise ValueError("差异分析选择器不存在")
     if selector.status == NodeStatus.PENDING:
         selector.status = NodeStatus.READY
-    if not _edge_exists(graph, "upload_expression", "diff_analysis"):
+    if not any(edge["target"] == "diff_analysis" for edge in graph.edges):
         graph.edges.append({"source": "upload_expression", "target": "diff_analysis"})
 
     graph.nodes.append(
@@ -269,6 +274,47 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
         raise ValueError("源节点不存在")
     if source.status != NodeStatus.COMPLETED or source.output is None:
         raise ValueError("源节点尚未完成，不能创建后续分析")
+
+    if source_node_id == "upload_expression":
+        if analysis_type != "qc":
+            raise ValueError("Upload output must pass multi-sample QC before downstream analysis")
+        _add_expression_downstream_node(graph, analysis_type, source_node_id=source_node_id)
+        save_graph(graph)
+        append_log(task_id, "Analysis node enabled: qc")
+        return task, graph
+
+    if source_node_id.startswith("qc__") and analysis_type in {
+        "diff_analysis",
+        "pca",
+        "sample_correlation",
+        "expression_heatmap",
+        "gene_expression",
+        "paired_differential",
+        "multigroup_differential",
+        "wgcna",
+    }:
+        if analysis_type in {
+            "pca",
+            "sample_correlation",
+            "expression_heatmap",
+            "gene_expression",
+            "paired_differential",
+            "multigroup_differential",
+            "wgcna",
+        }:
+            _add_expression_downstream_node(graph, analysis_type, source_node_id=source_node_id)
+            save_graph(graph)
+            append_log(task_id, f"Analysis node enabled: {analysis_type}")
+            return task, graph
+        selector = nodes.get("diff_analysis")
+        if selector is None:
+            raise ValueError("Differential analysis selector is not available")
+        selector.status = NodeStatus.READY
+        if not _edge_exists(graph, source_node_id, "diff_analysis"):
+            graph.edges.append({"source": source_node_id, "target": "diff_analysis"})
+        save_graph(graph)
+        append_log(task_id, "Analysis node enabled: diff_analysis")
+        return task, graph
 
     if source_node_id == "upload_expression" and analysis_type in {
         "diff_analysis",
@@ -386,7 +432,7 @@ def ensure_diff_downstream_nodes(graph: Graph, diff_node_id: str) -> None:
     return
 
 
-def _add_expression_downstream_node(graph: Graph, analysis_type: str) -> None:
+def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_node_id: str = "upload_expression") -> None:
     specs = {
         "pca": (
             "pca__expression",
@@ -400,7 +446,9 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str) -> None:
             "表达矩阵 QC",
             "查看样本表达量分布、总量和零值比例。",
             "qc_report",
-            {},
+            {
+                "qc_preset": "normal",
+            },
         ),
         "sample_correlation": (
             "correlation__expression",
@@ -424,6 +472,32 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str) -> None:
             {"gene": ""},
         ),
     }
+    specs.update(
+        {
+            "paired_differential": (
+                "paired_differential__expression",
+                "Paired differential analysis",
+                "Plan paired differential analysis after QC; requires pair metadata before production execution.",
+                "planned_analysis",
+                {"requires": "pair_id metadata"},
+            ),
+            "multigroup_differential": (
+                "multigroup_differential__expression",
+                "Multi-group differential plan",
+                "Plan ANOVA or model-based multi-group differential analysis before post-hoc pairwise contrasts.",
+                "planned_analysis",
+                {"requires": "three or more conditions"},
+            ),
+            "wgcna": (
+                "wgcna__expression",
+                "WGCNA plan",
+                "Plan co-expression module analysis after QC and sample outlier review.",
+                "planned_analysis",
+                {"min_samples": 15, "network": "signed"},
+            ),
+        }
+    )
+
     if analysis_type not in specs:
         raise ValueError("Unsupported expression downstream analysis type")
 
@@ -442,7 +516,7 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str) -> None:
             depends_on=["upload_expression"],
         )
     )
-    graph.edges.append({"source": "upload_expression", "target": node_id})
+    graph.edges.append({"source": source_node_id, "target": node_id})
 
 
 def _add_diff_downstream_node(graph: Graph, diff_node_id: str, analysis_type: str) -> None:
@@ -584,6 +658,14 @@ def _count_values(values) -> dict[str, int]:
 
 
 def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, str]]:
+    if "qc" in capabilities:
+        return [
+            {
+                "type": "qc",
+                "label": "Multi-sample QC",
+                "description": "Gate expression data through sample QC before downstream analysis.",
+            }
+        ]
     specs = {
         "qc": {
             "type": "qc",

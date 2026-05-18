@@ -132,7 +132,7 @@ def _refresh_readiness(graph: Graph) -> None:
         if node.status in {NodeStatus.COMPLETED, NodeStatus.RUNNING, NodeStatus.FAILED}:
             continue
         if node.id == "diff_analysis" and not any(
-            edge["source"] == "upload_expression" and edge["target"] == "diff_analysis"
+            edge["target"] == "diff_analysis"
             for edge in graph.edges
         ):
             node.status = NodeStatus.PENDING

@@ -1,8 +1,8 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-export default defineConfig({
-  base: "/static/",
+export default defineConfig(({ command }) => ({
+  base: command === "serve" ? "/" : "/static/",
   plugins: [react()],
   root: "web",
   build: {
@@ -14,4 +14,4 @@ export default defineConfig({
       "/api": "http://127.0.0.1:8010",
     },
   },
-});
+}));

@@ -53,9 +53,10 @@ def create_pca_result(source: DataObject, output_dir: Path, node_id: str) -> Dat
         for index, column in enumerate(sample_columns)
     ]
 
-    html_path = output_dir / f"{node_id}.html"
-    preview_path = output_dir / f"{node_id}_preview.svg"
-    output_json = output_dir / f"{node_id}_output.json"
+    run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    html_path = output_dir / f"{node_id}_{run_stamp}.html"
+    preview_path = output_dir / f"{node_id}_{run_stamp}_preview.svg"
+    output_json = output_dir / f"{node_id}_{run_stamp}_output.json"
     explained = {
         "pc1": round(max(pc1_value, 0.0) / total_variance * 100, 2),
         "pc2": round(max(pc2_value, 0.0) / total_variance * 100, 2),
@@ -193,18 +194,32 @@ def create_sample_correlation_result(source: DataObject, output_dir: Path, node_
     return write_data_output(output_json, "sample_correlation_plot", meta)
 
 
-def create_expression_heatmap_result(source: DataObject, output_dir: Path, node_id: str) -> DataObject:
+def create_expression_heatmap_result(
+    source: DataObject,
+    output_dir: Path,
+    node_id: str,
+    params: dict[str, Any] | None = None,
+) -> DataObject:
+    params = params or {}
     matrix_path = Path(str(source.meta["matrix_file"]))
     metadata_path = Path(str(source.meta["sample_metadata_file"]))
     sample_columns = load_sample_columns(matrix_path, metadata_path)
-    genes = top_variable_heatmap_genes(matrix_path, sample_columns, top_n=40)
+    selected_conditions = [str(item) for item in params.get("selected_conditions") or [] if str(item)]
+    if selected_conditions:
+        selected_set = set(selected_conditions)
+        sample_columns = [column for column in sample_columns if column.condition in selected_set]
+    if len(sample_columns) < 2:
+        raise ValueError("Expression heatmap needs at least 2 selected samples")
+    top_n = int(params.get("top_genes") or 40)
+    genes = top_variable_heatmap_genes(matrix_path, sample_columns, top_n=top_n)
     ordered_columns = order_samples_by_condition(sample_columns)
     order_index = [sample_columns.index(item) for item in ordered_columns]
     for gene in genes:
         gene["values"] = [gene["values"][index] for index in order_index]
-    html_path = output_dir / f"{node_id}.html"
-    preview_path = output_dir / f"{node_id}_preview.svg"
-    output_json = output_dir / f"{node_id}_output.json"
+    run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    html_path = output_dir / f"{node_id}_{run_stamp}.html"
+    preview_path = output_dir / f"{node_id}_{run_stamp}_preview.svg"
+    output_json = output_dir / f"{node_id}_{run_stamp}_output.json"
     write_heatmap_html(html_path, "表达矩阵聚类热图", ordered_columns, genes)
     write_heatmap_preview(preview_path, "表达聚类", genes)
     meta = {
@@ -212,6 +227,9 @@ def create_expression_heatmap_result(source: DataObject, output_dir: Path, node_
         "preview_file": str(preview_path),
         "gene_count": len(genes),
         "sample_count": len(ordered_columns),
+        "selected_conditions": selected_conditions or sorted({column.condition for column in ordered_columns}),
+        "top_genes": top_n,
+        "run_id": run_stamp,
     }
     return write_data_output(output_json, "expression_heatmap_plot", meta)
 

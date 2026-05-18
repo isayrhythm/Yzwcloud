@@ -14,6 +14,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { HeatmapParamsModal } from "./components/HeatmapParamsModal.jsx";
 import { Modal } from "./components/Modal.jsx";
 import { NodeParamsModal } from "./components/NodeParamsModal.jsx";
 import "./styles.css";
@@ -656,6 +657,10 @@ function App() {
       setModal({ kind: "nodeParams", node });
       return;
     }
+    if (nodeId.startsWith("expression_heatmap__") && node) {
+      setModal({ kind: "heatmapParams", node });
+      return;
+    }
     if (nodeId.startsWith("gene_expression__")) {
       const gene = window.prompt("请输入基因名或 gene_id");
       if (!gene) return;
@@ -992,6 +997,14 @@ function App() {
       {modal?.kind === "nodeParams" ? (
         <NodeParamsModal
           node={modal.node}
+          onClose={() => setModal(null)}
+          onSubmit={(params) => runNodeWithParams(modal.node.id, params)}
+        />
+      ) : null}
+      {modal?.kind === "heatmapParams" ? (
+        <HeatmapParamsModal
+          node={modal.node}
+          detail={detail}
           onClose={() => setModal(null)}
           onSubmit={(params) => runNodeWithParams(modal.node.id, params)}
         />

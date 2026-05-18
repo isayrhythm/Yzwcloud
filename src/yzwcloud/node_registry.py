@@ -115,6 +115,7 @@ def execute_demo_node(
             source=inputs["upload_expression"],
             output_dir=output_dir,
             node_id=node_id,
+            params=params,
         )
 
     if node_id.startswith("gene_expression__"):

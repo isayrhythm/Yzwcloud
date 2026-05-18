@@ -462,7 +462,7 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             "表达聚类热图",
             "基于表达矩阵的高变基因生成样本聚类热图。",
             "expression_heatmap_plot",
-            {"top_genes": 40},
+            {"top_genes": 40, "selected_conditions": []},
         ),
         "gene_expression": (
             "gene_expression__expression",

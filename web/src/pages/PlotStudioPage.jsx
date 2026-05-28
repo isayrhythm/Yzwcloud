@@ -37,6 +37,15 @@ const FALLBACK_PARAMETER_GROUPS = [
   "Export size and format",
 ];
 
+const FALLBACK_WORKFLOW_STAGES = [
+  { id: "source", label: "Select source", description: "Attach an upstream result or table." },
+  { id: "plot", label: "Choose plot", description: "Pick a recommended figure type." },
+  { id: "mapping", label: "Map data", description: "Bind columns to figure roles." },
+  { id: "parameters", label: "Tune parameters", description: "Set basic and advanced controls." },
+  { id: "preview", label: "Render preview", description: "Review the interactive chart." },
+  { id: "report", label: "Explain / export", description: "Generate context and export." },
+];
+
 async function fetchJson(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -126,6 +135,37 @@ function normalizeParamValue(parameter, value) {
   return value;
 }
 
+function colorInputValue(value) {
+  const text = String(value || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(text) ? text : "#ffffff";
+}
+
+function parameterHelpText(parameter, options) {
+  if (parameter.help) return parameter.help;
+  if (parameter.type === "number") {
+    const bounds = [parameter.min ?? null, parameter.max ?? null].every((item) => item !== null)
+      ? `${parameter.min}-${parameter.max}`
+      : "";
+    return bounds ? `Range ${bounds}; step ${parameter.step || 1}.` : "";
+  }
+  if (parameter.type === "number_or_auto") return "Use Auto or type a numeric value.";
+  if (parameter.type === "color") return "Hex, rgb(), or rgba() are supported.";
+  if (["column", "column_or_none", "columns", "numeric_columns"].includes(parameter.type)) {
+    return options.length ? `${options.length} compatible column(s) detected.` : "No compatible columns detected yet.";
+  }
+  return "";
+}
+
+function ParamLabel({ parameter, options }) {
+  const help = parameterHelpText(parameter, options);
+  return (
+    <span className="plot-param-label">
+      <strong>{parameter.label}</strong>
+      {help ? <small>{help}</small> : null}
+    </span>
+  );
+}
+
 function ParameterControl({ parameter, value, tableSummary, onChange }) {
   const options = optionsForParameter(parameter, tableSummary);
   const resolvedValue = value ?? parameter.default ?? "";
@@ -138,7 +178,7 @@ function ParameterControl({ parameter, value, tableSummary, onChange }) {
           checked={Boolean(resolvedValue)}
           onChange={(event) => onChange(parameter.id, event.target.checked)}
         />
-        <span>{parameter.label}</span>
+        <ParamLabel parameter={parameter} options={options} />
       </label>
     );
   }
@@ -146,7 +186,7 @@ function ParameterControl({ parameter, value, tableSummary, onChange }) {
   if (parameter.type === "select") {
     return (
       <label className="plot-param-row">
-        <span>{parameter.label}</span>
+        <ParamLabel parameter={parameter} options={options} />
         <select value={resolvedValue} onChange={(event) => onChange(parameter.id, event.target.value)}>
           {(parameter.options || []).map((option) => (
             <option value={option} key={option}>{option}</option>
@@ -160,7 +200,7 @@ function ParameterControl({ parameter, value, tableSummary, onChange }) {
     const selected = Array.isArray(resolvedValue) ? resolvedValue : [];
     return (
       <label className="plot-param-row">
-        <span>{parameter.label}</span>
+        <ParamLabel parameter={parameter} options={options} />
         <select
           multiple
           value={selected}
@@ -180,7 +220,7 @@ function ParameterControl({ parameter, value, tableSummary, onChange }) {
   if (parameter.type === "column" || parameter.type === "column_or_none") {
     return (
       <label className="plot-param-row">
-        <span>{parameter.label}</span>
+        <ParamLabel parameter={parameter} options={options} />
         <select value={resolvedValue || ""} onChange={(event) => onChange(parameter.id, event.target.value || null)}>
           <option value="">{parameter.required ? "Select column" : "Auto / none"}</option>
           {options.map((option) => (
@@ -191,26 +231,60 @@ function ParameterControl({ parameter, value, tableSummary, onChange }) {
     );
   }
 
+  if (parameter.type === "color") {
+    return (
+      <label className="plot-param-row">
+        <ParamLabel parameter={parameter} options={options} />
+        <span className="plot-param-color-controls">
+          <input
+            aria-label={`${parameter.label} swatch`}
+            type="color"
+            value={colorInputValue(resolvedValue)}
+            onChange={(event) => onChange(parameter.id, event.target.value)}
+          />
+          <input
+            aria-label={parameter.label}
+            value={resolvedValue}
+            onChange={(event) => onChange(parameter.id, event.target.value)}
+          />
+        </span>
+      </label>
+    );
+  }
+
   if (parameter.type === "number" || parameter.type === "number_or_auto") {
     const isAuto = resolvedValue === "auto";
     return (
       <label className="plot-param-row">
-        <span>{parameter.label}</span>
-        <input
-          type={isAuto ? "text" : "number"}
-          value={resolvedValue}
-          min={parameter.min}
-          max={parameter.max}
-          step={parameter.step || 1}
-          onChange={(event) => onChange(parameter.id, normalizeParamValue(parameter, event.target.value))}
-        />
+        <ParamLabel parameter={parameter} options={options} />
+        <span className="plot-param-number-controls">
+          <input
+            type="number"
+            value={isAuto ? "" : resolvedValue}
+            min={parameter.min}
+            max={parameter.max}
+            step={parameter.step || 1}
+            placeholder={isAuto ? "Auto" : undefined}
+            disabled={isAuto}
+            onChange={(event) => onChange(parameter.id, normalizeParamValue(parameter, event.target.value))}
+          />
+          {parameter.type === "number_or_auto" ? (
+            <button
+              className={isAuto ? "active" : ""}
+              type="button"
+              onClick={() => onChange(parameter.id, isAuto ? (parameter.min ?? 0) : "auto")}
+            >
+              Auto
+            </button>
+          ) : null}
+        </span>
       </label>
     );
   }
 
   return (
     <label className="plot-param-row">
-      <span>{parameter.label}</span>
+      <ParamLabel parameter={parameter} options={options} />
       <input value={resolvedValue} onChange={(event) => onChange(parameter.id, event.target.value)} />
     </label>
   );
@@ -334,6 +408,27 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
       </div>
     );
   }
+  if (kind === "radar") {
+    return (
+      <div className="mini-plot mini-radar" aria-hidden="true">
+        <span className="axis a1" />
+        <span className="axis a2" />
+        <span className="axis a3" />
+        <i className="poly p1" />
+        <i className="poly p2" />
+      </div>
+    );
+  }
+  if (kind === "parallel_coordinates") {
+    return (
+      <div className="mini-plot mini-parallel" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map((axis) => <span className="axis" style={{ left: `${14 + axis * 18}%` }} key={axis} />)}
+        <i className="path p1" />
+        <i className="path p2" />
+        <i className="path p3" />
+      </div>
+    );
+  }
   if (kind === "heatmap" || kind === "correlation") {
     return (
       <div className={`mini-plot mini-heatmap ${kind === "correlation" ? "corr" : ""}`} aria-hidden="true">
@@ -357,6 +452,24 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
     return (
       <div className="mini-plot mini-volcano" aria-hidden="true">
         {Array.from({ length: 24 }, (_, index) => (
+          <span key={index} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "waterfall") {
+    return (
+      <div className="mini-plot mini-waterfall" aria-hidden="true">
+        {[-52, -38, -21, 16, 29, 44, 63, 78].map((height, index) => (
+          <span className={height < 0 ? "neg" : "pos"} style={{ height: `${Math.abs(height)}%` }} key={index} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "ma_plot") {
+    return (
+      <div className="mini-plot mini-ma" aria-hidden="true">
+        {Array.from({ length: 20 }, (_, index) => (
           <span key={index} />
         ))}
       </div>
@@ -416,6 +529,26 @@ function isAdvancedParameterGroup(group) {
   return ["theme", "export", "labels", "style"].includes(group.id);
 }
 
+function workflowStageState(stage, { selectedSource, selectedPreset, params, plotSpec, studioReport }) {
+  if (stage.id === "source") return selectedSource ? "done" : "active";
+  if (!selectedSource) return "locked";
+  if (stage.id === "plot") return selectedPreset ? "done" : "active";
+  if (!selectedPreset) return "locked";
+  if (stage.id === "mapping") {
+    const mappingGroup = selectedPreset.parameter_groups?.find((group) => group.id === "mapping");
+    const requiredParams = mappingGroup?.parameters?.filter((parameter) => parameter.required) || [];
+    const mapped = requiredParams.length === 0 || requiredParams.every((parameter) => {
+      const value = params[parameter.id];
+      return Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined && value !== "";
+    });
+    return mapped ? "done" : "active";
+  }
+  if (stage.id === "parameters") return Object.keys(params || {}).length ? "done" : "active";
+  if (stage.id === "preview") return plotSpec?.data?.length ? "done" : "active";
+  if (stage.id === "report") return studioReport?.report ? "done" : "active";
+  return "active";
+}
+
 export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, onOpenAnalysis }) {
   const { t } = useI18n();
   const outputs = report?.outputs || [];
@@ -452,6 +585,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   }, [sourceKey(selectedSource)]);
 
   const plotPresets = manifest?.presets || [];
+  const workflowStages = manifest?.workflow_stages?.length ? manifest.workflow_stages : FALLBACK_WORKFLOW_STAGES;
   const tableSummary = studioReport?.table_summary || null;
   const recommendedPlotIds = studioReport?.recommended_plot_ids || [];
   const groupedPresets = useMemo(() => groupPlotPresets(plotPresets), [plotPresets]);
@@ -560,6 +694,21 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
           <p className="summary">{t("figureWorkspaceSummary")}</p>
         </div>
         <button className="primary" type="button" onClick={onOpenAnalysis}>{t("backToAnalysis")}</button>
+      </section>
+
+      <section className="plot-workflow-strip" aria-label="Plot Studio workflow">
+        {workflowStages.map((stage, index) => {
+          const state = workflowStageState(stage, { selectedSource, selectedPreset, params, plotSpec, studioReport });
+          return (
+            <article className={`plot-workflow-step ${state}`} key={stage.id}>
+              <span>{index + 1}</span>
+              <div>
+                <strong>{stage.label}</strong>
+                <small>{stage.description}</small>
+              </div>
+            </article>
+          );
+        })}
       </section>
 
       <section className="plot-studio-layout">

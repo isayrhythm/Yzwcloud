@@ -277,6 +277,13 @@ button {
   padding-inline: 14px;
 }
 
+.hero-ghost.active {
+  border-color: rgba(121, 243, 242, 0.72);
+  color: #07131f;
+  background: #79f3f2;
+  box-shadow: 0 12px 34px rgba(121, 243, 242, 0.2);
+}
+
 .hero-workflow {
   position: relative;
   z-index: 1;
@@ -1883,6 +1890,81 @@ h2 {
   align-items: start;
 }
 
+.plot-workflow-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: -8px 0 0;
+}
+
+.plot-workflow-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(7, 19, 31, 0.04);
+}
+
+.plot-workflow-step > span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #edf6f3;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.plot-workflow-step div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.plot-workflow-step strong {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.plot-workflow-step small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.plot-workflow-step.done {
+  border-color: rgba(15, 138, 143, 0.2);
+  background: #f7fcfa;
+}
+
+.plot-workflow-step.done > span {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.plot-workflow-step.active {
+  border-color: rgba(49, 95, 214, 0.28);
+  box-shadow: 0 10px 28px rgba(49, 95, 214, 0.1);
+}
+
+.plot-workflow-step.active > span {
+  background: #315fd6;
+  color: #ffffff;
+}
+
+.plot-workflow-step.locked {
+  opacity: 0.58;
+}
+
 .plot-agent-panel,
 .plot-inspector-panel,
 .plot-library-panel {
@@ -2348,6 +2430,89 @@ h2 {
 .mini-surface span:nth-child(4n) { background: #315fd6; }
 .mini-surface span:nth-child(5n) { background: #c44f3a; }
 
+.mini-radar::before,
+.mini-radar::after {
+  position: absolute;
+  inset: 12px 25%;
+  border: 1px solid rgba(36, 49, 58, 0.18);
+  border-radius: 50%;
+  content: "";
+}
+
+.mini-radar::after {
+  inset: 22px 34%;
+}
+
+.mini-radar .axis {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 50px;
+  background: rgba(36, 49, 58, 0.18);
+  transform-origin: top center;
+}
+
+.mini-radar .a1 { transform: rotate(0deg) translateY(-25px); }
+.mini-radar .a2 { transform: rotate(60deg) translateY(-25px); }
+.mini-radar .a3 { transform: rotate(120deg) translateY(-25px); }
+
+.mini-radar .poly {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 42px;
+  border: 2px solid #0f8a8f;
+  background: rgba(15, 138, 143, 0.16);
+  clip-path: polygon(50% 0, 92% 33%, 74% 100%, 24% 88%, 0 38%);
+  transform: translate(-50%, -50%);
+}
+
+.mini-radar .p2 {
+  width: 42px;
+  height: 50px;
+  border-color: #315fd6;
+  background: rgba(49, 95, 214, 0.14);
+  transform: translate(-50%, -50%) rotate(22deg);
+}
+
+.mini-parallel .axis {
+  position: absolute;
+  top: 14px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 99px;
+  background: rgba(36, 49, 58, 0.2);
+}
+
+.mini-parallel .path {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  height: 2px;
+  border-radius: 99px;
+  background: #0f8a8f;
+  transform-origin: left center;
+}
+
+.mini-parallel .p1 {
+  top: 27px;
+  transform: skewY(-8deg);
+}
+
+.mini-parallel .p2 {
+  top: 43px;
+  background: #315fd6;
+  transform: skewY(10deg);
+}
+
+.mini-parallel .p3 {
+  top: 55px;
+  background: #c44f3a;
+  transform: skewY(-15deg);
+}
+
 .mini-line .line-segment {
   position: absolute;
   height: 3px;
@@ -2424,6 +2589,82 @@ h2 {
 .mini-volcano span:nth-child(16) { left: 85%; top: 29%; background: #c44f3a; }
 .mini-volcano span:nth-child(17) { left: 90%; top: 18%; background: #c44f3a; }
 .mini-volcano span:nth-child(n+18) { display: none; }
+
+.mini-waterfall {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 10px;
+}
+
+.mini-waterfall::before {
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  top: 50%;
+  height: 1px;
+  background: rgba(82, 97, 107, 0.45);
+  content: "";
+}
+
+.mini-waterfall span {
+  width: 8px;
+  min-height: 5px;
+  border-radius: 2px 2px 0 0;
+  background: #c44f3a;
+  transform-origin: center bottom;
+}
+
+.mini-waterfall span.neg {
+  align-self: flex-start;
+  background: #315fd6;
+  transform: rotate(180deg);
+}
+
+.mini-waterfall span.pos {
+  align-self: flex-start;
+  margin-top: 50%;
+}
+
+.mini-ma::before {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  height: 1px;
+  background: rgba(82, 97, 107, 0.45);
+  content: "";
+}
+
+.mini-ma span {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #8fb0c8;
+}
+
+.mini-ma span:nth-child(1) { left: 10%; top: 27%; background: #c44f3a; }
+.mini-ma span:nth-child(2) { left: 13%; top: 68%; background: #315fd6; }
+.mini-ma span:nth-child(3) { left: 18%; top: 45%; }
+.mini-ma span:nth-child(4) { left: 22%; top: 54%; }
+.mini-ma span:nth-child(5) { left: 27%; top: 38%; }
+.mini-ma span:nth-child(6) { left: 31%; top: 58%; }
+.mini-ma span:nth-child(7) { left: 37%; top: 47%; }
+.mini-ma span:nth-child(8) { left: 42%; top: 42%; }
+.mini-ma span:nth-child(9) { left: 48%; top: 53%; }
+.mini-ma span:nth-child(10) { left: 54%; top: 36%; }
+.mini-ma span:nth-child(11) { left: 59%; top: 57%; }
+.mini-ma span:nth-child(12) { left: 64%; top: 46%; }
+.mini-ma span:nth-child(13) { left: 69%; top: 50%; }
+.mini-ma span:nth-child(14) { left: 74%; top: 41%; }
+.mini-ma span:nth-child(15) { left: 79%; top: 61%; }
+.mini-ma span:nth-child(16) { left: 84%; top: 33%; background: #c44f3a; }
+.mini-ma span:nth-child(17) { left: 88%; top: 70%; background: #315fd6; }
+.mini-ma span:nth-child(18) { left: 91%; top: 47%; }
+.mini-ma span:nth-child(19) { left: 95%; top: 40%; background: #c44f3a; }
+.mini-ma span:nth-child(20) { left: 96%; top: 63%; background: #315fd6; }
 
 .mini-upset {
   display: grid;
@@ -2725,10 +2966,22 @@ h2 {
   min-width: 0;
 }
 
-.plot-param-row span {
+.plot-param-label {
+  display: grid;
+  gap: 2px;
+}
+
+.plot-param-label strong {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.plot-param-label small {
+  color: #7a8d99;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .plot-param-row input,
@@ -2748,10 +3001,44 @@ h2 {
   min-height: 92px;
 }
 
+.plot-param-color-controls,
+.plot-param-number-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.plot-param-color-controls input[type="color"] {
+  width: 42px;
+  height: 34px;
+  min-height: 34px;
+  padding: 3px;
+}
+
+.plot-param-number-controls {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.plot-param-number-controls button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f4f9f7;
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
+.plot-param-number-controls button.active {
+  border-color: rgba(15, 138, 143, 0.42);
+  background: rgba(15, 138, 143, 0.12);
+}
+
 .plot-param-row.checkbox {
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
-  padding-top: 20px;
+  padding-top: 6px;
 }
 
 .plot-param-row.checkbox input {
@@ -3442,6 +3729,7 @@ h2 {
   .lab-grid,
   .lab-module-picker,
   .lab-risk-grid,
+  .plot-workflow-strip,
   .plot-studio-layout,
   .report-summary-grid,
   .report-section-grid,

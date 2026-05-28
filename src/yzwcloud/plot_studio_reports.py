@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from yzwcloud.plot_studio_presets import PLOT_PRESETS, PLOT_STUDIO_VERSION, recommend_plot_types
@@ -44,6 +45,22 @@ PLOT_REPORT_GUIDANCE = {
     "surface_3d": {
         "focus": "matrix-level expression ridges, scaled feature blocks, row ranking, and whether 3D perspective helps or obscures the pattern",
         "parameter_hint": "Keep top_n modest for the first render, use row z-score scaling, and export 2D heatmap as the publication fallback.",
+    },
+    "radar": {
+        "focus": "multi-metric sample or group profiles, axis balance, dominant metrics, and whether normalization changes the apparent pattern",
+        "parameter_hint": "Use radar for a small number of profiles, normalize by axis for mixed-scale metrics, and switch to parallel coordinates when series count grows.",
+    },
+    "parallel_coordinates": {
+        "focus": "high-dimensional numeric profiles, outlier trajectories, group coloring, and dimensions that separate samples",
+        "parameter_hint": "Limit dimensions on the first render, color by a meaningful group or score, and use brushing to inspect unusual trajectories.",
+    },
+    "waterfall": {
+        "focus": "ranked signed effects, strongest positive and negative changes, threshold-sensitive hits, and whether a few features dominate the result",
+        "parameter_hint": "Use abs-value sorting for first review, keep the zero line visible, and color by significance when p-values are available.",
+    },
+    "ma_plot": {
+        "focus": "mean-dependent fold-change patterns, low-abundance noise, high-abundance shifts, and asymmetry around the zero line",
+        "parameter_hint": "Use a log x-axis for abundance, keep the zero line visible, and label only the strongest significant features.",
     },
     "heatmap": {
         "focus": "row/column clustering, scaled expression blocks, annotation consistency, and candidate feature groups",
@@ -225,6 +242,23 @@ def _signal_text(source_type: str, table_summary: dict[str, Any] | None, meta: d
         if numeric_columns:
             preview = ", ".join(numeric_columns[:5])
             return f"Numeric signal columns are available for plotting: {preview}."
+    if "diff" in source_type or meta.get("diff_gene_count") is not None:
+        parts = []
+        if meta.get("diff_gene_count") is not None:
+            tested = meta.get("tested_gene_count", "unknown")
+            parts.append(f"{meta.get('diff_gene_count')} significant feature(s) out of {tested} tested")
+        if meta.get("comparison_label"):
+            parts.append(f"comparison={meta.get('comparison_label')}")
+        if meta.get("method"):
+            parts.append(f"method={meta.get('method')}")
+        if meta.get("p_value_threshold") is not None or meta.get("log2fc_threshold") is not None:
+            parts.append(
+                f"thresholds p<={meta.get('p_value_threshold', 'auto')}, abs(log2FC)>={meta.get('log2fc_threshold', 'auto')}"
+            )
+        if meta.get("r_script_file"):
+            parts.append(f"R script={Path(str(meta.get('r_script_file'))).name}")
+        if parts:
+            return "Differential result metadata reports " + "; ".join(parts) + "."
     if meta:
         keys = ", ".join(sorted(meta)[:8])
         return f"Metadata keys available for interpretation: {keys}."
@@ -440,6 +474,32 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append("median reference shown")
         if params.get("show_rug"):
             summary["display"].append("rug marks shown")
+    if plot_id == "radar":
+        if params.get("max_series"):
+            summary["display"].append(f"max series={params.get('max_series')}")
+        if params.get("aggregation"):
+            summary["statistics"].append(f"aggregation={params.get('aggregation')}")
+        if params.get("normalize"):
+            summary["statistics"].append(f"normalization={params.get('normalize')}")
+        if "fill" in params:
+            summary["display"].append(f"filled polygons={bool(params.get('fill'))}")
+        if params.get("line_width"):
+            summary["display"].append(f"line width={params.get('line_width')}")
+        if params.get("marker_size") is not None:
+            summary["display"].append(f"marker size={params.get('marker_size')}")
+    if plot_id == "parallel_coordinates":
+        if params.get("max_dimensions"):
+            summary["display"].append(f"max dimensions={params.get('max_dimensions')}")
+        if params.get("max_rows"):
+            summary["display"].append(f"max rows={params.get('max_rows')}")
+        if params.get("color"):
+            summary["display"].append(f"color by={params.get('color')}")
+        if params.get("color_scale"):
+            summary["display"].append(f"color scale={params.get('color_scale')}")
+        if "show_colorbar" in params:
+            summary["display"].append(f"color bar shown={bool(params.get('show_colorbar'))}")
+        if params.get("line_opacity") is not None:
+            summary["display"].append(f"line opacity={params.get('line_opacity')}")
     if plot_id == "bubble":
         if params.get("size_scale"):
             summary["display"].append(f"size scale={params.get('size_scale')}")
@@ -506,6 +566,46 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"label mode={params.get('label_mode')}")
         if params.get("label_font_size"):
             summary["display"].append(f"label font size={params.get('label_font_size')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
+    if plot_id == "waterfall":
+        if params.get("value_column"):
+            summary["statistics"].append(f"signed value={params.get('value_column')}")
+        if params.get("sort_by"):
+            summary["display"].append(f"sort by={params.get('sort_by')}")
+        if params.get("top_n"):
+            summary["display"].append(f"top bars={params.get('top_n')}")
+        if params.get("orientation"):
+            summary["display"].append(f"orientation={params.get('orientation')}")
+        if params.get("color_mode"):
+            summary["display"].append(f"color mode={params.get('color_mode')}")
+        if params.get("log2fc_threshold") is not None:
+            summary["statistics"].append(f"abs value threshold={params.get('log2fc_threshold')}")
+        if params.get("p_value_threshold") is not None:
+            summary["statistics"].append(f"p-value threshold={params.get('p_value_threshold')}")
+        if "show_zero_line" in params:
+            summary["display"].append(f"zero line={bool(params.get('show_zero_line'))}")
+        if "show_value_labels" in params:
+            summary["display"].append(f"value labels={bool(params.get('show_value_labels'))}")
+        if params.get("bar_opacity") is not None:
+            summary["display"].append(f"bar opacity={params.get('bar_opacity')}")
+    if plot_id == "ma_plot":
+        if params.get("mean_column"):
+            summary["statistics"].append(f"mean abundance={params.get('mean_column')}")
+        if params.get("log2fc_column"):
+            summary["statistics"].append(f"log2FC={params.get('log2fc_column')}")
+        if params.get("log2fc_threshold") is not None:
+            summary["statistics"].append(f"abs log2FC threshold={params.get('log2fc_threshold')}")
+        if params.get("p_value_threshold") is not None:
+            summary["statistics"].append(f"p-value threshold={params.get('p_value_threshold')}")
+        if "x_log" in params:
+            summary["display"].append(f"log x-axis={bool(params.get('x_log'))}")
+        if "show_threshold_lines" in params:
+            summary["display"].append(f"threshold lines={bool(params.get('show_threshold_lines'))}")
+        if params.get("label_top_n") is not None:
+            summary["display"].append(f"top labels={params.get('label_top_n')}")
         if params.get("point_size"):
             summary["display"].append(f"point size={params.get('point_size')}")
         if params.get("point_alpha"):

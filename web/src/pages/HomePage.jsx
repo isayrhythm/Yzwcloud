@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../i18n.jsx";
 
@@ -105,11 +105,15 @@ const CHARTS = {
   boxplot: { titleKey: "homeBoxplotChart", subtitle: "Single gene expression by condition" },
 };
 
+const DEMO_SEQUENCE = ["intake", "qc", "heatmap", "pca", "cluster", "diff", "volcano", "boxplot", "corr"];
+
 export function HomePage({ onStart, onOpenPlot }) {
   const { t } = useI18n();
   const [visibleNodeIds, setVisibleNodeIds] = useState(() => new Set(["intake"]));
   const [selectedNodeId, setSelectedNodeId] = useState("intake");
   const [selectedChart, setSelectedChart] = useState("pca");
+  const [demoStep, setDemoStep] = useState(0);
+  const [autoPlay, setAutoPlay] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
 
   const visibleNodes = useMemo(
     () => NODE_GROUPS.filter((node) => visibleNodeIds.has(node.id)),
@@ -122,10 +126,28 @@ export function HomePage({ onStart, onOpenPlot }) {
   const selectedNode = NODE_GROUPS.find((node) => node.id === selectedNodeId) || NODE_GROUPS[0];
   const chart = CHARTS[selectedChart] || CHARTS.pca;
 
-  function activateNode(node) {
+  useEffect(() => {
+    if (!autoPlay) return undefined;
+    const timer = window.setInterval(() => {
+      setDemoStep((current) => (current + 1) % DEMO_SEQUENCE.length);
+    }, 1350);
+    return () => window.clearInterval(timer);
+  }, [autoPlay]);
+
+  useEffect(() => {
+    if (!autoPlay) return;
+    const node = NODE_GROUPS.find((item) => item.id === DEMO_SEQUENCE[demoStep]) || NODE_GROUPS[0];
+    revealNode(node);
+  }, [autoPlay, demoStep]);
+
+  function revealNode(node) {
     setSelectedNodeId(node.id);
     setVisibleNodeIds((current) => {
-      const next = new Set(current);
+      const next = demoStep === 0 ? new Set(["intake"]) : new Set(current);
+      next.add("intake");
+      for (const demoNodeId of DEMO_SEQUENCE.slice(0, demoStep + 1)) {
+        next.add(demoNodeId);
+      }
       next.add(node.id);
       for (const childId of node.unlocks || []) {
         next.add(childId);
@@ -137,7 +159,24 @@ export function HomePage({ onStart, onOpenPlot }) {
     }
   }
 
+  function activateNode(node) {
+    setAutoPlay(false);
+    setVisibleNodeIds((current) => {
+      const next = new Set(current);
+      next.add(node.id);
+      for (const childId of node.unlocks || []) {
+        next.add(childId);
+      }
+      return next;
+    });
+    if (node.chart) {
+      setSelectedChart(node.chart);
+    }
+    setSelectedNodeId(node.id);
+  }
+
   function expandAll() {
+    setAutoPlay(false);
     setVisibleNodeIds(new Set(NODE_GROUPS.map((node) => node.id)));
     setSelectedNodeId("volcano");
     setSelectedChart("volcano");
@@ -159,6 +198,9 @@ export function HomePage({ onStart, onOpenPlot }) {
             </button>
             <button className="hero-ghost compact" onClick={expandAll}>
               {t("homeExpandDemo")}
+            </button>
+            <button className={`hero-ghost compact ${autoPlay ? "active" : ""}`} onClick={() => setAutoPlay((current) => !current)}>
+              {autoPlay ? t("homePauseDemo") : t("homePlayDemo")}
             </button>
           </div>
         </div>

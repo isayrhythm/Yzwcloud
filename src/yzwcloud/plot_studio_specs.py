@@ -63,6 +63,10 @@ def create_plot_studio_spec(
         "density_contour": _build_density_contour_spec,
         "scatter_3d": _build_scatter_3d_spec,
         "surface_3d": _build_surface_3d_spec,
+        "radar": _build_radar_spec,
+        "parallel_coordinates": _build_parallel_coordinates_spec,
+        "waterfall": _build_waterfall_spec,
+        "ma_plot": _build_ma_plot_spec,
         "bubble": _build_bubble_spec,
         "volcano": _build_volcano_spec,
         "upset": _build_upset_spec,
@@ -222,6 +226,117 @@ def _build_bubble_spec(context: dict[str, Any]) -> dict[str, Any]:
     if not traces:
         warnings.append("No complete x/y/size rows were available for bubble rendering.")
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _build_radar_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    max_series = _bounded_int(params.get("max_series"), 6, 1, 24)
+    value_columns = _selected_columns(params.get("value_columns"), context["numeric_columns"], limit=24)
+    if len(value_columns) < 3:
+        return _empty_plot_spec("radar", "Radar requires at least three numeric metric columns.", context["table_summary"])
+
+    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    label_column = _choose_column(params.get("label"), context["columns"])
+    series = []
+    if group_column:
+        grouped = _records_by_category(context["records"], group_column)
+        for group_name, rows in list(grouped.items())[:max_series]:
+            values = [_aggregate_column(rows, column, str(params.get("aggregation") or "mean")) for column in value_columns]
+            if any(value is not None for value in values):
+                series.append({"name": group_name, "values": _fill_missing_numeric(values)})
+    else:
+        for index, row in enumerate(context["records"][:max_series]):
+            values = [_number_or_none(row.get(column)) for column in value_columns]
+            if any(value is not None for value in values):
+                name = str(row.get(label_column) or f"row_{index + 1}") if label_column else f"row_{index + 1}"
+                series.append({"name": name, "values": _fill_missing_numeric(values)})
+
+    if not series:
+        return _empty_plot_spec("radar", "No complete numeric profiles were available for radar rendering.", context["table_summary"])
+
+    normalized_series = _normalize_profile_series(series, str(params.get("normalize") or "minmax_by_axis"))
+    closed_theta = value_columns + [value_columns[0]]
+    traces = []
+    for index, item in enumerate(normalized_series):
+        values = item["values"] + [item["values"][0]]
+        traces.append(
+            {
+                "type": "scatterpolar",
+                "mode": "lines+markers" if _bounded_float(params.get("marker_size"), 5, 0, 20) > 0 else "lines",
+                "name": item["name"],
+                "theta": closed_theta,
+                "r": values,
+                "fill": "toself" if _truthy(params.get("fill"), True) else "none",
+                "line": {"color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)], "width": _bounded_float(params.get("line_width"), 2.2, 0.5, 8)},
+                "marker": {"size": _bounded_float(params.get("marker_size"), 5, 0, 20)},
+                "hovertemplate": "%{theta}<br>value=%{r:.4g}<extra>%{fullData.name}</extra>",
+            }
+        )
+
+    layout = _base_layout(title="Radar profile", x_title="", y_title="", params=params)
+    layout.pop("xaxis", None)
+    layout.pop("yaxis", None)
+    layout["polar"] = {
+        "bgcolor": layout.get("plot_bgcolor", "#ffffff"),
+        "radialaxis": {"visible": True, "showline": True, "gridcolor": str(params.get("grid_color") or "#e7eef4")},
+        "angularaxis": {"direction": "clockwise", "gridcolor": str(params.get("grid_color") or "#e7eef4")},
+    }
+    if str(params.get("normalize") or "minmax_by_axis") == "minmax_by_axis":
+        layout["polar"]["radialaxis"]["range"] = [0, 1]
+    warnings = []
+    if group_column and len(_records_by_category(context["records"], group_column)) > max_series:
+        warnings.append(f"Showing first {max_series} group profiles to keep the radar readable.")
+    elif not group_column and len(context["records"]) > max_series:
+        warnings.append(f"Showing first {max_series} row profiles to keep the radar readable.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _build_parallel_coordinates_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    max_dimensions = _bounded_int(params.get("max_dimensions"), 8, 3, 24)
+    max_rows = _bounded_int(params.get("max_rows"), 800, 20, 5000)
+    dimension_columns = _selected_columns(params.get("dimensions"), context["numeric_columns"], limit=max_dimensions)
+    if len(dimension_columns) < 3:
+        return _empty_plot_spec(
+            "parallel_coordinates",
+            "Parallel coordinates requires at least three numeric dimension columns.",
+            context["table_summary"],
+        )
+
+    rows = context["records"][:max_rows]
+    dimensions = []
+    for column in dimension_columns:
+        values = [_number_or_none(row.get(column)) for row in rows]
+        filled_values = _fill_missing_numeric(values)
+        if not filled_values:
+            continue
+        dimensions.append({"label": column, "values": filled_values})
+    if len(dimensions) < 3:
+        return _empty_plot_spec("parallel_coordinates", "Not enough complete numeric dimensions were available.", context["table_summary"])
+
+    color_column = _requested_column(params.get("color"), context["columns"])
+    color_values, color_title = _parallel_color_values(rows, color_column, context["numeric_columns"])
+    trace = {
+        "type": "parcoords",
+        "dimensions": dimensions,
+        "line": {
+            "color": color_values,
+            "colorscale": _colorscale(str(params.get("color_scale") or "viridis")),
+            "showscale": _truthy(params.get("show_colorbar"), True),
+            "colorbar": {"title": color_title},
+        },
+        "labelfont": {"size": _bounded_int(params.get("font_size"), 13, 8, 28), "color": "#07131f"},
+        "tickfont": {"size": _bounded_int(params.get("tick_font_size"), 12, 6, 28), "color": str(params.get("tick_color") or "#324657")},
+    }
+    layout = _base_layout(title="Parallel coordinates", x_title="", y_title="", params=params)
+    layout.pop("xaxis", None)
+    layout.pop("yaxis", None)
+    warnings = []
+    if len(context["records"]) > max_rows:
+        warnings.append(f"Showing first {max_rows} row profiles to keep the interactive render responsive.")
+    if len(context["numeric_columns"]) > len(dimension_columns):
+        warnings.append(f"Showing {len(dimension_columns)} numeric dimensions; refine the mapping to inspect others.")
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_boxplot_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -856,6 +971,277 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
     if not traces:
         warnings.append("No valid p-value/log2FC rows were available.")
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _build_waterfall_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    value_column = _requested_column(params.get("value_column"), columns) or _find_column(
+        columns, ["log2fc", "log2_fold_change", "fold_change", "effect_size", "score", "value"]
+    )
+    label_column = _requested_column(params.get("label_column"), columns) or _find_column(
+        columns, ["gene", "symbol", "name", "feature", "id"]
+    )
+    p_value_column = _requested_column(params.get("p_value_column"), columns) or _find_column(
+        columns, ["padj", "p_adjust", "p_value", "pvalue"]
+    )
+    group_column = _requested_column(params.get("group"), columns)
+    if not value_column:
+        return _empty_plot_spec("waterfall", "Waterfall requires one signed numeric value column.", context["table_summary"])
+
+    rows = []
+    for index, row in enumerate(context["records"]):
+        value = _number_or_none(row.get(value_column))
+        if value is None:
+            continue
+        p_value = _number_or_none(row.get(p_value_column)) if p_value_column else None
+        label = str(row.get(label_column) or f"row {index + 1}") if label_column else f"row {index + 1}"
+        rows.append(
+            {
+                "label": label,
+                "value": value,
+                "p_value": p_value,
+                "group": str(row.get(group_column) or "Group") if group_column else "",
+                "input_index": index,
+            }
+        )
+    if not rows:
+        return _empty_plot_spec("waterfall", "No finite signed values were available for waterfall rendering.", context["table_summary"])
+
+    sort_by = str(params.get("sort_by") or "abs_value")
+    if sort_by == "value_desc":
+        rows.sort(key=lambda item: item["value"], reverse=True)
+    elif sort_by == "value_asc":
+        rows.sort(key=lambda item: item["value"])
+    elif sort_by == "p_value" and p_value_column:
+        rows.sort(key=lambda item: item["p_value"] if item["p_value"] is not None else math.inf)
+    elif sort_by == "input":
+        rows.sort(key=lambda item: item["input_index"])
+    else:
+        rows.sort(key=lambda item: abs(item["value"]), reverse=True)
+
+    top_n = _bounded_int(params.get("top_n"), 80, 1, 5000)
+    warnings = []
+    if len(rows) > top_n:
+        warnings.append(f"Showing top {top_n} rows ranked by {sort_by}.")
+        rows = rows[:top_n]
+
+    positive_color = str(params.get("positive_color") or "#c44f3a")
+    negative_color = str(params.get("negative_color") or "#315fd6")
+    neutral_color = str(params.get("neutral_color") or "#9aaab7")
+    color_mode = str(params.get("color_mode") or "significance")
+    log2fc_threshold = _bounded_float(params.get("log2fc_threshold"), 1.0, 0, 20)
+    p_value_threshold = _bounded_float(params.get("p_value_threshold"), 0.05, 0, 1)
+    group_colors = {
+        group: PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+        for index, group in enumerate(dict.fromkeys(item["group"] for item in rows if item["group"]))
+    }
+    marker_colors = [
+        _waterfall_color(
+            item,
+            color_mode=color_mode,
+            p_value_column=p_value_column,
+            log2fc_threshold=log2fc_threshold,
+            p_value_threshold=p_value_threshold,
+            positive_color=positive_color,
+            negative_color=negative_color,
+            neutral_color=neutral_color,
+            group_colors=group_colors,
+        )
+        for item in rows
+    ]
+    precision = _bounded_int(params.get("value_precision"), 2, 0, 6)
+    orientation = str(params.get("orientation") or "vertical")
+    is_horizontal = orientation == "horizontal"
+    labels = [item["label"] for item in rows]
+    values = [item["value"] for item in rows]
+    customdata = [[item["p_value"] if item["p_value"] is not None else "", item["group"]] for item in rows]
+    trace = {
+        "type": "bar",
+        "name": value_column,
+        "x": values if is_horizontal else labels,
+        "y": labels if is_horizontal else values,
+        "orientation": "h" if is_horizontal else "v",
+        "marker": {
+            "color": marker_colors,
+            "opacity": _bounded_float(params.get("bar_opacity"), 0.88, 0.05, 1),
+            "line": {"color": "rgba(255,255,255,0.85)", "width": 0.6},
+        },
+        "customdata": customdata,
+        "hovertemplate": (
+            "%{y}<br>"
+            + f"{value_column}=%{{x:.4g}}<br>p=%{{customdata[0]}}<br>group=%{{customdata[1]}}<extra></extra>"
+            if is_horizontal
+            else "%{x}<br>"
+            + f"{value_column}=%{{y:.4g}}<br>p=%{{customdata[0]}}<br>group=%{{customdata[1]}}<extra></extra>"
+        ),
+    }
+    if _truthy(params.get("show_value_labels"), False):
+        trace["text"] = [f"{value:.{precision}f}" for value in values]
+        trace["textposition"] = "outside"
+        trace["cliponaxis"] = False
+
+    layout = _base_layout(
+        title=f"Waterfall: ranked {value_column}",
+        x_title=value_column if is_horizontal else label_column or "feature",
+        y_title=(label_column or "feature") if is_horizontal else value_column,
+        params=params,
+    )
+    layout["bargap"] = _bounded_float(params.get("bargap"), 0.08, 0, 0.8)
+    layout["xaxis"]["automargin"] = True
+    layout["yaxis"]["automargin"] = True
+    if _truthy(params.get("show_zero_line"), True):
+        zero_line = {"color": "#52616b", "width": 1.2, "dash": "solid"}
+        layout.setdefault("shapes", []).append(_vertical_line(0, line=zero_line) if is_horizontal else _horizontal_line(0, line=zero_line))
+    if len(rows) > 60 and not is_horizontal:
+        layout["xaxis"]["tickangle"] = _bounded_float(params.get("x_tick_angle"), -55, -90, 90)
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _waterfall_color(
+    item: dict[str, Any],
+    *,
+    color_mode: str,
+    p_value_column: str | None,
+    log2fc_threshold: float,
+    p_value_threshold: float,
+    positive_color: str,
+    negative_color: str,
+    neutral_color: str,
+    group_colors: dict[str, str],
+) -> str:
+    if color_mode == "group" and item.get("group"):
+        return group_colors.get(str(item["group"]), neutral_color)
+    if color_mode == "single":
+        return positive_color
+    is_significant = (
+        color_mode == "significance"
+        and p_value_column
+        and item.get("p_value") is not None
+        and item["p_value"] <= p_value_threshold
+        and abs(item["value"]) >= log2fc_threshold
+    )
+    if color_mode == "significance" and not is_significant:
+        return neutral_color
+    return positive_color if item["value"] >= 0 else negative_color
+
+
+def _build_ma_plot_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    mean_column = _requested_column(params.get("mean_column"), columns) or _find_column(
+        columns, ["basemean", "mean_expression", "mean_abundance", "mean", "abundance", "intensity"]
+    )
+    log2fc_column = _requested_column(params.get("log2fc_column"), columns) or _find_column(
+        columns, ["log2fc", "log2_fold_change", "fold_change"]
+    )
+    p_value_column = _requested_column(params.get("p_value_column"), columns) or _find_column(
+        columns, ["padj", "p_adjust", "p_value", "pvalue"]
+    )
+    gene_column = _requested_column(params.get("gene"), columns) or _find_column(columns, ["gene", "symbol", "name"])
+    if not mean_column or not log2fc_column:
+        return _empty_plot_spec("ma_plot", "MA plot requires mean abundance and log2FC columns.", context["table_summary"])
+
+    log2fc_threshold = _bounded_float(params.get("log2fc_threshold"), 1.0, 0, 20)
+    p_value_threshold = _bounded_float(params.get("p_value_threshold"), 0.05, 0, 1)
+    grouped = {"Up": [], "Down": [], "Not significant": []}
+    for row in context["records"]:
+        mean_value = _number_or_none(row.get(mean_column))
+        log2fc = _number_or_none(row.get(log2fc_column))
+        p_value = _number_or_none(row.get(p_value_column)) if p_value_column else None
+        if mean_value is None or log2fc is None:
+            continue
+        if _truthy(params.get("x_log"), True) and mean_value <= 0:
+            continue
+        point = {
+            "x": mean_value,
+            "y": log2fc,
+            "gene": str(row.get(gene_column) or "") if gene_column else "",
+            "p_value": p_value,
+        }
+        is_significant = (
+            p_value_column
+            and p_value is not None
+            and p_value <= p_value_threshold
+            and abs(log2fc) >= log2fc_threshold
+        )
+        if is_significant and log2fc >= 0:
+            grouped["Up"].append(point)
+        elif is_significant:
+            grouped["Down"].append(point)
+        else:
+            grouped["Not significant"].append(point)
+
+    colors = {
+        "Up": str(params.get("up_color") or "#c44f3a"),
+        "Down": str(params.get("down_color") or "#315fd6"),
+        "Not significant": str(params.get("neutral_color") or "#9aaab7"),
+    }
+    marker_size = _bounded_float(params.get("point_size"), 7, 1, 30)
+    marker_opacity = _bounded_float(params.get("point_alpha"), 0.76, 0.05, 1)
+    traces = []
+    for name, points in grouped.items():
+        if not points:
+            continue
+        traces.append(
+            {
+                "type": "scattergl",
+                "mode": "markers",
+                "name": name,
+                "x": [point["x"] for point in points],
+                "y": [point["y"] for point in points],
+                "text": [point["gene"] for point in points],
+                "customdata": [[point["p_value"] if point["p_value"] is not None else ""] for point in points],
+                "marker": {"size": marker_size, "opacity": marker_opacity, "color": colors[name]},
+                "hovertemplate": "%{text}<br>mean=%{x:.4g}<br>log2FC=%{y:.3g}<br>p=%{customdata[0]}<extra>%{fullData.name}</extra>",
+            }
+        )
+    label_trace = _ma_label_trace(grouped, params)
+    if label_trace:
+        traces.append(label_trace)
+
+    layout = _base_layout(
+        title=f"MA plot: {mean_column} vs {log2fc_column}",
+        x_title=mean_column,
+        y_title=log2fc_column,
+        params=params,
+    )
+    if _truthy(params.get("x_log"), True):
+        layout["xaxis"]["type"] = "log"
+    if _truthy(params.get("show_threshold_lines"), True):
+        line = {"color": "#8799aa", "width": 1.0, "dash": "dash"}
+        layout.setdefault("shapes", []).extend(
+            [_horizontal_line(0, line={"color": "#52616b", "width": 1.2, "dash": "solid"})]
+        )
+        if log2fc_threshold > 0:
+            layout["shapes"].extend([_horizontal_line(log2fc_threshold, line=line), _horizontal_line(-log2fc_threshold, line=line)])
+    warnings = []
+    if not traces:
+        warnings.append("No valid mean/log2FC rows were available.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _ma_label_trace(grouped: dict[str, list[dict[str, Any]]], params: dict[str, Any]) -> dict[str, Any] | None:
+    label_top_n = _bounded_int(params.get("label_top_n"), 12, 0, 200)
+    if label_top_n <= 0:
+        return None
+    candidates = [point for group_name in ("Up", "Down") for point in grouped.get(group_name, []) if point.get("gene")]
+    candidates.sort(key=lambda point: (point["p_value"] if point["p_value"] is not None else math.inf, -abs(point["y"])))
+    selected = candidates[:label_top_n]
+    if not selected:
+        return None
+    return {
+        "type": "scatter",
+        "mode": "text",
+        "name": "Gene labels",
+        "x": [point["x"] for point in selected],
+        "y": [point["y"] for point in selected],
+        "text": [point["gene"] for point in selected],
+        "textposition": ["middle right" if point["y"] >= 0 else "middle left" for point in selected],
+        "textfont": {"size": _bounded_int(params.get("label_font_size"), 12, 6, 24), "color": "#07131f"},
+        "hoverinfo": "skip",
+        "showlegend": False,
+    }
 
 
 def _volcano_label_trace(grouped: dict[str, list[dict[str, Any]]], params: dict[str, Any]) -> dict[str, Any] | None:
@@ -1582,7 +1968,7 @@ def _plotly_config(params: dict[str, Any]) -> dict[str, Any]:
     if export_format not in {"svg", "png", "jpeg", "webp"}:
         export_format = "svg"
     dpi = str(params.get("dpi") or "300")
-    scale = {"150": 1, "300": 2, "600": 4}.get(dpi, 2)
+    scale = {"150": 1, "300": 2, "600": 4, "1000": 6}.get(dpi, 2)
     filename = _plot_filename(params.get("export_filename"))
     modebar = _display_modebar(params.get("display_modebar"))
     buttons_to_remove = [] if _truthy(params.get("selection_tools"), False) else ["lasso2d", "select2d"]
@@ -2004,6 +2390,64 @@ def _fill_missing_numeric(values: list[float | None]) -> list[float]:
     present = [value for value in values if value is not None]
     fallback = fmean(present) if present else 0.0
     return [value if value is not None else fallback for value in values]
+
+
+def _aggregate_column(rows: list[dict[str, str]], column: str, method: str) -> float | None:
+    values = [_number_or_none(row.get(column)) for row in rows]
+    values = [value for value in values if value is not None]
+    if not values:
+        return None
+    if method == "median":
+        return median(values)
+    if method == "first":
+        return values[0]
+    return fmean(values)
+
+
+def _normalize_profile_series(series: list[dict[str, Any]], method: str) -> list[dict[str, Any]]:
+    if method == "none" or not series:
+        return series
+    matrix = [item["values"] for item in series]
+    column_count = len(matrix[0]) if matrix else 0
+    normalized_matrix = [[0.0 for _ in range(column_count)] for _ in matrix]
+    for column_index in range(column_count):
+        column_values = [row[column_index] for row in matrix]
+        if method == "zscore_by_axis":
+            mean = fmean(column_values)
+            sd = pstdev(column_values) if len(column_values) > 1 else 0.0
+            for row_index, value in enumerate(column_values):
+                normalized_matrix[row_index][column_index] = (value - mean) / sd if sd else 0.0
+        else:
+            minimum = min(column_values)
+            span = max(max(column_values) - minimum, 1e-9)
+            for row_index, value in enumerate(column_values):
+                normalized_matrix[row_index][column_index] = (value - minimum) / span
+    return [
+        {"name": item["name"], "values": normalized_matrix[index]}
+        for index, item in enumerate(series)
+    ]
+
+
+def _parallel_color_values(
+    rows: list[dict[str, str]],
+    color_column: str | None,
+    numeric_columns: list[str],
+) -> tuple[list[float], str]:
+    if color_column and color_column in numeric_columns:
+        values = [_number_or_none(row.get(color_column)) for row in rows]
+        return _fill_missing_numeric(values), color_column
+    if color_column:
+        categories = []
+        mapping: dict[str, float] = {}
+        values = []
+        for row in rows:
+            category = str(row.get(color_column) or "missing")
+            if category not in mapping:
+                mapping[category] = float(len(categories))
+                categories.append(category)
+            values.append(mapping[category])
+        return values, color_column
+    return [float(index) for index, _ in enumerate(rows)], "row"
 
 
 def _scale_values(values: list[float], scale: str) -> list[float]:

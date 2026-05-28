@@ -33,6 +33,15 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
 
     assert manifest["version"] == "0.1"
     assert manifest["engines"] == ["plotly"]
+    assert [stage["id"] for stage in manifest["workflow_stages"]] == [
+        "source",
+        "plot",
+        "mapping",
+        "parameters",
+        "preview",
+        "report",
+    ]
+    assert "report agent" in manifest["workflow_stages"][-1]["description"]
     presets = {item["id"]: item for item in manifest["presets"]}
     assert {
         "boxplot",
@@ -45,6 +54,10 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "density_contour",
         "scatter_3d",
         "surface_3d",
+        "radar",
+        "parallel_coordinates",
+        "waterfall",
+        "ma_plot",
     } <= set(presets)
 
     boxplot = presets["boxplot"]
@@ -133,6 +146,10 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "margin_bottom",
         "export_filename",
     }
+    dpi_param = next(param for param in export_group["parameters"] if param["id"] == "dpi")
+    format_param = next(param for param in export_group["parameters"] if param["id"] == "format")
+    assert "1000" in dpi_param["options"]
+    assert set(format_param["options"]) == {"svg", "png", "jpeg", "webp"}
     theme_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "theme")
     assert theme_group["advanced"] is True
     assert {param["id"] for param in theme_group["parameters"]} >= {
@@ -199,6 +216,22 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "threshold_line_dash",
         "threshold_line_color",
     }
+    waterfall_ranking = next(group for group in presets["waterfall"]["parameter_groups"] if group["id"] == "ranking")
+    assert {param["id"] for param in waterfall_ranking["parameters"]} >= {
+        "sort_by",
+        "top_n",
+        "orientation",
+        "log2fc_threshold",
+        "p_value_threshold",
+    }
+    ma_thresholds = next(group for group in presets["ma_plot"]["parameter_groups"] if group["id"] == "thresholds")
+    assert {param["id"] for param in ma_thresholds["parameters"]} >= {
+        "x_log",
+        "log2fc_threshold",
+        "p_value_threshold",
+        "show_threshold_lines",
+        "label_top_n",
+    }
 
     heatmap = presets["heatmap"]
     assert heatmap["default_params"]["show_dendrogram"] is True
@@ -257,6 +290,23 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     }
     surface_group = next(group for group in presets["surface_3d"]["parameter_groups"] if group["id"] == "surface")
     assert {param["id"] for param in surface_group["parameters"]} >= {"camera", "show_contours", "colorscale"}
+    radar_profile = next(group for group in presets["radar"]["parameter_groups"] if group["id"] == "profile")
+    assert {param["id"] for param in radar_profile["parameters"]} >= {
+        "max_series",
+        "aggregation",
+        "normalize",
+        "fill",
+        "line_width",
+        "marker_size",
+    }
+    parallel_dimensions = next(group for group in presets["parallel_coordinates"]["parameter_groups"] if group["id"] == "dimensions")
+    assert {param["id"] for param in parallel_dimensions["parameters"]} >= {
+        "max_dimensions",
+        "max_rows",
+        "color_scale",
+        "show_colorbar",
+        "line_opacity",
+    }
 
 
 def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
@@ -460,7 +510,15 @@ def test_plot_studio_metadata_only_report_still_recommends_by_output_type() -> N
                 "sourceKind": "report_output",
                 "name": "DE genes",
                 "type": "diff_result",
-                "meta": {"comparison_label": "B vs A", "diff_gene_count": 128},
+                "meta": {
+                    "comparison_label": "B vs A",
+                    "diff_gene_count": 128,
+                    "tested_gene_count": 2000,
+                    "method": "r_transcriptomics_differential",
+                    "p_value_threshold": 0.05,
+                    "log2fc_threshold": 1.0,
+                    "r_script_file": "E:/workspace/Yzwcloud/src/yzwcloud/r/differential_transcriptomics.R",
+                },
             },
             "plotType": "Volcano",
         },
@@ -469,6 +527,10 @@ def test_plot_studio_metadata_only_report_still_recommends_by_output_type() -> N
     assert report["selected_plot"]["id"] == "volcano"
     assert "volcano" in report["recommended_plot_ids"]
     assert report["table_summary"] is None
+    sections = {section["title"]: section for section in report["report"]["sections"]}
+    assert "128 significant feature(s) out of 2000 tested" in sections["Signals to inspect"]["text"]
+    assert "method=r_transcriptomics_differential" in sections["Signals to inspect"]["text"]
+    assert "R script=differential_transcriptomics.R" in sections["Signals to inspect"]["text"]
     assert any("metadata-only" in item for item in report["report"]["limitations"])
 
 
@@ -766,6 +828,97 @@ def test_plot_studio_report_summarizes_volcano_label_parameters(tmp_path: Path) 
     assert "label font size=14" in report["agent_context"]["parameter_summary"]["display"]
     assert "point size=9" in report["agent_context"]["parameter_summary"]["display"]
     assert "point opacity=0.42" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_waterfall_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_waterfall.csv"
+    table_file.write_text(
+        "gene,log2fc,p_value,group\nA,2.1,0.001,up\nB,-1.8,0.002,down\nC,0.2,0.9,flat\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Diff result",
+                "type": "diff_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "waterfall",
+            "params": {
+                "value_column": "log2fc",
+                "sort_by": "p_value",
+                "top_n": 25,
+                "orientation": "horizontal",
+                "color_mode": "significance",
+                "log2fc_threshold": 1.2,
+                "p_value_threshold": 0.01,
+                "show_zero_line": True,
+                "show_value_labels": True,
+                "bar_opacity": 0.62,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "ranked signed effects" in sections["Figure interpretation"]
+    assert "signed value=log2fc" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "sort by=p_value" in summary["display"]
+    assert "top bars=25" in summary["display"]
+    assert "bar opacity=0.62" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_ma_plot_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_ma.csv"
+    table_file.write_text(
+        "gene,baseMean,log2fc,p_value\nA,120,2.1,0.001\nB,70,-1.8,0.002\nC,9,0.2,0.9\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Diff result",
+                "type": "diff_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "ma_plot",
+            "params": {
+                "mean_column": "baseMean",
+                "log2fc_column": "log2fc",
+                "x_log": True,
+                "log2fc_threshold": 1.2,
+                "p_value_threshold": 0.01,
+                "show_threshold_lines": True,
+                "label_top_n": 4,
+                "point_size": 8,
+                "point_alpha": 0.5,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "mean-dependent fold-change patterns" in sections["Figure interpretation"]
+    assert "mean abundance=baseMean" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "log x-axis=True" in summary["display"]
+    assert "top labels=4" in summary["display"]
+    assert "point opacity=0.5" in summary["display"]
 
 
 def test_plot_studio_report_summarizes_correlation_parameters() -> None:
@@ -1164,6 +1317,74 @@ def test_plot_studio_report_summarizes_scatter_3d_parameters(tmp_path: Path) -> 
     assert "camera=front" in report["agent_context"]["parameter_summary"]["display"]
 
 
+def test_plot_studio_report_summarizes_radar_and_parallel_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_profile_report.csv"
+    table_file.write_text(
+        "sample,group,m1,m2,m3,m4,score\n"
+        "S1,A,1,5,2,8,0.2\n"
+        "S2,A,2,4,3,7,0.3\n"
+        "S3,B,7,2,8,3,0.8\n"
+        "S4,B,8,1,7,2,0.9\n",
+        encoding="utf-8",
+    )
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "Profile table",
+        "type": "unknown_table",
+        "dataPath": str(table_file),
+    }
+    client = TestClient(app)
+
+    radar = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": source,
+            "plotType": "radar",
+            "params": {
+                "max_series": 4,
+                "aggregation": "median",
+                "normalize": "zscore_by_axis",
+                "fill": False,
+                "line_width": 3.1,
+                "marker_size": 7,
+            },
+        },
+    )
+    radar_summary = radar["agent_context"]["parameter_summary"]
+    assert "aggregation=median" in radar_summary["statistics"]
+    assert "normalization=zscore_by_axis" in radar_summary["statistics"]
+    assert "filled polygons=False" in radar_summary["display"]
+    assert "marker size=7" in radar_summary["display"]
+
+    parallel = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": source,
+            "plotType": "parallel_coordinates",
+            "params": {
+                "max_dimensions": 5,
+                "max_rows": 200,
+                "color": "score",
+                "color_scale": "plasma",
+                "show_colorbar": False,
+                "line_opacity": 0.36,
+            },
+        },
+    )
+    parallel_summary = parallel["agent_context"]["parameter_summary"]
+    assert "max dimensions=5" in parallel_summary["display"]
+    assert "max rows=200" in parallel_summary["display"]
+    assert "color by=score" in parallel_summary["display"]
+    assert "color bar shown=False" in parallel_summary["display"]
+    assert "line opacity=0.36" in parallel_summary["display"]
+
+
 def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> None:
     client = TestClient(app)
     expected_keywords = {
@@ -1176,6 +1397,10 @@ def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> Non
         "density_contour": "two-variable density structure",
         "scatter_3d": "three-dimensional separation",
         "surface_3d": "matrix-level expression ridges",
+        "radar": "multi-metric sample or group profiles",
+        "parallel_coordinates": "high-dimensional numeric profiles",
+        "waterfall": "ranked signed effects",
+        "ma_plot": "mean-dependent fold-change patterns",
         "heatmap": "row/column clustering",
         "bubble": "size and color encodings",
         "volcano": "up/down significant features",
@@ -1421,6 +1646,31 @@ def test_plot_studio_default_toolbar_stays_unobtrusive() -> None:
     assert spec["config"]["displayModeBar"] == "hover"
     assert spec["config"]["scrollZoom"] is False
     assert spec["config"]["modeBarButtonsToRemove"] == ["lasso2d", "select2d"]
+
+
+def test_plot_studio_export_uses_supported_browser_formats() -> None:
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Expression matrix",
+                "type": "expression_matrix",
+                "dataPath": str(DATA_FILE),
+            },
+            "plotType": "boxplot",
+            "params": {"format": "jpeg", "dpi": "1000", "export_filename": "high res figure"},
+        },
+    )
+
+    export = spec["config"]["toImageButtonOptions"]
+    assert export["format"] == "jpeg"
+    assert export["scale"] == 6
+    assert export["filename"] == "high_res_figure"
 
 
 def test_plot_studio_scatter_statistics_controls_render_overlays(tmp_path: Path) -> None:
@@ -1804,7 +2054,7 @@ def test_plot_studio_spec_builds_volcano_from_diff_table(tmp_path: Path) -> None
     allowed_tmp.mkdir(parents=True, exist_ok=True)
     diff_file = allowed_tmp / f"{tmp_path.name}_diff.csv"
     diff_file.write_text(
-        "gene,log2fc,p_value\nA,2.1,0.001\nB,-1.8,0.002\nC,0.2,0.9\n",
+        "gene,baseMean,log2fc,p_value\nA,120,2.1,0.001\nB,70,-1.8,0.002\nC,9,0.2,0.9\n",
         encoding="utf-8",
     )
     client = TestClient(app)
@@ -1863,6 +2113,62 @@ def test_plot_studio_spec_builds_volcano_from_diff_table(tmp_path: Path) -> None
     )
     assert "shapes" not in no_threshold_lines["layout"]
     assert "annotations" not in no_threshold_lines["layout"]
+
+    waterfall = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Diff result",
+                "type": "diff_result",
+                "dataPath": str(diff_file),
+            },
+            "plotType": "waterfall",
+            "params": {
+                "sort_by": "p_value",
+                "top_n": 2,
+                "orientation": "horizontal",
+                "show_value_labels": True,
+                "value_precision": 1,
+                "bar_opacity": 0.5,
+            },
+        },
+    )
+    assert waterfall["plot_type"] == "waterfall"
+    trace = waterfall["data"][0]
+    assert trace["type"] == "bar"
+    assert trace["orientation"] == "h"
+    assert trace["x"] == [2.1, -1.8]
+    assert trace["y"] == ["A", "B"]
+    assert trace["marker"]["opacity"] == 0.5
+    assert trace["text"] == ["2.1", "-1.8"]
+    assert len(waterfall["layout"]["shapes"]) == 1
+
+    ma_plot = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Diff result",
+                "type": "diff_result",
+                "dataPath": str(diff_file),
+            },
+            "plotType": "ma_plot",
+            "params": {"label_top_n": 2, "point_size": 9, "point_alpha": 0.6},
+        },
+    )
+    assert ma_plot["plot_type"] == "ma_plot"
+    assert ma_plot["layout"]["xaxis"]["type"] == "log"
+    assert len(ma_plot["layout"]["shapes"]) == 3
+    assert {trace["name"] for trace in ma_plot["data"]} == {"Up", "Down", "Not significant", "Gene labels"}
+    ma_up = next(trace for trace in ma_plot["data"] if trace["name"] == "Up")
+    assert ma_up["x"] == [120.0]
+    assert ma_up["y"] == [2.1]
+    assert ma_up["marker"]["size"] == 9
 
 
 def test_plot_studio_spec_builds_heatmap_and_correlation() -> None:
@@ -2139,6 +2445,77 @@ def test_plot_studio_spec_builds_enrichment_dot_plot(tmp_path: Path) -> None:
     assert spec["data"][0]["marker"]["color"][0] == 3.0
     assert max(spec["data"][0]["marker"]["size"]) == 24
     assert any("<br>" in label for label in spec["data"][0]["y"])
+
+
+def test_plot_studio_spec_builds_radar_and_parallel_coordinates(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    profile_file = allowed_tmp / f"{tmp_path.name}_profiles.csv"
+    profile_file.write_text(
+        "sample,group,m1,m2,m3,m4,score\n"
+        "S1,A,1,5,2,8,0.2\n"
+        "S2,A,2,4,3,7,0.3\n"
+        "S3,B,7,2,8,3,0.8\n"
+        "S4,B,8,1,7,2,0.9\n",
+        encoding="utf-8",
+    )
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "Profile table",
+        "type": "unknown_table",
+        "dataPath": str(profile_file),
+    }
+    client = TestClient(app)
+
+    radar = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": source,
+            "plotType": "radar",
+            "params": {
+                "value_columns": ["m1", "m2", "m3", "m4"],
+                "group": "group",
+                "aggregation": "mean",
+                "normalize": "minmax_by_axis",
+                "fill": True,
+            },
+        },
+    )
+
+    assert radar["plot_type"] == "radar"
+    assert [trace["type"] for trace in radar["data"]] == ["scatterpolar", "scatterpolar"]
+    assert radar["data"][0]["theta"][-1] == "m1"
+    assert radar["data"][0]["fill"] == "toself"
+    assert radar["layout"]["polar"]["radialaxis"]["range"] == [0, 1]
+    assert "xaxis" not in radar["layout"]
+
+    parallel = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": source,
+            "plotType": "parallel_coordinates",
+            "params": {
+                "dimensions": ["m1", "m2", "m3", "m4"],
+                "color": "score",
+                "max_dimensions": 4,
+                "max_rows": 4,
+                "color_scale": "viridis",
+                "show_colorbar": True,
+            },
+        },
+    )
+
+    assert parallel["plot_type"] == "parallel_coordinates"
+    trace = parallel["data"][0]
+    assert trace["type"] == "parcoords"
+    assert [dimension["label"] for dimension in trace["dimensions"]] == ["m1", "m2", "m3", "m4"]
+    assert trace["line"]["color"] == [0.2, 0.3, 0.8, 0.9]
+    assert trace["line"]["colorbar"]["title"] == "score"
+    assert "yaxis" not in parallel["layout"]
 
 
 def test_table_inspection_and_recommendations_handle_numeric_tables() -> None:

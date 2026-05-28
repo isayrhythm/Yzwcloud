@@ -25,6 +25,10 @@ SUPPORTED_PLOTLY_SPEC_TYPES = {
     "density_contour",
     "scatter_3d",
     "surface_3d",
+    "radar",
+    "parallel_coordinates",
+    "waterfall",
+    "ma_plot",
     "bubble",
     "volcano",
     "upset",
@@ -35,6 +39,39 @@ SUPPORTED_PLOTLY_SPEC_TYPES = {
 }
 
 ADVANCED_PARAMETER_GROUP_IDS = {"theme", "labels", "export", "style", "reference", "guides", "interaction"}
+
+PLOT_WORKFLOW_STAGES = [
+    {
+        "id": "source",
+        "label": "Select source",
+        "description": "Attach an upstream analysis output or uploaded table before choosing a chart.",
+    },
+    {
+        "id": "plot",
+        "label": "Choose plot",
+        "description": "Pick a recommended figure type or browse the full plotting toolbox.",
+    },
+    {
+        "id": "mapping",
+        "label": "Map data",
+        "description": "Bind numeric, categorical, label, size, and color columns to figure roles.",
+    },
+    {
+        "id": "parameters",
+        "label": "Tune parameters",
+        "description": "Adjust basic display controls first, then expand advanced styling and export options.",
+    },
+    {
+        "id": "preview",
+        "label": "Render preview",
+        "description": "Run the interactive Plotly preview and review warnings before export.",
+    },
+    {
+        "id": "report",
+        "label": "Explain / export",
+        "description": "Export publication-ready graphics and pass structured context to the report agent.",
+    },
+]
 
 PLOT_UI_METADATA: dict[str, dict[str, str]] = {
     "scatter": {
@@ -81,6 +118,26 @@ PLOT_UI_METADATA: dict[str, dict[str, str]] = {
         "category": "Matrix",
         "thumbnail": "surface_3d",
         "use_case": "Expression-like matrices as interactive surface ridges.",
+    },
+    "radar": {
+        "category": "Relationship",
+        "thumbnail": "radar",
+        "use_case": "Multi-metric sample or group profiles on a radial axis.",
+    },
+    "parallel_coordinates": {
+        "category": "Relationship",
+        "thumbnail": "parallel_coordinates",
+        "use_case": "High-dimensional numeric profiles across many axes.",
+    },
+    "waterfall": {
+        "category": "Omics results",
+        "thumbnail": "waterfall",
+        "use_case": "Ranked effect sizes, log2FC lists, or signed sample scores.",
+    },
+    "ma_plot": {
+        "category": "Omics results",
+        "thumbnail": "ma_plot",
+        "use_case": "Mean abundance versus log2FC for differential expression checks.",
     },
     "heatmap": {
         "category": "Matrix",
@@ -315,8 +372,8 @@ COMMON_THEME_GROUPS = [
             _param("margin_top", "Top margin", "number", 72, min_value=20, max_value=300, step=1),
             _param("margin_bottom", "Bottom margin", "number", 64, min_value=20, max_value=300, step=1),
             _param("export_filename", "File name", "text", "yzw_biocloud_plot"),
-            _param("dpi", "DPI", "select", "300", options=["150", "300", "600"]),
-            _param("format", "Format", "select", "svg", options=["svg", "png", "pdf", "html"]),
+            _param("dpi", "DPI", "select", "300", options=["150", "300", "600", "1000"]),
+            _param("format", "Format", "select", "svg", options=["svg", "png", "jpeg", "webp"]),
         ],
     ),
 ]
@@ -623,6 +680,92 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "radar",
+        "label": "Radar",
+        "engine": "plotly",
+        "description": "Radial multi-metric profile chart for comparing sample rows or aggregated groups.",
+        "default_params": {
+            "max_series": 6,
+            "aggregation": "mean",
+            "normalize": "minmax_by_axis",
+            "fill": True,
+            "line_width": 2.2,
+            "marker_size": 5,
+        },
+        "parameter_groups": [
+            _group(
+                "mapping",
+                "Data mapping",
+                [
+                    _param("value_columns", "Metric columns", "numeric_columns", None, required=True),
+                    _param("group", "Group / series", "column_or_none", None),
+                    _param("label", "Row label", "column_or_none", None),
+                ],
+            ),
+            _group(
+                "profile",
+                "Profile display",
+                [
+                    _param("max_series", "Max series", "number", 6, min_value=1, max_value=24, step=1),
+                    _param("aggregation", "Group aggregation", "select", "mean", options=["mean", "median", "first"]),
+                    _param(
+                        "normalize",
+                        "Normalize",
+                        "select",
+                        "minmax_by_axis",
+                        options=["none", "minmax_by_axis", "zscore_by_axis"],
+                    ),
+                    _param("fill", "Fill polygons", "boolean", True),
+                    _param("line_width", "Line width", "number", 2.2, min_value=0.5, max_value=8, step=0.1),
+                    _param("marker_size", "Marker size", "number", 5, min_value=0, max_value=20, step=1),
+                ],
+            ),
+            *COMMON_THEME_GROUPS,
+        ],
+    },
+    {
+        "id": "parallel_coordinates",
+        "label": "Parallel coordinates",
+        "engine": "plotly",
+        "description": "High-dimensional numeric table scan with optional color mapping and row subsampling.",
+        "default_params": {
+            "max_dimensions": 8,
+            "max_rows": 800,
+            "color_scale": "viridis",
+            "show_colorbar": True,
+            "line_opacity": 0.58,
+        },
+        "parameter_groups": [
+            _group(
+                "mapping",
+                "Data mapping",
+                [
+                    _param("dimensions", "Dimensions", "numeric_columns", None, required=True),
+                    _param("color", "Color by", "column_or_none", None),
+                    _param("label", "Row label", "column_or_none", None),
+                ],
+            ),
+            _group(
+                "dimensions",
+                "Dimension display",
+                [
+                    _param("max_dimensions", "Max dimensions", "number", 8, min_value=3, max_value=24, step=1),
+                    _param("max_rows", "Max rows", "number", 800, min_value=20, max_value=5000, step=1),
+                    _param(
+                        "color_scale",
+                        "Color scale",
+                        "select",
+                        "viridis",
+                        options=["viridis", "magma", "plasma", "cividis", "blue_white_red", "green_white_purple"],
+                    ),
+                    _param("show_colorbar", "Show color bar", "boolean", True),
+                    _param("line_opacity", "Line opacity", "number", 0.58, min_value=0.05, max_value=1, step=0.02),
+                ],
+            ),
+            *COMMON_THEME_GROUPS,
+        ],
+    },
+    {
         "id": "density_contour",
         "label": "2D density contour",
         "engine": "plotly",
@@ -894,6 +1037,125 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "waterfall",
+        "label": "Waterfall",
+        "engine": "plotly",
+        "description": "Ranked signed bar chart for effect sizes, differential log2FC values, and sample scores.",
+        "default_params": {
+            "value_column": "log2fc",
+            "label_column": "gene",
+            "p_value_column": "p_value",
+            "sort_by": "abs_value",
+            "top_n": 80,
+            "orientation": "vertical",
+            "color_mode": "significance",
+            "positive_color": "#c44f3a",
+            "negative_color": "#315fd6",
+            "neutral_color": "#9aaab7",
+            "bar_opacity": 0.88,
+            "show_zero_line": True,
+            "show_value_labels": False,
+            "value_precision": 2,
+            "log2fc_threshold": 1.0,
+            "p_value_threshold": 0.05,
+        },
+        "parameter_groups": [
+            _group(
+                "mapping",
+                "Data mapping",
+                [
+                    _param("label_column", "Label", "column", "gene"),
+                    _param("value_column", "Signed value", "column", "log2fc", required=True),
+                    _param("p_value_column", "P value", "column_or_none", "p_value"),
+                    _param("group", "Group / category", "column_or_none", None),
+                ],
+            ),
+            _group(
+                "ranking",
+                "Ranking and filtering",
+                [
+                    _param("sort_by", "Sort by", "select", "abs_value", options=["abs_value", "value_desc", "value_asc", "p_value", "input"]),
+                    _param("top_n", "Top bars", "number", 80, min_value=1, max_value=5000, step=1),
+                    _param("orientation", "Orientation", "select", "vertical", options=["vertical", "horizontal"]),
+                    _param("log2fc_threshold", "Abs value threshold", "number", 1.0, min_value=0, max_value=20, step=0.1),
+                    _param("p_value_threshold", "P value threshold", "number", 0.05, min_value=0, max_value=1, step=0.001),
+                ],
+            ),
+            _group(
+                "style",
+                "Bar style",
+                [
+                    _param("color_mode", "Color mode", "select", "significance", options=["significance", "positive_negative", "group", "single"]),
+                    _param("positive_color", "Positive color", "color", "#c44f3a"),
+                    _param("negative_color", "Negative color", "color", "#315fd6"),
+                    _param("neutral_color", "Neutral color", "color", "#9aaab7"),
+                    _param("bar_opacity", "Bar opacity", "number", 0.88, min_value=0.05, max_value=1, step=0.02),
+                    _param("show_zero_line", "Show zero line", "boolean", True),
+                    _param("show_value_labels", "Show value labels", "boolean", False),
+                    _param("value_precision", "Value precision", "number", 2, min_value=0, max_value=6, step=1),
+                ],
+            ),
+            *COMMON_THEME_GROUPS,
+        ],
+    },
+    {
+        "id": "ma_plot",
+        "label": "MA Plot",
+        "engine": "plotly",
+        "description": "Mean abundance versus log2 fold-change plot for differential expression diagnostics.",
+        "default_params": {
+            "mean_column": "baseMean",
+            "log2fc_column": "log2fc",
+            "p_value_column": "p_value",
+            "gene": "gene",
+            "x_log": True,
+            "log2fc_threshold": 1.0,
+            "p_value_threshold": 0.05,
+            "show_threshold_lines": True,
+            "label_top_n": 12,
+            "point_size": 7,
+            "point_alpha": 0.76,
+            "up_color": "#c44f3a",
+            "down_color": "#315fd6",
+            "neutral_color": "#9aaab7",
+        },
+        "parameter_groups": [
+            _group(
+                "mapping",
+                "Data mapping",
+                [
+                    _param("gene", "Gene label", "column_or_none", "gene"),
+                    _param("mean_column", "Mean abundance", "column", "baseMean", required=True),
+                    _param("log2fc_column", "log2FC", "column", "log2fc", required=True),
+                    _param("p_value_column", "P value", "column_or_none", "p_value"),
+                ],
+            ),
+            _group(
+                "thresholds",
+                "Thresholds and labels",
+                [
+                    _param("x_log", "Log X axis", "boolean", True),
+                    _param("log2fc_threshold", "Abs log2FC threshold", "number", 1.0, min_value=0, max_value=20, step=0.1),
+                    _param("p_value_threshold", "P value threshold", "number", 0.05, min_value=0, max_value=1, step=0.001),
+                    _param("show_threshold_lines", "Show threshold lines", "boolean", True),
+                    _param("label_top_n", "Top labels", "number", 12, min_value=0, max_value=200, step=1),
+                    _param("point_size", "Point size", "number", 7, min_value=1, max_value=24, step=1),
+                    _param("point_alpha", "Point opacity", "number", 0.76, min_value=0.05, max_value=1, step=0.02),
+                ],
+            ),
+            _group(
+                "style",
+                "Point colors",
+                [
+                    _param("up_color", "Up color", "color", "#c44f3a"),
+                    _param("down_color", "Down color", "color", "#315fd6"),
+                    _param("neutral_color", "Neutral color", "color", "#9aaab7"),
+                ],
+            ),
+            *COMMON_THEME_GROUPS,
+        ],
+    },
+    {
         "id": "upset",
         "label": "UpSet",
         "engine": "plotly",
@@ -1055,11 +1317,11 @@ RECOMMENDATIONS_BY_OUTPUT = {
     "correlation": ["correlation", "heatmap"],
     "expression_heatmap": ["heatmap", "correlation"],
     "heatmap": ["heatmap", "correlation"],
-    "volcano": ["volcano", "scatter"],
-    "diff": ["volcano", "heatmap", "bar"],
+    "volcano": ["volcano", "waterfall", "ma_plot", "scatter"],
+    "diff": ["volcano", "waterfall", "ma_plot", "heatmap", "bar"],
     "wgcna": ["heatmap", "bubble", "correlation", "density_contour"],
     "enrichment": ["enrichment_dot", "bar", "bubble"],
-    "expression_matrix": ["boxplot", "heatmap", "correlation", "histogram", "surface_3d"],
+    "expression_matrix": ["boxplot", "heatmap", "correlation", "histogram", "radar", "parallel_coordinates", "surface_3d"],
 }
 
 
@@ -1090,6 +1352,7 @@ def get_plot_studio_manifest() -> dict[str, Any]:
             "Labels and annotations",
             "Export size and format",
         ],
+        "workflow_stages": PLOT_WORKFLOW_STAGES,
         "presets": list_plot_presets(),
     }
 
@@ -1104,9 +1367,9 @@ def recommend_plot_types(source_type: str, table_summary: dict[str, Any] | None 
         numeric_count = len(table_summary.get("numeric_columns") or [])
         categorical_count = len(table_summary.get("categorical_columns") or [])
         if numeric_count >= 2 and categorical_count >= 1:
-            return ["scatter", "boxplot", "heatmap"]
+            return ["scatter", "boxplot", "radar", "heatmap"]
         if numeric_count >= 2:
-            return ["scatter", "correlation", "heatmap"]
+            return ["scatter", "correlation", "parallel_coordinates", "heatmap"]
         if numeric_count == 1 and categorical_count >= 1:
             return ["boxplot", "bar", "violin"]
     return ["scatter", "boxplot", "bar"]

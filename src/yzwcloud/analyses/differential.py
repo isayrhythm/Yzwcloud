@@ -54,7 +54,7 @@ def run_differential_analysis(
         output_dir=output_dir,
         node_id=node_id,
     )
-    r_output_file, r_log_file, method = _run_r_differential(
+    r_output_file, r_log_file, method, r_script_file = _run_r_differential(
         params=params,
         output_dir=output_dir,
         r_matrix=r_matrix,
@@ -86,6 +86,12 @@ def run_differential_analysis(
         "case_sample_count": len(case_columns),
         "control_sample_count": len(control_columns),
         "diff_result_file": str(diff_csv),
+        "p_value_threshold": params.get("p_value", 0.05),
+        "log2fc_threshold": params.get("log2fc", 1.0),
+        "r_script_file": str(r_script_file),
+        "r_matrix_file": str(r_matrix),
+        "r_metadata_file": str(r_metadata),
+        "r_comparisons_file": str(r_comparisons),
         "r_result_file": str(r_output_file),
         "r_log_file": str(r_log_file),
         "matrix_file": str(matrix_path),
@@ -153,7 +159,7 @@ def _run_r_differential(
     r_comparisons: Path,
     slug: str,
     node_id: str,
-) -> tuple[Path, Path, str]:
+) -> tuple[Path, Path, str, Path]:
     script_dir = Path(__file__).resolve().parents[1] / "r"
     p_value = float(params.get("p_value", 0.05))
     log2fc = float(params.get("log2fc", 1.0))
@@ -183,7 +189,7 @@ def _run_r_differential(
     )
     if not r_output.exists():
         raise ValueError(f"R differential analysis finished without result table: {r_output}. Log: {log_path}")
-    return r_output, log_path, method
+    return r_output, log_path, method, script_path
 
 
 def _write_canonical_diff_csv(

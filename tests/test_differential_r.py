@@ -78,6 +78,12 @@ def test_differential_analysis_calls_transcriptomics_r(monkeypatch: Any, tmp_pat
     assert calls and calls[0].name == "differential_transcriptomics.R"
     assert result.meta["method"] == "r_transcriptomics_differential"
     assert result.meta["diff_gene_count"] == 2
+    assert Path(result.meta["r_script_file"]).name == "differential_transcriptomics.R"
+    assert Path(result.meta["r_matrix_file"]).exists()
+    assert Path(result.meta["r_metadata_file"]).exists()
+    assert Path(result.meta["r_comparisons_file"]).exists()
+    assert result.meta["p_value_threshold"] == 0.05
+    assert result.meta["log2fc_threshold"] == 1.0
 
     with Path(result.meta["diff_result_file"]).open(encoding="utf-8-sig", newline="") as file:
         rows = list(csv.DictReader(file))
@@ -117,6 +123,7 @@ def test_differential_analysis_calls_protein_r(monkeypatch: Any, tmp_path: Path)
     assert calls and calls[0][0].name == "differential_protein.R"
     assert calls[0][1][-1] == "2.0"
     assert result.meta["method"] == "r_protein_ttest"
+    assert Path(result.meta["r_script_file"]).name == "differential_protein.R"
     assert result.meta["tested_gene_count"] == 1
 
 

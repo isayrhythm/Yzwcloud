@@ -7,7 +7,9 @@ data/tasks/
 data/tmp*/
 logs/
 .tmp-uvicorn.*.log
+uvicorn-*.log
 uvicorn-5174*.log
+server-*.log
 node_modules/
 dist/
 .ruff_cache/

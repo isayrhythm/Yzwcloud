@@ -12,11 +12,18 @@ from yzwcloud.models import (
     CreateDiffAnalysisRequest,
     CreateTaskRequest,
     HealthResponse,
+    PlotStudioReportRequest,
+    PlotStudioSpecRequest,
     RunNodeRequest,
     TaskDetail,
     TaskState,
     UpdateTaskRequest,
     UpdateSampleGroupsRequest,
+)
+from yzwcloud.plot_studio import (
+    create_plot_studio_report,
+    create_plot_studio_spec,
+    get_plot_studio_manifest,
 )
 from yzwcloud.task_store import (
     TaskNotFoundError,
@@ -48,6 +55,29 @@ def index() -> FileResponse:
 @app.get("/api/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", service="yzwcloud")
+
+
+@app.get("/api/plot-studio/presets")
+def api_get_plot_studio_presets() -> dict[str, object]:
+    return get_plot_studio_manifest()
+
+
+@app.post("/api/plot-studio/report")
+def api_create_plot_studio_report(payload: PlotStudioReportRequest) -> dict[str, object]:
+    return create_plot_studio_report(
+        payload.source.model_dump(by_alias=False),
+        plot_type=payload.plot_type,
+        params=payload.params,
+    )
+
+
+@app.post("/api/plot-studio/spec")
+def api_create_plot_studio_spec(payload: PlotStudioSpecRequest) -> dict[str, object]:
+    return create_plot_studio_spec(
+        payload.source.model_dump(by_alias=False),
+        plot_type=payload.plot_type,
+        params=payload.params,
+    )
 
 
 @app.post("/api/tasks", response_model=TaskDetail)
@@ -254,6 +284,13 @@ def api_get_output_file(task_id: str, filename: str) -> FileResponse:
         return FileResponse(target)
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Output file not found") from exc
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str) -> FileResponse:
+    if full_path.startswith(("api/", "static/")):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 def _validate_runnable(graph, node_id: str) -> None:

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NodeStatus(str, Enum):
@@ -81,6 +81,35 @@ class UpdateTaskRequest(BaseModel):
 
 class RunNodeRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlotStudioSource(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    source_kind: str = Field(default="analysis_output", alias="sourceKind")
+    task_id: str = Field(default="", alias="taskId")
+    task_name: str = Field(default="", alias="taskName")
+    node_id: str = Field(default="", alias="nodeId")
+    name: str = ""
+    status: str = ""
+    type: str = ""
+    summary: str = ""
+    data_path: str = Field(default="", alias="dataPath")
+    preview_url: str = Field(default="", alias="previewUrl")
+    html_url: str = Field(default="", alias="htmlUrl")
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlotStudioReportRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    source: PlotStudioSource
+    plot_type: str | None = Field(default=None, alias="plotType")
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlotStudioSpecRequest(PlotStudioReportRequest):
+    pass
 
 
 class CreateDiffAnalysisRequest(BaseModel):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import os
 import sys
 import time
 from pathlib import Path
@@ -19,7 +18,6 @@ from yzwcloud.main import app  # noqa: E402
 
 
 DATA_FILE = ROOT / "expression_matrix.csv"
-KEEP_TEST_TASK = os.getenv("YZW_KEEP_TEST_TASK") == "1"
 
 
 def _request(client: TestClient, method: str, path: str, **kwargs: Any) -> Any:
@@ -41,11 +39,11 @@ def _wait_node(
     client: TestClient,
     task_id: str,
     node_id: str,
-    timeout: float = 180.0,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + timeout if timeout is not None else None
     last_node: dict[str, Any] | None = None
-    while time.monotonic() < deadline:
+    while deadline is None or time.monotonic() < deadline:
         detail = _request(client, "GET", f"/api/tasks/{task_id}")
         last_node = _node(detail, node_id)
         if last_node["status"] in {"completed", "failed"}:
@@ -245,10 +243,7 @@ def test_transcriptome_workflow() -> None:
             _assert_output_file(result_node, "preview_file")
 
     finally:
-        if KEEP_TEST_TASK:
-            print(f"Kept transcriptome test task: {task_id}")
-        else:
-            _request(client, "DELETE", f"/api/tasks/{task_id}")
+        print(f"Kept transcriptome test task: {task_id}")
 
 
 if __name__ == "__main__":

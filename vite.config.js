@@ -7,7 +7,7 @@ export default defineConfig(({ command }) => ({
   root: "web",
   build: {
     outDir: "../src/yzwcloud/static",
-    emptyOutDir: true,
+    emptyOutDir: false,
   },
   server: {
     proxy: {

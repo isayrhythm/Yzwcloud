@@ -163,6 +163,26 @@ src/yzwcloud/
 
 前端后续仍值得继续拆，但这轮先优先收后端分析模块和文档，不额外扩大改动面。
 
+## Planned: Plot Studio
+
+Plot Studio is planned as a standalone visualization workspace, separate from Molecular Lab.
+It is currently a design note only; do not implement the full plotting engine until the core
+analysis workflow is stable.
+
+Target positioning:
+
+- Agent-first data intake: upload a table or send an upstream node output into Plot Studio, then let an agent infer columns, variable types, grouping columns, and candidate plots.
+- Reusable visualization layer: prefer mature interactive JavaScript plotting libraries such as Plotly.js and ECharts instead of hand-written SVG for complex charts.
+- Prism-like parameter depth: each plot should eventually expose fine-grained controls for axis mapping, grouping, color palette, jitter, summary statistics, error bars, labels, themes, export size, and output format.
+- Plot library presets: scatter, boxplot, violin, bar, line, heatmap, bubble, volcano, UpSet, Venn, correlation plot, and enrichment-style dot/bar plots.
+- Workflow integration: analysis nodes can keep their default plots, while polished custom figures can be sent to Plot Studio for deeper editing.
+- Boundary: Plot Studio belongs to analysis and visualization, not Molecular Lab. Molecular Lab remains the wet-lab utility area for primers, sequence tools, restriction scans, and cloning-related helpers.
+
+## Development And Test Notes
+
+- Do not run project tests with short timeouts that can truncate a valid long run. If a test appears stuck, report how long it has been running and where it seems blocked, then ask before stopping it.
+- Do not delete test or demo workflows/tasks by default. Leave generated workflows for inspection unless cleanup is explicitly requested.
+
 ## 本地运行
 
 要求：

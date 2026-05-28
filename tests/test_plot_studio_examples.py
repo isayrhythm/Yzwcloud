@@ -49,3 +49,14 @@ def test_plot_studio_example_endpoint_rejects_unknown_plot_type() -> None:
     response = client.get("/api/plot-studio/examples/not_a_plot")
 
     assert response.status_code == 404
+
+
+def test_upset_example_uses_membership_columns_not_metadata() -> None:
+    source = example_source_for_plot("upset")
+
+    spec = create_plot_studio_spec(source, plot_type="upset", params={})
+
+    assert spec["plot_type"] == "upset"
+    assert list(reversed(spec["layout"]["yaxis2"]["categoryarray"])) == ["set_a", "set_b", "set_c", "set_d"]
+    assert all(str(label).startswith("I") for label in spec["data"][0]["x"])
+    assert not any("sample" in str(item[0]) or "category" in str(item[0]) for item in spec["data"][0]["customdata"])

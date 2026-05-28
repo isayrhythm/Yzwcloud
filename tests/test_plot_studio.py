@@ -3676,9 +3676,14 @@ def test_plot_studio_spec_builds_upset_intersections(tmp_path: Path) -> None:
     assert spec["plot_type"] == "upset"
     assert spec["data"][0]["type"] == "bar"
     assert spec["data"][0]["name"] == "Intersection size"
-    assert "A&B" in spec["data"][0]["x"]
+    assert spec["data"][0]["x"][0].startswith("I")
+    assert any("A&B" in item[0] for item in spec["data"][0]["customdata"])
     assert any(trace.get("xaxis") == "x2" for trace in spec["data"][1:])
     assert spec["layout"]["xaxis3"]["title"] == "Set size"
+    assert spec["layout"]["xaxis"]["tickangle"] == 0
+    assert spec["layout"]["xaxis2"]["tickangle"] == 0
+    assert spec["layout"]["yaxis"]["domain"][0] > spec["layout"]["yaxis2"]["domain"][1]
+    assert spec["layout"]["title"]["y"] == 0.94
 
 
 def test_plot_studio_spec_builds_venn_overlap_sketch(tmp_path: Path) -> None:

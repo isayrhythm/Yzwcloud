@@ -3920,12 +3920,8 @@ def _volcano_label_trace(grouped: dict[str, list[dict[str, Any]]], params: dict[
 def _build_upset_spec(context: dict[str, Any]) -> dict[str, Any]:
     params = context["params"]
     item_column = _requested_column(params.get("item_id"), context["columns"]) or _best_label_column(context["columns"])
-    requested_sets = _selected_columns(
-        params.get("set_columns"),
-        [column for column in context["columns"] if column != item_column],
-        limit=_bounded_int(params.get("max_sets"), 8, 2, 20),
-    )
-    set_columns = requested_sets[: _bounded_int(params.get("max_sets"), 8, 2, 20)]
+    max_sets = _bounded_int(params.get("max_sets"), 8, 2, 20)
+    set_columns = _set_membership_columns(context, params, item_column=item_column, limit=max_sets)
     if not item_column or len(set_columns) < 2:
         return _empty_plot_spec("upset", "UpSet requires an item ID column and at least two set membership columns.", context["table_summary"])
 
@@ -3960,15 +3956,22 @@ def _build_upset_spec(context: dict[str, Any]) -> dict[str, Any]:
     if not rows:
         return _empty_plot_spec("upset", "No set intersections passed the current filters.", context["table_summary"])
 
-    x_labels = [_intersection_label(row["sets"]) for row in rows]
+    intersection_labels = [_intersection_label(row["sets"]) for row in rows]
+    x_labels = [f"I{index + 1}" for index in range(len(rows))]
     bar_trace = {
         "type": "bar",
         "name": "Intersection size",
         "x": x_labels,
         "y": [row["count"] for row in rows],
+        "text": [row["count"] for row in rows],
+        "textposition": "outside",
+        "cliponaxis": False,
         "marker": {"color": "#315fd6", "line": {"color": "#183f99", "width": 1}},
-        "customdata": [[", ".join(row["items"]), len(row["sets"])] for row in rows],
-        "hovertemplate": "%{x}<br>count=%{y}<br>degree=%{customdata[1]}<br>items=%{customdata[0]}<extra></extra>",
+        "customdata": [
+            [intersection_labels[index], ", ".join(row["items"]), len(row["sets"])]
+            for index, row in enumerate(rows)
+        ],
+        "hovertemplate": "%{customdata[0]}<br>count=%{y}<br>degree=%{customdata[2]}<br>items=%{customdata[1]}<extra></extra>",
     }
     matrix_traces = []
     line_traces = []
@@ -3982,27 +3985,28 @@ def _build_upset_spec(context: dict[str, Any]) -> dict[str, Any]:
                 "y": [set_name for _ in rows],
                 "xaxis": "x2",
                 "yaxis": "y2",
+                "customdata": [[intersection_labels[index]] for index in range(len(rows))],
                 "marker": {
-                    "size": [12 if set_name in row["sets"] else 6 for row in rows],
+                    "size": [11 if set_name in row["sets"] else 5 for row in rows],
                     "color": ["#07131f" if set_name in row["sets"] else "#d7e1ea" for row in rows],
                     "line": {"color": "#ffffff", "width": 0.6},
                 },
-                "hovertemplate": f"{set_name}<br>%{{x}}<extra></extra>",
+                "hovertemplate": f"{set_name}<br>%{{customdata[0]}}<extra></extra>",
                 "showlegend": False,
             }
         )
-    for row in rows:
+    for label, row in zip(x_labels, rows, strict=False):
         active_sets = [set_name for set_name in set_columns if set_name in row["sets"]]
         if len(active_sets) > 1:
             line_traces.append(
                 {
                     "type": "scatter",
                     "mode": "lines",
-                    "x": [_intersection_label(row["sets"]), _intersection_label(row["sets"])],
+                    "x": [label, label],
                     "y": [active_sets[0], active_sets[-1]],
                     "xaxis": "x2",
                     "yaxis": "y2",
-                    "line": {"color": "#07131f", "width": 1.2},
+                    "line": {"color": "#07131f", "width": 1.1},
                     "hoverinfo": "skip",
                     "showlegend": False,
                 }
@@ -4020,15 +4024,49 @@ def _build_upset_spec(context: dict[str, Any]) -> dict[str, Any]:
         "showlegend": False,
     }
     layout = _base_layout(title=f"UpSet: {len(rows)} intersections", x_title="", y_title="intersection size", params=params)
+    layout["title"].update({"y": 0.94, "yanchor": "top", "pad": {"t": 0, "b": 12}})
+    layout["height"] = max(int(layout.get("height") or 760), 740)
+    layout["margin"].update({"l": 96, "r": 40, "t": 96, "b": 76})
     layout.update(
         {
             "grid": {"rows": 2, "columns": 2, "pattern": "independent"},
-            "xaxis": {"domain": [0.22, 1.0], "anchor": "y", "tickangle": -45, "automargin": True},
-            "yaxis": {"domain": [0.45, 1.0], "anchor": "x", "title": "Intersection size"},
-            "xaxis2": {"domain": [0.22, 1.0], "anchor": "y2", "tickangle": -45, "showticklabels": False},
-            "yaxis2": {"domain": [0.05, 0.36], "anchor": "x2", "categoryorder": "array", "categoryarray": set_columns[::-1]},
+            "xaxis": {
+                "domain": [0.24, 1.0],
+                "anchor": "y",
+                "tickangle": 0,
+                "tickmode": "array",
+                "tickvals": x_labels,
+                "ticktext": x_labels,
+                "title": "Intersection",
+                "automargin": True,
+            },
+            "yaxis": {"domain": [0.58, 0.98], "anchor": "x", "title": "Intersection size", "rangemode": "tozero"},
+            "xaxis2": {
+                "domain": [0.24, 1.0],
+                "anchor": "y2",
+                "tickangle": 0,
+                "tickmode": "array",
+                "tickvals": x_labels,
+                "ticktext": x_labels,
+                "title": "Intersection",
+                "showgrid": True,
+                "gridcolor": "#eef3f6",
+            },
+            "yaxis2": {
+                "domain": [0.14, 0.50],
+                "anchor": "x2",
+                "categoryorder": "array",
+                "categoryarray": set_columns[::-1],
+                "automargin": True,
+            },
             "xaxis3": {"domain": [0.0, 0.18], "anchor": "y3", "title": "Set size", "autorange": "reversed"},
-            "yaxis3": {"domain": [0.05, 0.36], "anchor": "x3", "categoryorder": "array", "categoryarray": set_columns[::-1]},
+            "yaxis3": {
+                "domain": [0.14, 0.50],
+                "anchor": "x3",
+                "categoryorder": "array",
+                "categoryarray": set_columns[::-1],
+                "automargin": True,
+            },
             "bargap": 0.24,
             "showlegend": False,
         }
@@ -4047,12 +4085,12 @@ def _build_upset_spec(context: dict[str, Any]) -> dict[str, Any]:
 def _build_venn_spec(context: dict[str, Any]) -> dict[str, Any]:
     params = context["params"]
     item_column = _requested_column(params.get("item_id"), context["columns"]) or _best_label_column(context["columns"])
-    set_columns = _selected_columns(
-        params.get("set_columns"),
-        [column for column in context["columns"] if column != item_column],
+    set_columns = _set_membership_columns(
+        context,
+        params,
+        item_column=item_column,
         limit=_bounded_int(params.get("max_sets"), 4, 2, 4),
     )
-    set_columns = set_columns[: _bounded_int(params.get("max_sets"), 4, 2, 4)]
     if not item_column or len(set_columns) < 2:
         return _empty_plot_spec("venn", "Venn requires an item ID column and two to four set membership columns.", context["table_summary"])
 
@@ -5734,6 +5772,70 @@ def _selected_columns(requested: Any, columns: list[str], *, limit: int) -> list
     else:
         selected = columns[:limit]
     return selected[:limit]
+
+
+def _set_membership_columns(
+    context: dict[str, Any],
+    params: dict[str, Any],
+    *,
+    item_column: str | None,
+    limit: int,
+) -> list[str]:
+    candidates = [column for column in context["columns"] if column != item_column]
+    requested = params.get("set_columns")
+    if requested:
+        return _selected_columns(requested, candidates, limit=limit)
+
+    membership_tokens = {
+        "",
+        "0",
+        "1",
+        "true",
+        "false",
+        "yes",
+        "no",
+        "y",
+        "n",
+        "present",
+        "absent",
+        "in",
+        "out",
+        "none",
+        "na",
+        "nan",
+        "-",
+        "x",
+    }
+    scored: list[tuple[float, bool, str]] = []
+    for column in candidates:
+        normalized_name = _normalize_column_name(column)
+        name_like = (
+            normalized_name.startswith("set")
+            or normalized_name.startswith("list")
+            or normalized_name in {"a", "b", "c", "d"}
+        )
+        values = [str(row.get(column) or "").strip().lower() for row in context["records"]]
+        unique_values = set(values)
+        truthy_count = sum(1 for value in values if _truthy_membership(value))
+        if truthy_count <= 0:
+            continue
+        numeric_values = [_number_or_none(value) for value in values if value != ""]
+        binary_numeric = bool(numeric_values) and all(value in {0, 1} for value in numeric_values)
+        token_membership = unique_values.issubset(membership_tokens)
+        if not token_membership and not binary_numeric and not name_like:
+            continue
+        score = 0.0
+        if token_membership or binary_numeric:
+            score += 4.0
+        if name_like:
+            score += 2.0
+        score -= len(unique_values) * 0.01
+        scored.append((score, name_like, column))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    named_membership_columns = [column for _, name_like, column in scored if name_like]
+    selected = named_membership_columns[:limit] if len(named_membership_columns) >= 2 else [column for _, _, column in scored[:limit]]
+    return selected or candidates[:limit]
 
 
 def _best_label_column(columns: list[str]) -> str | None:

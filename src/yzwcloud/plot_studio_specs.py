@@ -409,8 +409,24 @@ def _build_boxplot_spec(context: dict[str, Any]) -> dict[str, Any]:
 
 def _build_grouped_dotplot_spec(context: dict[str, Any]) -> dict[str, Any]:
     params = context["params"]
-    y_column = _choose_column(params.get("y"), context["numeric_columns"])
-    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    requested_y = _requested_column(params.get("y"), context["numeric_columns"])
+    requested_group = _requested_column(params.get("group"), context["categorical_columns"])
+    y_column = requested_y
+    group_column = requested_group
+    profile_groups = None
+    if not (requested_y and requested_group):
+        profile_groups = _single_row_profile_grouped_values(
+            context,
+            max_columns=_bounded_int(params.get("max_groups"), 20, 2, 80),
+        )
+    if profile_groups:
+        profile, grouped, warnings = profile_groups
+        y_column = "sample-like value"
+        group_column = "inferred group"
+    else:
+        warnings = []
+        y_column = y_column or _choose_column(None, context["numeric_columns"])
+        group_column = group_column or _choose_column(None, context["categorical_columns"])
     if not y_column or not group_column:
         return _empty_plot_spec(
             "grouped_dotplot",
@@ -418,18 +434,19 @@ def _build_grouped_dotplot_spec(context: dict[str, Any]) -> dict[str, Any]:
             context["table_summary"],
         )
 
-    grouped: list[tuple[str, list[tuple[float, str]]]] = []
-    label_column = _choose_column(params.get("label"), context["columns"])
-    for group_name, rows in _records_by_category(context["records"], group_column).items():
-        values = []
-        for row in rows:
-            y_value = _number_or_none(row.get(y_column))
-            if y_value is None:
-                continue
-            label = str(row.get(label_column) or group_name) if label_column else group_name
-            values.append((y_value, label))
-        if values:
-            grouped.append((group_name, values))
+    if not profile_groups:
+        grouped = []
+        label_column = _choose_column(params.get("label"), context["columns"])
+        for group_name, rows in _records_by_category(context["records"], group_column).items():
+            values = []
+            for row in rows:
+                y_value = _number_or_none(row.get(y_column))
+                if y_value is None:
+                    continue
+                label = str(row.get(label_column) or group_name) if label_column else group_name
+                values.append((y_value, label))
+            if values:
+                grouped.append((group_name, values))
     if not grouped:
         return _empty_plot_spec("grouped_dotplot", "No grouped numeric values were available.", context["table_summary"])
 
@@ -501,7 +518,8 @@ def _build_grouped_dotplot_spec(context: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-    layout = _base_layout(title=f"Grouped dot plot: {y_column} by {group_column}", x_title=group_column, y_title=y_column, params=params)
+    title = f"Grouped dot profile: {profile['label']}" if profile_groups else f"Grouped dot plot: {y_column} by {group_column}"
+    layout = _base_layout(title=title, x_title=group_column, y_title=y_column, params=params)
     layout["xaxis"]["tickmode"] = "array"
     layout["xaxis"]["tickvals"] = list(range(len(grouped)))
     layout["xaxis"]["ticktext"] = [group_name for group_name, _ in grouped]
@@ -510,13 +528,29 @@ def _build_grouped_dotplot_spec(context: dict[str, Any]) -> dict[str, Any]:
         layout.setdefault("shapes", []).extend(shapes)
     if annotations:
         layout.setdefault("annotations", []).extend(annotations)
-    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_raincloud_spec(context: dict[str, Any]) -> dict[str, Any]:
     params = context["params"]
-    y_column = _choose_column(params.get("y"), context["numeric_columns"])
-    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    requested_y = _requested_column(params.get("y"), context["numeric_columns"])
+    requested_group = _requested_column(params.get("group"), context["categorical_columns"])
+    y_column = requested_y
+    group_column = requested_group
+    profile_groups = None
+    if not (requested_y and requested_group):
+        profile_groups = _single_row_profile_grouped_values(
+            context,
+            max_columns=_bounded_int(params.get("max_groups"), 20, 2, 80),
+        )
+    if profile_groups:
+        profile, grouped, warnings = profile_groups
+        y_column = "sample-like value"
+        group_column = "inferred group"
+    else:
+        warnings = []
+        y_column = y_column or _choose_column(None, context["numeric_columns"])
+        group_column = group_column or _choose_column(None, context["categorical_columns"])
     if not y_column or not group_column:
         return _empty_plot_spec(
             "raincloud",
@@ -524,18 +558,19 @@ def _build_raincloud_spec(context: dict[str, Any]) -> dict[str, Any]:
             context["table_summary"],
         )
 
-    label_column = _choose_column(params.get("label"), context["columns"])
-    grouped: list[tuple[str, list[tuple[float, str]]]] = []
-    for group_name, rows in _records_by_category(context["records"], group_column).items():
-        values = []
-        for row in rows:
-            y_value = _number_or_none(row.get(y_column))
-            if y_value is None:
-                continue
-            label = str(row.get(label_column) or group_name) if label_column else group_name
-            values.append((y_value, label))
-        if values:
-            grouped.append((group_name, values))
+    if not profile_groups:
+        label_column = _choose_column(params.get("label"), context["columns"])
+        grouped = []
+        for group_name, rows in _records_by_category(context["records"], group_column).items():
+            values = []
+            for row in rows:
+                y_value = _number_or_none(row.get(y_column))
+                if y_value is None:
+                    continue
+                label = str(row.get(label_column) or group_name) if label_column else group_name
+                values.append((y_value, label))
+            if values:
+                grouped.append((group_name, values))
     if not grouped:
         return _empty_plot_spec("raincloud", "No grouped numeric values were available for raincloud rendering.", context["table_summary"])
 
@@ -547,7 +582,6 @@ def _build_raincloud_spec(context: dict[str, Any]) -> dict[str, Any]:
     elif sort_groups == "size_desc":
         grouped.sort(key=lambda item: len(item[1]), reverse=True)
     max_groups = _bounded_int(params.get("max_groups"), 16, 2, 40)
-    warnings = []
     if len(grouped) > max_groups:
         warnings.append(f"Showing first {max_groups} groups to keep the raincloud readable.")
         grouped = grouped[:max_groups]
@@ -640,7 +674,8 @@ def _build_raincloud_spec(context: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-    layout = _base_layout(title=f"Raincloud: {y_column} by {group_column}", x_title=group_column, y_title=y_column, params=params)
+    title = f"Raincloud profile: {profile['label']}" if profile_groups else f"Raincloud: {y_column} by {group_column}"
+    layout = _base_layout(title=title, x_title=group_column, y_title=y_column, params=params)
     layout["xaxis"]["tickmode"] = "array"
     layout["xaxis"]["tickvals"] = list(range(len(grouped)))
     layout["xaxis"]["ticktext"] = [group_name for group_name, _ in grouped]
@@ -756,57 +791,90 @@ def _build_ridgeline_spec(context: dict[str, Any]) -> dict[str, Any]:
 
 def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dict[str, Any]:
     params = context["params"]
-    y_column = _choose_column(params.get("y"), context["numeric_columns"])
-    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    requested_y = _requested_column(params.get("y"), context["numeric_columns"])
+    requested_group = _requested_column(params.get("group"), context["categorical_columns"])
+    y_column = requested_y
+    group_column = requested_group
     traces = []
     warnings = []
     grouped_values: list[tuple[str, list[float]]] = []
-    if y_column and group_column:
-        grouped = _records_by_category(context["records"], group_column)
-        for index, (group_name, rows) in enumerate(grouped.items()):
-            values = [_number_or_none(row.get(y_column)) for row in rows]
-            values = [value for value in values if value is not None]
-            if not values:
-                continue
+    profile_groups = None
+    if not (requested_y and requested_group):
+        profile_groups = _single_row_profile_grouped_values(
+            context,
+            max_columns=_bounded_int(params.get("max_groups"), 20, 2, 80),
+        )
+    if profile_groups:
+        profile, grouped_profile_values, profile_warnings = profile_groups
+        warnings.extend(profile_warnings)
+        for index, (group_name, values_with_labels) in enumerate(grouped_profile_values):
+            values = [value for value, _ in values_with_labels]
+            labels = [label for _, label in values_with_labels]
             grouped_values.append((group_name, values))
-            traces.append(
-                _distribution_trace(
-                    trace_type,
-                    name=group_name,
-                    values=values,
-                    color=PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
-                    params=params,
-                )
+            trace = _distribution_trace(
+                trace_type,
+                name=group_name,
+                values=values,
+                color=PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+                params=params,
             )
-        x_title = group_column
-        y_title = y_column
+            trace["customdata"] = labels
+            trace["hovertemplate"] = f"{group_name}<br>sample=%{{customdata}}<br>value=%{{y:.4g}}<extra></extra>"
+            traces.append(trace)
+        x_title = "inferred group"
+        y_title = "sample-like value"
+        title = f"{'Boxplot' if trace_type == 'box' else 'Violin'} profile: {profile['label']}"
     else:
-        max_groups = _bounded_int(params.get("max_groups"), 12, 2, 40)
-        for index, column in enumerate(context["numeric_columns"][:max_groups]):
-            values = [_number_or_none(row.get(column)) for row in context["records"]]
-            values = [value for value in values if value is not None]
-            if not values:
-                continue
-            grouped_values.append((column, values))
-            traces.append(
-                _distribution_trace(
-                    trace_type,
-                    name=column,
-                    values=values,
-                    color=PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
-                    params=params,
+        y_column = y_column or _choose_column(None, context["numeric_columns"])
+        group_column = group_column or _choose_column(None, context["categorical_columns"])
+        if y_column and group_column:
+            grouped = _records_by_category(context["records"], group_column)
+            for index, (group_name, rows) in enumerate(grouped.items()):
+                values = [_number_or_none(row.get(y_column)) for row in rows]
+                values = [value for value in values if value is not None]
+                if not values:
+                    continue
+                grouped_values.append((group_name, values))
+                traces.append(
+                    _distribution_trace(
+                        trace_type,
+                        name=group_name,
+                        values=values,
+                        color=PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+                        params=params,
+                    )
                 )
-            )
-        if len(context["numeric_columns"]) > max_groups:
-            warnings.append(f"Showing first {max_groups} numeric columns to keep the chart readable.")
-        x_title = "numeric columns"
-        y_title = "value"
+            x_title = group_column
+            y_title = y_column
+            title = f"{'Boxplot' if trace_type == 'box' else 'Violin'} distribution"
+        else:
+            max_groups = _bounded_int(params.get("max_groups"), 12, 2, 40)
+            for index, column in enumerate(context["numeric_columns"][:max_groups]):
+                values = [_number_or_none(row.get(column)) for row in context["records"]]
+                values = [value for value in values if value is not None]
+                if not values:
+                    continue
+                grouped_values.append((column, values))
+                traces.append(
+                    _distribution_trace(
+                        trace_type,
+                        name=column,
+                        values=values,
+                        color=PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+                        params=params,
+                    )
+                )
+            if len(context["numeric_columns"]) > max_groups:
+                warnings.append(f"Showing first {max_groups} numeric columns to keep the chart readable.")
+            x_title = "numeric columns"
+            y_title = "value"
+            title = f"{'Boxplot' if trace_type == 'box' else 'Violin'} distribution"
 
     if not traces:
         return _empty_plot_spec(trace_type, "No numeric values were available for distribution plotting.", context["table_summary"])
 
     layout = _base_layout(
-        title=f"{'Boxplot' if trace_type == 'box' else 'Violin'} distribution",
+        title=title,
         x_title=x_title,
         y_title=y_title,
         params=params,
@@ -5515,6 +5583,33 @@ def _single_row_matrix_profile(context: dict[str, Any], *, max_columns: int) -> 
     }
 
 
+def _single_row_profile_grouped_values(
+    context: dict[str, Any],
+    *,
+    max_columns: int,
+) -> tuple[dict[str, Any], list[tuple[str, list[tuple[float, str]]]], list[str]] | None:
+    profile = _single_row_matrix_profile(context, max_columns=max_columns)
+    if not profile:
+        return None
+    row = context["records"][0]
+    group_lookup = _profile_group_lookup(profile["columns"])
+    grouped: dict[str, list[tuple[float, str]]] = {}
+    for column in profile["columns"]:
+        value = _number_or_none(row.get(column))
+        if value is None:
+            continue
+        grouped.setdefault(group_lookup.get(column, "Profile"), []).append((value, column))
+    if not grouped:
+        return None
+    warnings = []
+    if profile["excluded_columns"]:
+        warnings.append(
+            "Skipped numeric metadata columns for this single-row profile: "
+            + ", ".join(profile["excluded_columns"][:6])
+        )
+    return profile, list(grouped.items()), warnings
+
+
 def _profile_group_lookup(columns: list[str]) -> dict[str, str]:
     inferred = {column: _profile_group_from_column(column) for column in columns}
     if len(set(inferred.values())) < 2:
@@ -6329,6 +6424,9 @@ def _distribution_trace(
 ) -> dict[str, Any]:
     if trace_type == "violin":
         point_mode = str(params.get("show_points") or "outliers")
+        scale_mode = str(params.get("scale_mode") or "width")
+        if scale_mode not in {"width", "count"}:
+            scale_mode = "width"
         trace = {
             "type": "violin",
             "name": name,
@@ -6336,12 +6434,18 @@ def _distribution_trace(
             "box": {"visible": bool(params.get("show_box", True))},
             "meanline": {"visible": bool(params.get("show_mean", True))},
             "points": False if point_mode == "none" else point_mode,
+            "jitter": _bounded_float(params.get("point_jitter"), 0.12, 0, 1),
+            "pointpos": _bounded_float(params.get("point_position"), 0, -2, 2),
+            "width": _bounded_float(params.get("violin_width"), 0.72, 0.15, 1.4),
+            "scalemode": scale_mode,
+            "fillcolor": _rgba_from_hex(color, _bounded_float(params.get("fill_alpha"), 0.28, 0.02, 1)),
             "marker": {
                 "color": color,
                 "opacity": _bounded_float(params.get("point_alpha"), 0.62, 0.05, 1),
                 "size": _bounded_float(params.get("point_size"), 5, 1, 24),
+                "line": {"color": "#ffffff", "width": 0.6},
             },
-            "line": {"color": color},
+            "line": {"color": color, "width": _bounded_float(params.get("line_width"), 1.4, 0.2, 8)},
             "side": str(params.get("side") or "both"),
             "spanmode": str(params.get("span_mode") or "soft"),
             "hovertemplate": f"{name}<br>value=%{{y:.4g}}<extra></extra>",
@@ -6350,21 +6454,44 @@ def _distribution_trace(
         if bandwidth is not None:
             trace["bandwidth"] = _bounded_float(bandwidth, 0.2, 0.01, 3.0)
         return trace
+    boxpoint_mode = str(params.get("boxpoints") or "all")
+    if not _truthy(params.get("show_points"), True):
+        boxpoint_value: bool | str = False
+    elif boxpoint_mode == "none":
+        boxpoint_value = False
+    elif boxpoint_mode in {"outliers", "suspectedoutliers", "all"}:
+        boxpoint_value = boxpoint_mode
+    else:
+        boxpoint_value = "all"
+    mean_mode = str(params.get("boxmean_mode") or "mean")
+    if not _truthy(params.get("show_mean"), True) or mean_mode == "none":
+        boxmean: bool | str = False
+    elif mean_mode == "mean_sd":
+        boxmean = "sd"
+    else:
+        boxmean = True
+    quartile_method = str(params.get("quartile_method") or "linear")
+    if quartile_method not in {"linear", "exclusive", "inclusive"}:
+        quartile_method = "linear"
     return {
         "type": "box",
         "name": name,
         "y": values,
-        "boxpoints": "all" if params.get("show_points", True) else False,
+        "boxpoints": boxpoint_value,
         "jitter": _bounded_float(params.get("point_jitter"), 0.35, 0, 1),
         "notched": bool(params.get("notched", False)),
         "width": _bounded_float(params.get("box_width"), 0.62, 0.1, 1.0),
+        "whiskerwidth": _bounded_float(params.get("whisker_width"), 0.5, 0, 1),
+        "quartilemethod": quartile_method,
+        "fillcolor": _rgba_from_hex(color, _bounded_float(params.get("box_fill_alpha"), 0.18, 0, 1)),
         "marker": {
             "color": color,
             "opacity": _bounded_float(params.get("point_alpha"), 0.72, 0.05, 1),
             "size": _bounded_float(params.get("point_size"), 5, 1, 24),
+            "line": {"color": "#ffffff", "width": 0.6},
         },
-        "line": {"color": color},
-        "boxmean": bool(params.get("show_mean", True)),
+        "line": {"color": color, "width": _bounded_float(params.get("box_line_width"), 1.5, 0.2, 8)},
+        "boxmean": boxmean,
         "hovertemplate": f"{name}<br>value=%{{y:.4g}}<extra></extra>",
     }
 

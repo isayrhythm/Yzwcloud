@@ -247,6 +247,20 @@ export function HomePage({ onStart, onOpenPlot }) {
                 <small>{t(node.detailKey)}</small>
               </button>
             ))}
+            {selectedNodeHasChart ? (
+              <div className="board-chart-popout" aria-live="polite">
+                <div className="plot-card-top">
+                  <div>
+                    <strong>{t(chart.titleKey)}</strong>
+                    <span>{chart.subtitle}</span>
+                  </div>
+                  <button type="button" onClick={onOpenPlot}>
+                    Plot Studio
+                  </button>
+                </div>
+                <DemoChart chart={selectedChart} />
+              </div>
+            ) : null}
           </div>
 
           <div className={`workflow-inspector ${selectedNodeHasChart ? "chart-expanded" : ""}`}>

@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -171,3 +173,45 @@ def test_differential_analysis_preserves_zero_values_from_r(monkeypatch: Any, tm
     assert rows[0]["log2fc"] == "0.0"
     assert rows[0]["p_value"] == "0.0"
     assert float(rows[0]["neg_log10_p"]) == 300.0
+
+
+@pytest.mark.parametrize(
+    ("header", "row", "message"),
+    [
+        (
+            "gene_id,feature_name,baseMean,pvalue,padj",
+            "ENSGA,GENE_A,6.75,0.001,0.002",
+            "missing log2 fold-change",
+        ),
+        (
+            "gene_id,feature_name,baseMean,log2FoldChange",
+            "ENSGA,GENE_A,6.75,3.2",
+            "missing p-value",
+        ),
+    ],
+)
+def test_differential_analysis_requires_r_statistical_columns(
+    monkeypatch: Any,
+    tmp_path: Path,
+    header: str,
+    row: str,
+    message: str,
+) -> None:
+    _, _, source = _write_demo_inputs(tmp_path)
+
+    def fake_run_r_script(script_path: Path, args: list[str], **_: Any) -> None:
+        output_dir = Path(args[3])
+        output_dir.joinpath("case_vs_control_all_genes.csv").write_text(
+            "\n".join([header, row]),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(differential, "run_r_script", fake_run_r_script)
+
+    with pytest.raises(ValueError, match=message):
+        differential.run_differential_analysis(
+            source=source,
+            params={"case_condition": "case", "control_condition": "control", "method": "r_transcriptomics"},
+            output_dir=tmp_path,
+            node_id="diff_analysis__case_vs_control",
+        )

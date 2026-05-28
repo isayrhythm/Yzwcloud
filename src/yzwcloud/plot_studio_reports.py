@@ -433,7 +433,7 @@ def _figure_interpretation(
     data_profile: dict[str, Any] | None = None,
 ) -> str:
     guidance = PLOT_REPORT_GUIDANCE.get(plot_id)
-    if data_profile and plot_id in {"bar", "histogram", "density_curve", "ecdf"}:
+    if data_profile and plot_id in {"bar", "histogram", "density_curve", "ecdf", "boxplot", "violin", "grouped_dotplot", "raincloud"}:
         high = ", ".join(f"{item['column']}={item['value']}" for item in data_profile["highest_values"][:3])
         low = ", ".join(f"{item['column']}={item['value']}" for item in data_profile["lowest_values"][:3])
         group_summary = data_profile.get("inferred_groups") or []
@@ -444,10 +444,18 @@ def _figure_interpretation(
             if len(group_summary) > 1
             else ""
         )
+        group_statistics = data_profile.get("group_statistics") or []
+        group_stat_text = (
+            " Group means are "
+            + ", ".join(f"{item['group']}={item['mean']}" for item in group_statistics[:5])
+            + "."
+            if len(group_statistics) > 1
+            else ""
+        )
         return (
             f"For this single-row expression profile, the report agent should compare "
             f"{data_profile['value_count']} sample-like values for {data_profile['identifier']}. "
-            f"Highest values: {high}. Lowest values: {low}.{group_text} "
+            f"Highest values: {high}. Lowest values: {low}.{group_text}{group_stat_text} "
             "This describes the attached table values only and should not be treated as a statistical group comparison."
         )
     if not guidance:
@@ -523,10 +531,22 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"point opacity={params.get('point_alpha')}")
         if "show_mean" in params:
             summary["display"].append(f"mean marker={bool(params.get('show_mean'))}")
+        if params.get("boxmean_mode"):
+            summary["display"].append(f"mean display={params.get('boxmean_mode')}")
         if params.get("notched"):
             summary["display"].append("notched boxes enabled")
         if params.get("box_width"):
             summary["display"].append(f"box width={params.get('box_width')}")
+        if params.get("boxpoints"):
+            summary["display"].append(f"point display={params.get('boxpoints')}")
+        if params.get("quartile_method"):
+            summary["statistics"].append(f"quartile method={params.get('quartile_method')}")
+        if params.get("whisker_width") is not None:
+            summary["display"].append(f"whisker width={params.get('whisker_width')}")
+        if params.get("box_fill_alpha") is not None:
+            summary["display"].append(f"box fill opacity={params.get('box_fill_alpha')}")
+        if params.get("box_line_width") is not None:
+            summary["display"].append(f"box line width={params.get('box_line_width')}")
     if plot_id == "violin":
         if "show_box" in params:
             summary["display"].append(f"box overlay={bool(params.get('show_box'))}")
@@ -538,10 +558,22 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"bandwidth={params.get('bandwidth')}")
         if params.get("side"):
             summary["display"].append(f"side={params.get('side')}")
+        if params.get("scale_mode"):
+            summary["display"].append(f"scale mode={params.get('scale_mode')}")
+        if params.get("point_position") is not None:
+            summary["display"].append(f"point position={params.get('point_position')}")
+        if params.get("point_jitter") is not None:
+            summary["display"].append(f"point jitter={params.get('point_jitter')}")
         if params.get("point_size"):
             summary["display"].append(f"point size={params.get('point_size')}")
         if params.get("point_alpha"):
             summary["display"].append(f"point opacity={params.get('point_alpha')}")
+        if params.get("violin_width"):
+            summary["display"].append(f"violin width={params.get('violin_width')}")
+        if params.get("fill_alpha") is not None:
+            summary["display"].append(f"fill opacity={params.get('fill_alpha')}")
+        if params.get("line_width"):
+            summary["display"].append(f"line width={params.get('line_width')}")
     if plot_id == "grouped_dotplot":
         if params.get("y"):
             summary["statistics"].append(f"value={params.get('y')}")
@@ -1495,9 +1527,10 @@ def _plot_suitability_context(
             {
                 "not_recommended_plot_ids": not_recommended,
                 "reason": (
-                    "Single-row expression profiles should be reviewed as profile bar or "
-                    "one-dimensional distribution summaries. Multi-sample relationship, clustering, "
-                    "and correlation charts need at least two rows or multiple profiles."
+                    "Single-row expression profiles should be reviewed as profile bars, grouped dot plots, "
+                    "boxplots, raincloud plots, or one-dimensional distribution summaries over sample-like "
+                    "columns. Multi-sample relationship, clustering, and correlation charts need at least "
+                    "two rows or multiple profiles."
                 ),
             }
         )
@@ -1556,13 +1589,16 @@ def _single_row_profile_context(
     row = records[0]
     values = []
     group_counts: dict[str, int] = {}
+    group_values: dict[str, list[dict[str, Any]]] = {}
     for column in value_columns:
         value = _parse_float(row.get(column))
         if value is None or not math.isfinite(value):
             continue
         group = _profile_group_from_column(column)
         group_counts[group] = group_counts.get(group, 0) + 1
-        values.append({"column": column, "value": _round_number(value)})
+        item = {"column": column, "value": _round_number(value)}
+        values.append(item)
+        group_values.setdefault(group, []).append(item)
     if not values:
         return None
     identifier = "row_1"
@@ -1576,6 +1612,20 @@ def _single_row_profile_context(
     numeric_values = [float(item["value"]) for item in values]
     if len(group_counts) < 2:
         group_counts = {"Profile": len(values)}
+        group_values = {"Profile": values}
+    group_statistics = []
+    for group, items in group_values.items():
+        item_values = [float(item["value"]) for item in items]
+        sorted_items = sorted(items, key=lambda item: float(item["value"]))
+        group_statistics.append(
+            {
+                "group": group,
+                "count": len(items),
+                "mean": _round_number(sum(item_values) / len(item_values)),
+                "minimum": sorted_items[0],
+                "maximum": sorted_items[-1],
+            }
+        )
     return {
         "kind": "single_row_expression_profile",
         "identifier": identifier,
@@ -1589,6 +1639,7 @@ def _single_row_profile_context(
             {"group": group, "count": count}
             for group, count in group_counts.items()
         ],
+        "group_statistics": group_statistics,
         "value_columns_preview": [item["column"] for item in values[:12]],
         "excluded_numeric_columns": matrix_profile.get("excluded_numeric_columns") or [],
     }

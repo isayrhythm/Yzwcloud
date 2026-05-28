@@ -535,6 +535,44 @@ function PlotPreviewEmpty({ selectedPreset, plotSpec, recommendedPresets, onSele
   );
 }
 
+function clampPreviewMargin(margin, width, height) {
+  const fallback = { l: 72, r: 36, t: 72, b: 64 };
+  const source = margin || {};
+  const maxHorizontal = Math.max(28, Math.floor(width * 0.22));
+  const maxVertical = Math.max(28, Math.floor(height * 0.24));
+  const fit = (value, defaultValue, maxValue) => {
+    const numericValue = Number(value);
+    return Math.min(Number.isFinite(numericValue) ? numericValue : defaultValue, maxValue);
+  };
+  return {
+    l: fit(source.l, fallback.l, maxHorizontal),
+    r: fit(source.r, fallback.r, Math.max(24, Math.floor(width * 0.14))),
+    t: fit(source.t, fallback.t, maxVertical),
+    b: fit(source.b, fallback.b, Math.max(30, Math.floor(height * 0.22))),
+  };
+}
+
+function fitPlotlyLayoutToPreview(layout, width, height) {
+  const previewLayout = {
+    ...(layout || {}),
+    autosize: false,
+    width,
+    height,
+    margin: clampPreviewMargin(layout?.margin, width, height),
+  };
+  if (layout?.polar) {
+    previewLayout.polar = {
+      ...layout.polar,
+      domain: {
+        ...(layout.polar.domain || {}),
+        x: [0.06, 0.94],
+        y: [0.08, 0.92],
+      },
+    };
+  }
+  return previewLayout;
+}
+
 function InteractivePlot({ spec }) {
   const plotRef = useRef(null);
 
@@ -543,19 +581,31 @@ function InteractivePlot({ spec }) {
     let cancelled = false;
     const plotElement = plotRef.current;
     let resizeObserver = null;
+    let resizeFrame = null;
+    let lastSize = { width: 0, height: 0 };
     loadPlotly().then((Plotly) => {
       if (cancelled) return;
-      const previewLayout = { ...(spec.layout || {}), autosize: true };
-      delete previewLayout.width;
-      delete previewLayout.height;
-      Plotly.react(plotElement, spec.data || [], previewLayout, spec.config || {});
-      resizeObserver = new ResizeObserver(() => {
+      const renderPlot = (force = false) => {
+        if (cancelled) return;
+        const bounds = plotElement.getBoundingClientRect();
+        const width = Math.max(280, Math.floor(plotElement.clientWidth || bounds.width || 640));
+        const height = Math.max(320, Math.floor(plotElement.clientHeight || bounds.height || 520));
+        if (!force && width === lastSize.width && height === lastSize.height) return;
+        lastSize = { width, height };
+        const previewLayout = fitPlotlyLayoutToPreview(spec.layout, width, height);
+        Plotly.react(plotElement, spec.data || [], previewLayout, spec.config || {});
         Plotly.Plots.resize(plotElement);
+      };
+      renderPlot(true);
+      resizeObserver = new ResizeObserver(() => {
+        if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
+        resizeFrame = window.requestAnimationFrame(renderPlot);
       });
       resizeObserver.observe(plotElement);
     });
     return () => {
       cancelled = true;
+      if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
       resizeObserver?.disconnect();
       loadPlotly().then((Plotly) => Plotly.purge(plotElement));
     };
@@ -1024,6 +1074,37 @@ function isAdvancedParameterGroup(group) {
   return ["theme", "export", "labels", "style"].includes(group.id);
 }
 
+function filterParameterGroups(groups, query) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return groups;
+  return groups
+    .map((group) => {
+      const groupText = [group.id, group.label].filter(Boolean).join(" ").toLowerCase();
+      const groupMatches = groupText.includes(normalizedQuery);
+      const parameters = groupMatches
+        ? group.parameters || []
+        : (group.parameters || []).filter((parameter) => (
+          [
+            parameter.id,
+            parameter.label,
+            parameter.type,
+            parameter.help,
+            ...(parameter.options || []),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(normalizedQuery)
+        ));
+      return { ...group, parameters };
+    })
+    .filter((group) => group.parameters.length > 0);
+}
+
+function parameterCount(groups) {
+  return groups.reduce((total, group) => total + (group.parameters?.length || 0), 0);
+}
+
 function workflowStageState(stage, { selectedSource, selectedPreset, params, plotSpec, studioReport }) {
   if (stage.id === "source") return selectedSource ? "done" : "active";
   if (!selectedSource) return "locked";
@@ -1060,6 +1141,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [agentContextCopied, setAgentContextCopied] = useState(false);
   const [plotSearch, setPlotSearch] = useState("");
+  const [parameterSearch, setParameterSearch] = useState("");
   const [recommendedOnly, setRecommendedOnly] = useState(false);
   const [selectedRecipeId, setSelectedRecipeId] = useState("");
 
@@ -1224,6 +1306,17 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const parameterGroups = selectedPreset?.parameter_groups || [];
   const basicParameterGroups = parameterGroups.filter((group) => !isAdvancedParameterGroup(group));
   const advancedParameterGroups = parameterGroups.filter(isAdvancedParameterGroup);
+  const filteredBasicParameterGroups = useMemo(
+    () => filterParameterGroups(basicParameterGroups, parameterSearch),
+    [basicParameterGroups, parameterSearch],
+  );
+  const filteredAdvancedParameterGroups = useMemo(
+    () => filterParameterGroups(advancedParameterGroups, parameterSearch),
+    [advancedParameterGroups, parameterSearch],
+  );
+  const basicParameterCount = parameterCount(filteredBasicParameterGroups);
+  const advancedParameterCount = parameterCount(filteredAdvancedParameterGroups);
+  const hasParameterMatches = basicParameterCount + advancedParameterCount > 0;
   const reportSections = studioReport?.report?.sections || [];
   const agentContextText = useMemo(
     () => (studioReport?.agent_context ? JSON.stringify(studioReport.agent_context, null, 2) : ""),
@@ -1474,6 +1567,18 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                 {t("runPreview")}
               </button>
             </div>
+            <div className="plot-param-search" role="search">
+              <input
+                type="search"
+                value={parameterSearch}
+                onChange={(event) => setParameterSearch(event.target.value)}
+                placeholder={t("parameterSearchPlaceholder")}
+                aria-label={t("parameterSearchPlaceholder")}
+              />
+              {parameterSearch ? (
+                <button type="button" onClick={() => setParameterSearch("")}>{t("clear")}</button>
+              ) : null}
+            </div>
             {styleRecipes.length ? (
               <section className="plot-recipe-strip" aria-label={t("styleRecipes")}>
                 <div>
@@ -1503,10 +1608,10 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
               </section>
             ) : null}
             <div className="plot-param-groups">
-              {basicParameterGroups.length ? (
+              {filteredBasicParameterGroups.length ? (
                 <section className="plot-param-stack" aria-label={t("basicParameters")}>
-                  <h3>{t("basicParameters")}</h3>
-                  {basicParameterGroups.map((group) => (
+                  <h3>{t("basicParameters")} <span>{basicParameterCount}</span></h3>
+                  {filteredBasicParameterGroups.map((group) => (
                     <section className="plot-param-group" key={group.id}>
                       <h4>{group.label}</h4>
                       <div className="plot-param-controls">
@@ -1524,12 +1629,15 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                     </section>
                   ))}
                 </section>
-              ) : <p className="muted">{t("loadingPresets")}</p>}
-              {advancedParameterGroups.length ? (
+              ) : !hasParameterMatches ? <p className="muted">{parameterSearch ? t("noParameterMatches") : t("loadingPresets")}</p> : null}
+              {advancedParameterGroups.length && filteredAdvancedParameterGroups.length ? (
                 <details className="plot-param-advanced">
-                  <summary>{t("advancedParameters")}</summary>
+                  <summary>
+                    <span>{t("advancedParameters")}</span>
+                    <em>{advancedParameterCount}</em>
+                  </summary>
                   <div className="plot-param-stack">
-                    {advancedParameterGroups.map((group) => (
+                    {filteredAdvancedParameterGroups.map((group) => (
                       <section className="plot-param-group" key={group.id}>
                         <h4>{group.label}</h4>
                         <div className="plot-param-controls">

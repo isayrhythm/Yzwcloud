@@ -223,10 +223,10 @@ def _write_canonical_diff_csv(
                 control_mean = stats.get("control_mean", 0.0)
             log2fc = _first_float(raw.get("log2FoldChange"), raw.get("log2_fc"), raw.get("log2fc"))
             if log2fc is None:
-                log2fc = _infer_log2fc(float(case_mean), float(control_mean))
+                raise ValueError(f"R differential output missing log2 fold-change for {gene_id}: {r_output_file}")
             p_value = _first_float(raw.get("pvalue"), raw.get("p_value"), raw.get("p.val"), raw.get("padj"))
             if p_value is None:
-                p_value = 1.0
+                raise ValueError(f"R differential output missing p-value for {gene_id}: {r_output_file}")
             rows.append(
                 {
                     "gene": gene,
@@ -300,12 +300,6 @@ def _first_float(*values: Any) -> float | None:
         if number is not None:
             return number
     return None
-
-
-def _infer_log2fc(case_mean: float, control_mean: float) -> float:
-    if case_mean > 0 and control_mean > 0:
-        return math.log2(case_mean / control_mean)
-    return case_mean - control_mean
 
 
 def create_volcano_result(diff: DataObject, output_dir: Path, node_id: str) -> DataObject:

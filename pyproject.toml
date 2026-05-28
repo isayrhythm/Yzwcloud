@@ -24,7 +24,7 @@ start = "uvicorn yzwcloud.main:app --host 127.0.0.1 --port 8010"
 start-bg = "python -m yzwcloud.dev_server start --port 8010"
 stop-bg = "python -m yzwcloud.dev_server stop --port 8010"
 restart-bg = "python -m yzwcloud.dev_server restart --port 8010"
-clean-logs = "python -m yzwcloud.dev_server clean-logs --port 8010"
+clean-logs = "python -m yzwcloud.dev_server clean-logs --all-ports"
 
 [tool.pdm.build]
 package-dir = "src"

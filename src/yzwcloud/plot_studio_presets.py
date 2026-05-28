@@ -704,11 +704,17 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         "description": "Grouped distribution plot with optional points, mean marker, and pairwise tests.",
         "default_params": {
             "show_points": True,
+            "boxpoints": "all",
             "point_jitter": 0.35,
             "point_size": 5,
             "point_alpha": 0.72,
             "show_mean": True,
+            "boxmean_mode": "mean",
             "notched": False,
+            "quartile_method": "linear",
+            "whisker_width": 0.5,
+            "box_fill_alpha": 0.18,
+            "box_line_width": 1.5,
             "pairwise_test": "none",
         },
         "parameter_groups": [
@@ -727,12 +733,18 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                 "Distribution display",
                 [
                     _param("show_points", "Show individual points", "boolean", True),
+                    _param("boxpoints", "Point display", "select", "all", options=["none", "outliers", "suspectedoutliers", "all"]),
                     _param("point_jitter", "Point jitter", "number", 0.35, min_value=0, max_value=1, step=0.05),
                     _param("point_size", "Point size", "number", 5, min_value=1, max_value=24, step=1),
                     _param("point_alpha", "Point opacity", "number", 0.72, min_value=0.05, max_value=1, step=0.05),
                     _param("show_mean", "Show mean", "boolean", True),
+                    _param("boxmean_mode", "Mean display", "select", "mean", options=["none", "mean", "mean_sd"]),
                     _param("notched", "Notched boxes", "boolean", False),
                     _param("box_width", "Box width", "number", 0.62, min_value=0.2, max_value=1.0, step=0.02),
+                    _param("quartile_method", "Quartile method", "select", "linear", options=["linear", "exclusive", "inclusive"]),
+                    _param("whisker_width", "Whisker width", "number", 0.5, min_value=0, max_value=1, step=0.05),
+                    _param("box_fill_alpha", "Box fill opacity", "number", 0.18, min_value=0, max_value=1, step=0.02),
+                    _param("box_line_width", "Box line width", "number", 1.5, min_value=0.2, max_value=8, step=0.1),
                 ],
             ),
             _group(
@@ -868,8 +880,14 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "show_points": "outliers",
             "span_mode": "soft",
             "side": "both",
+            "scale_mode": "width",
+            "point_position": 0,
+            "point_jitter": 0.12,
             "point_size": 5,
             "point_alpha": 0.62,
+            "violin_width": 0.72,
+            "fill_alpha": 0.28,
+            "line_width": 1.4,
         },
         "parameter_groups": [
             _group(
@@ -890,8 +908,14 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("show_points", "Points", "select", "outliers", options=["none", "outliers", "all"]),
                     _param("bandwidth", "Bandwidth", "number_or_auto", "auto", min_value=0.01, max_value=2.0, step=0.01),
                     _param("side", "Side", "select", "both", options=["both", "positive", "negative"]),
+                    _param("scale_mode", "Scale mode", "select", "width", options=["width", "count"]),
+                    _param("point_position", "Point position", "number", 0, min_value=-2, max_value=2, step=0.05),
+                    _param("point_jitter", "Point jitter", "number", 0.12, min_value=0, max_value=1, step=0.02),
                     _param("point_size", "Point size", "number", 5, min_value=1, max_value=24, step=1),
                     _param("point_alpha", "Point opacity", "number", 0.62, min_value=0.05, max_value=1, step=0.05),
+                    _param("violin_width", "Violin width", "number", 0.72, min_value=0.15, max_value=1.4, step=0.02),
+                    _param("fill_alpha", "Fill opacity", "number", 0.28, min_value=0.02, max_value=1, step=0.02),
+                    _param("line_width", "Line width", "number", 1.4, min_value=0.2, max_value=8, step=0.1),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -2902,11 +2926,13 @@ def recommend_plot_types(source_type: str, table_summary: dict[str, Any] | None 
         column_names = [str(column).lower() for column in table_summary.get("columns") or []]
         if any(column in {"date", "day", "time", "sample_date", "collection_date", "sampling_date"} for column in column_names):
             return ["calendar_heatmap", "line", "bar", "histogram"]
+        matrix_profile = (table_summary.get("signals") or {}).get("matrix_profile") or {}
+        if matrix_profile.get("kind") == "expression_like" and row_count <= 1:
+            return ["bar", "grouped_dotplot", "boxplot", "raincloud", "histogram", "violin"]
         if row_count <= 1:
             if numeric_count >= 1:
                 return ["bar", "histogram"]
             return ["bar"]
-        matrix_profile = (table_summary.get("signals") or {}).get("matrix_profile") or {}
         if matrix_profile.get("kind") == "expression_like":
             return RECOMMENDATIONS_BY_OUTPUT["expression_matrix"][:]
         if row_count < 3:

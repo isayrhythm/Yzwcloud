@@ -56,6 +56,8 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert recipes["exploration"]["params"]["display_modebar"] == "always"
     assert recipes["exploration"]["params"]["selection_tools"] is True
     presets = {item["id"]: item for item in manifest["presets"]}
+    assert all(any(group["advanced"] is False for group in preset["parameter_groups"]) for preset in presets.values())
+    assert all(any(group["advanced"] is True for group in preset["parameter_groups"]) for preset in presets.values())
     assert {
         "boxplot",
         "grouped_dotplot",
@@ -103,10 +105,29 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert boxplot["thumbnail"] == "boxplot"
     assert "Group comparison" in boxplot["use_case"]
     assert boxplot["default_params"]["show_points"] is True
+    assert boxplot["default_params"]["boxpoints"] == "all"
     assert boxplot["default_params"]["point_size"] == 5
     assert boxplot["default_params"]["point_alpha"] == 0.72
+    distribution_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "distribution")
+    assert {param["id"] for param in distribution_group["parameters"]} >= {
+        "boxpoints",
+        "boxmean_mode",
+        "quartile_method",
+        "whisker_width",
+        "box_fill_alpha",
+        "box_line_width",
+    }
     violin_distribution = next(group for group in presets["violin"]["parameter_groups"] if group["id"] == "distribution")
-    assert {param["id"] for param in violin_distribution["parameters"]} >= {"point_size", "point_alpha"}
+    assert {param["id"] for param in violin_distribution["parameters"]} >= {
+        "point_size",
+        "point_alpha",
+        "scale_mode",
+        "point_position",
+        "point_jitter",
+        "violin_width",
+        "fill_alpha",
+        "line_width",
+    }
     grouped_dot_points = next(group for group in presets["grouped_dotplot"]["parameter_groups"] if group["id"] == "points")
     assert presets["grouped_dotplot"]["thumbnail"] == "grouped_dotplot"
     assert {param["id"] for param in grouped_dot_points["parameters"]} >= {
@@ -2396,8 +2417,14 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
                 "point_size": 8,
                 "point_alpha": 0.48,
                 "show_mean": False,
+                "boxmean_mode": "mean_sd",
                 "notched": True,
                 "box_width": 0.5,
+                "boxpoints": "outliers",
+                "quartile_method": "inclusive",
+                "whisker_width": 0.25,
+                "box_fill_alpha": 0.4,
+                "box_line_width": 2.2,
             },
         },
     )
@@ -2407,8 +2434,14 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
     assert "point size=8" in boxplot_summary
     assert "point opacity=0.48" in boxplot_summary
     assert "mean marker=False" in boxplot_summary
+    assert "mean display=mean_sd" in boxplot_summary
     assert "notched boxes enabled" in boxplot_summary
     assert "box width=0.5" in boxplot_summary
+    assert "point display=outliers" in boxplot_summary
+    assert "whisker width=0.25" in boxplot_summary
+    assert "box fill opacity=0.4" in boxplot_summary
+    assert "box line width=2.2" in boxplot_summary
+    assert "quartile method=inclusive" in boxplot_report["agent_context"]["parameter_summary"]["statistics"]
 
     violin_report = _request(
         client,
@@ -2425,8 +2458,14 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
                 "show_points": "all",
                 "bandwidth": 0.35,
                 "side": "positive",
+                "scale_mode": "count",
+                "point_position": 0.25,
+                "point_jitter": 0.18,
                 "point_size": 7,
                 "point_alpha": 0.62,
+                "violin_width": 0.8,
+                "fill_alpha": 0.3,
+                "line_width": 2.0,
             },
         },
     )
@@ -2436,8 +2475,14 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
     assert "mean line=True" in violin_summary["display"]
     assert "points=all" in violin_summary["display"]
     assert "side=positive" in violin_summary["display"]
+    assert "scale mode=count" in violin_summary["display"]
+    assert "point position=0.25" in violin_summary["display"]
+    assert "point jitter=0.18" in violin_summary["display"]
     assert "point size=7" in violin_summary["display"]
     assert "point opacity=0.62" in violin_summary["display"]
+    assert "violin width=0.8" in violin_summary["display"]
+    assert "fill opacity=0.3" in violin_summary["display"]
+    assert "line width=2.0" in violin_summary["display"]
 
 
 def test_plot_studio_report_summarizes_scatter_axis_transforms(tmp_path: Path) -> None:
@@ -3193,9 +3238,15 @@ def test_plot_studio_spec_builds_prism_style_violin_and_bar(tmp_path: Path) -> N
                 "y": "value",
                 "show_points": "all",
                 "side": "positive",
+                "scale_mode": "count",
+                "point_position": 0.35,
+                "point_jitter": 0.2,
                 "bandwidth": 0.4,
                 "point_size": 8,
                 "point_alpha": 0.51,
+                "violin_width": 0.82,
+                "fill_alpha": 0.33,
+                "line_width": 2.1,
             },
         },
     )
@@ -3203,7 +3254,14 @@ def test_plot_studio_spec_builds_prism_style_violin_and_bar(tmp_path: Path) -> N
     assert all(trace["type"] == "violin" for trace in violin["data"])
     assert violin["data"][0]["points"] == "all"
     assert violin["data"][0]["side"] == "positive"
+    assert violin["data"][0]["scalemode"] == "count"
+    assert violin["data"][0]["pointpos"] == 0.35
+    assert violin["data"][0]["jitter"] == 0.2
     assert violin["data"][0]["bandwidth"] == 0.4
+    assert violin["data"][0]["width"] == 0.82
+    assert violin["data"][0]["fillcolor"].startswith("rgba(")
+    assert violin["data"][0]["fillcolor"].endswith(", 0.33)")
+    assert violin["data"][0]["line"]["width"] == 2.1
     assert violin["data"][0]["marker"]["size"] == 8
     assert violin["data"][0]["marker"]["opacity"] == 0.51
 
@@ -3287,6 +3345,12 @@ def test_plot_studio_boxplot_pairwise_p_values_render_brackets(tmp_path: Path) -
                 "y": "value",
                 "point_size": 9,
                 "point_alpha": 0.44,
+                "boxpoints": "outliers",
+                "boxmean_mode": "mean_sd",
+                "quartile_method": "inclusive",
+                "whisker_width": 0.2,
+                "box_fill_alpha": 0.42,
+                "box_line_width": 2.6,
                 "pairwise_test": "t_test",
                 "multiple_testing": "bonferroni",
                 "show_p_values": True,
@@ -3297,6 +3361,12 @@ def test_plot_studio_boxplot_pairwise_p_values_render_brackets(tmp_path: Path) -
     assert spec["plot_type"] == "boxplot"
     assert all(trace["marker"]["size"] == 9 for trace in spec["data"])
     assert all(trace["marker"]["opacity"] == 0.44 for trace in spec["data"])
+    assert all(trace["boxpoints"] == "outliers" for trace in spec["data"])
+    assert all(trace["boxmean"] == "sd" for trace in spec["data"])
+    assert all(trace["quartilemethod"] == "inclusive" for trace in spec["data"])
+    assert all(trace["whiskerwidth"] == 0.2 for trace in spec["data"])
+    assert all(trace["fillcolor"].endswith(", 0.42)") for trace in spec["data"])
+    assert all(trace["line"]["width"] == 2.6 for trace in spec["data"])
     assert len(spec["layout"]["annotations"]) == 3
     assert all(annotation["text"].startswith("p") for annotation in spec["layout"]["annotations"])
     assert len(spec["layout"]["shapes"]) == 9
@@ -5105,13 +5175,13 @@ def test_plot_studio_recommends_profile_charts_for_single_gene_matrices(tmp_path
     recommendations = recommend_plot_types("unknown_table", summary)
 
     assert summary["signals"]["matrix_profile"]["kind"] == "expression_like"
-    assert recommendations[:2] == ["bar", "histogram"]
+    assert recommendations[:6] == ["bar", "grouped_dotplot", "boxplot", "raincloud", "histogram", "violin"]
     assert "scatter" not in recommendations
     assert "radar" not in recommendations
     assert "correlation" not in recommendations
 
 
-def test_plot_studio_single_gene_matrix_bar_and_histogram_use_sample_columns(tmp_path: Path) -> None:
+def test_plot_studio_single_gene_matrix_profile_charts_use_sample_columns(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
     allowed_tmp.mkdir(parents=True, exist_ok=True)
     table_file = allowed_tmp / f"{tmp_path.name}_single_gene_profile_plot.csv"
@@ -5139,6 +5209,30 @@ def test_plot_studio_single_gene_matrix_bar_and_histogram_use_sample_columns(tmp
         "POST",
         "/api/plot-studio/spec",
         json={"source": source, "plotType": "histogram"},
+    )
+    boxplot = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "boxplot"},
+    )
+    violin = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "violin"},
+    )
+    grouped_dotplot = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "grouped_dotplot"},
+    )
+    raincloud = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "raincloud"},
     )
 
     assert bar["plot_type"] == "bar"
@@ -5185,6 +5279,48 @@ def test_plot_studio_single_gene_matrix_bar_and_histogram_use_sample_columns(tmp
         for warning in histogram["warnings"]
     )
 
+    assert boxplot["plot_type"] == "boxplot"
+    assert boxplot["layout"]["title"]["text"] == "Boxplot profile: AL590714.1"
+    assert boxplot["layout"]["xaxis"]["title"]["text"] == "inferred group"
+    assert boxplot["layout"]["yaxis"]["title"]["text"] == "sample-like value"
+    assert [trace["name"] for trace in boxplot["data"]] == ["Group A", "Group B", "Group C"]
+    assert boxplot["data"][0]["y"] == [8.2, 8.6]
+    assert boxplot["data"][0]["customdata"] == ["Group A-1", "Group A-2"]
+    assert any(
+        "Skipped numeric metadata columns" in warning and "Length" in warning
+        for warning in boxplot["warnings"]
+    )
+
+    assert violin["plot_type"] == "violin"
+    assert violin["layout"]["title"]["text"] == "Violin profile: AL590714.1"
+    assert [trace["name"] for trace in violin["data"]] == ["Group A", "Group B", "Group C"]
+    assert violin["data"][1]["y"] == [3.1, 3.5]
+    assert violin["data"][1]["customdata"] == ["Group B-1", "Group B-2"]
+
+    assert grouped_dotplot["plot_type"] == "grouped_dotplot"
+    assert grouped_dotplot["layout"]["title"]["text"] == "Grouped dot profile: AL590714.1"
+    assert grouped_dotplot["layout"]["xaxis"]["title"]["text"] == "inferred group"
+    assert grouped_dotplot["layout"]["yaxis"]["title"]["text"] == "sample-like value"
+    assert [trace["name"] for trace in grouped_dotplot["data"]] == ["Group A", "Group B", "Group C"]
+    assert grouped_dotplot["data"][2]["y"] == [6.7, 6.4]
+    assert grouped_dotplot["data"][2]["text"] == ["Group C-1", "Group C-2"]
+    assert any(
+        "Skipped numeric metadata columns" in warning and "Length" in warning
+        for warning in grouped_dotplot["warnings"]
+    )
+
+    assert raincloud["plot_type"] == "raincloud"
+    assert raincloud["layout"]["title"]["text"] == "Raincloud profile: AL590714.1"
+    assert raincloud["layout"]["xaxis"]["title"]["text"] == "inferred group"
+    assert raincloud["layout"]["yaxis"]["title"]["text"] == "sample-like value"
+    point_traces = [trace for trace in raincloud["data"] if trace["type"] == "scattergl"]
+    assert [trace["name"] for trace in point_traces] == ["Group A", "Group B", "Group C"]
+    assert point_traces[0]["text"] == ["Group A-1", "Group A-2"]
+    assert any(
+        "Skipped numeric metadata columns" in warning and "Length" in warning
+        for warning in raincloud["warnings"]
+    )
+
 
 def test_plot_studio_report_summarizes_single_gene_profile_values(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
@@ -5225,6 +5361,29 @@ def test_plot_studio_report_summarizes_single_gene_profile_values(tmp_path: Path
         {"group": "Group B", "count": 2},
         {"group": "Group C", "count": 2},
     ]
+    assert profile["group_statistics"] == [
+        {
+            "group": "Group A",
+            "count": 2,
+            "mean": 8.4,
+            "minimum": {"column": "Group A-1", "value": 8.2},
+            "maximum": {"column": "Group A-2", "value": 8.6},
+        },
+        {
+            "group": "Group B",
+            "count": 2,
+            "mean": 3.3,
+            "minimum": {"column": "Group B-1", "value": 3.1},
+            "maximum": {"column": "Group B-2", "value": 3.5},
+        },
+        {
+            "group": "Group C",
+            "count": 2,
+            "mean": 6.55,
+            "minimum": {"column": "Group C-2", "value": 6.4},
+            "maximum": {"column": "Group C-1", "value": 6.7},
+        },
+    ]
     assert profile["highest_values"][:3] == [
         {"column": "Group A-2", "value": 8.6},
         {"column": "Group A-1", "value": 8.2},
@@ -5239,10 +5398,12 @@ def test_plot_studio_report_summarizes_single_gene_profile_values(tmp_path: Path
         in sections["Figure interpretation"]
     )
     assert "Inferred column groups are Group A (n=2), Group B (n=2), Group C (n=2)" in sections["Figure interpretation"]
-    assert suitability["recommended_plot_ids"][:2] == ["bar", "histogram"]
+    assert "Group means are Group A=8.4, Group B=3.3, Group C=6.55" in sections["Figure interpretation"]
+    assert suitability["recommended_plot_ids"][:6] == ["bar", "grouped_dotplot", "boxplot", "raincloud", "histogram", "violin"]
     assert suitability["selected_is_recommended"] is True
     assert {"scatter", "radar", "correlation"}.issubset(set(suitability["not_recommended_plot_ids"]))
     assert "Single-row expression profiles" in suitability["reason"]
+    assert "grouped dot plots" in suitability["reason"]
     assert "Do not infer visual details" in report["agent_context"]["interpretation_rules"][1]
 
 

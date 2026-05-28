@@ -65,6 +65,8 @@ def create_plot_studio_spec(
         "surface_3d": _build_surface_3d_spec,
         "bubble": _build_bubble_spec,
         "volcano": _build_volcano_spec,
+        "upset": _build_upset_spec,
+        "venn": _build_venn_spec,
         "heatmap": _build_heatmap_spec,
         "correlation": _build_correlation_spec,
         "enrichment_dot": _build_enrichment_dot_spec,
@@ -688,6 +690,9 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
                 "hovertemplate": "%{text}<br>log2FC=%{x:.3g}<br>-log10(p)=%{y:.3g}<br>p=%{customdata[0]:.3g}<extra></extra>",
             }
         )
+    label_trace = _volcano_label_trace(grouped, params)
+    if label_trace:
+        traces.append(label_trace)
     layout = _base_layout(
         title=f"Volcano: {log2fc_column} vs {p_value_column}",
         x_title=log2fc_column,
@@ -715,6 +720,278 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
+def _volcano_label_trace(grouped: dict[str, list[dict[str, Any]]], params: dict[str, Any]) -> dict[str, Any] | None:
+    label_top_n = _bounded_int(params.get("label_top_n"), 20, 0, 200)
+    label_mode = str(params.get("label_mode") or "significant")
+    if label_top_n <= 0 or label_mode == "none":
+        return None
+    if label_mode == "top_p":
+        candidates = [point for points in grouped.values() for point in points if point.get("gene")]
+    else:
+        candidates = [point for group_name in ("Up", "Down") for point in grouped.get(group_name, []) if point.get("gene")]
+    candidates.sort(key=lambda point: (point["p_value"], -abs(point["x"])))
+    selected = candidates[:label_top_n]
+    if not selected:
+        return None
+    return {
+        "type": "scatter",
+        "mode": "text",
+        "name": "Gene labels",
+        "x": [point["x"] for point in selected],
+        "y": [point["y"] for point in selected],
+        "text": [point["gene"] for point in selected],
+        "textposition": [
+            "middle right" if point["x"] >= 0 else "middle left"
+            for point in selected
+        ],
+        "textfont": {"size": _bounded_int(params.get("font_size"), 13, 8, 28) - 1, "color": "#172331"},
+        "hovertemplate": "%{text}<br>log2FC=%{x:.3g}<br>-log10(p)=%{y:.3g}<extra>label</extra>",
+        "showlegend": False,
+    }
+
+
+def _build_upset_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    item_column = _requested_column(params.get("item_id"), context["columns"]) or _best_label_column(context["columns"])
+    requested_sets = _selected_columns(
+        params.get("set_columns"),
+        [column for column in context["columns"] if column != item_column],
+        limit=_bounded_int(params.get("max_sets"), 8, 2, 20),
+    )
+    set_columns = requested_sets[: _bounded_int(params.get("max_sets"), 8, 2, 20)]
+    if not item_column or len(set_columns) < 2:
+        return _empty_plot_spec("upset", "UpSet requires an item ID column and at least two set membership columns.", context["table_summary"])
+
+    min_intersection = _bounded_int(params.get("min_intersection_size"), 1, 1, 1000)
+    intersections: dict[tuple[str, ...], set[str]] = {}
+    set_totals = {column: 0 for column in set_columns}
+    for row in context["records"]:
+        item_id = str(row.get(item_column) or "").strip()
+        if not item_id:
+            continue
+        memberships = tuple(column for column in set_columns if _truthy_membership(row.get(column)))
+        if not memberships:
+            continue
+        for column in memberships:
+            set_totals[column] += 1
+        intersections.setdefault(memberships, set()).add(item_id)
+    rows = [
+        {"sets": sets, "count": len(items), "items": sorted(items)[:8]}
+        for sets, items in intersections.items()
+        if len(items) >= min_intersection
+    ]
+    sort_by = str(params.get("sort_by") or "intersection_size")
+    if sort_by == "degree":
+        rows.sort(key=lambda item: (len(item["sets"]), item["count"], "+".join(item["sets"])), reverse=True)
+    elif sort_by == "set_name":
+        rows.sort(key=lambda item: "+".join(item["sets"]))
+    else:
+        rows.sort(key=lambda item: (item["count"], len(item["sets"])), reverse=True)
+    max_intersections = _bounded_int(params.get("max_intersections"), 40, 5, 120)
+    if len(rows) > max_intersections:
+        rows = rows[:max_intersections]
+    if not rows:
+        return _empty_plot_spec("upset", "No set intersections passed the current filters.", context["table_summary"])
+
+    x_labels = [_intersection_label(row["sets"]) for row in rows]
+    bar_trace = {
+        "type": "bar",
+        "name": "Intersection size",
+        "x": x_labels,
+        "y": [row["count"] for row in rows],
+        "marker": {"color": "#315fd6", "line": {"color": "#183f99", "width": 1}},
+        "customdata": [[", ".join(row["items"]), len(row["sets"])] for row in rows],
+        "hovertemplate": "%{x}<br>count=%{y}<br>degree=%{customdata[1]}<br>items=%{customdata[0]}<extra></extra>",
+    }
+    matrix_traces = []
+    line_traces = []
+    for set_index, set_name in enumerate(set_columns):
+        matrix_traces.append(
+            {
+                "type": "scatter",
+                "mode": "markers",
+                "name": set_name,
+                "x": x_labels,
+                "y": [set_name for _ in rows],
+                "xaxis": "x2",
+                "yaxis": "y2",
+                "marker": {
+                    "size": [12 if set_name in row["sets"] else 6 for row in rows],
+                    "color": ["#07131f" if set_name in row["sets"] else "#d7e1ea" for row in rows],
+                    "line": {"color": "#ffffff", "width": 0.6},
+                },
+                "hovertemplate": f"{set_name}<br>%{{x}}<extra></extra>",
+                "showlegend": False,
+            }
+        )
+    for row in rows:
+        active_sets = [set_name for set_name in set_columns if set_name in row["sets"]]
+        if len(active_sets) > 1:
+            line_traces.append(
+                {
+                    "type": "scatter",
+                    "mode": "lines",
+                    "x": [_intersection_label(row["sets"]), _intersection_label(row["sets"])],
+                    "y": [active_sets[0], active_sets[-1]],
+                    "xaxis": "x2",
+                    "yaxis": "y2",
+                    "line": {"color": "#07131f", "width": 1.2},
+                    "hoverinfo": "skip",
+                    "showlegend": False,
+                }
+            )
+    set_size_trace = {
+        "type": "bar",
+        "orientation": "h",
+        "name": "Set size",
+        "x": [set_totals[set_name] for set_name in set_columns],
+        "y": set_columns,
+        "xaxis": "x3",
+        "yaxis": "y3",
+        "marker": {"color": "#0f8a8f"},
+        "hovertemplate": "%{y}<br>set size=%{x}<extra></extra>",
+        "showlegend": False,
+    }
+    layout = _base_layout(title=f"UpSet: {len(rows)} intersections", x_title="", y_title="intersection size", params=params)
+    layout.update(
+        {
+            "grid": {"rows": 2, "columns": 2, "pattern": "independent"},
+            "xaxis": {"domain": [0.22, 1.0], "anchor": "y", "tickangle": -45, "automargin": True},
+            "yaxis": {"domain": [0.45, 1.0], "anchor": "x", "title": "Intersection size"},
+            "xaxis2": {"domain": [0.22, 1.0], "anchor": "y2", "tickangle": -45, "showticklabels": False},
+            "yaxis2": {"domain": [0.05, 0.36], "anchor": "x2", "categoryorder": "array", "categoryarray": set_columns[::-1]},
+            "xaxis3": {"domain": [0.0, 0.18], "anchor": "y3", "title": "Set size", "autorange": "reversed"},
+            "yaxis3": {"domain": [0.05, 0.36], "anchor": "x3", "categoryorder": "array", "categoryarray": set_columns[::-1]},
+            "bargap": 0.24,
+            "showlegend": False,
+        }
+    )
+    warnings = []
+    if len(intersections) > len(rows):
+        warnings.append(f"Showing top {len(rows)} intersections after filtering.")
+    return {
+        "data": [bar_trace, *line_traces, *matrix_traces, set_size_trace],
+        "layout": layout,
+        "config": _plotly_config(params),
+        "warnings": warnings,
+    }
+
+
+def _build_venn_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    item_column = _requested_column(params.get("item_id"), context["columns"]) or _best_label_column(context["columns"])
+    set_columns = _selected_columns(
+        params.get("set_columns"),
+        [column for column in context["columns"] if column != item_column],
+        limit=_bounded_int(params.get("max_sets"), 4, 2, 4),
+    )
+    set_columns = set_columns[: _bounded_int(params.get("max_sets"), 4, 2, 4)]
+    if not item_column or len(set_columns) < 2:
+        return _empty_plot_spec("venn", "Venn requires an item ID column and two to four set membership columns.", context["table_summary"])
+
+    intersections: dict[tuple[str, ...], set[str]] = {}
+    total_items: set[str] = set()
+    for row in context["records"]:
+        item_id = str(row.get(item_column) or "").strip()
+        if not item_id:
+            continue
+        memberships = tuple(column for column in set_columns if _truthy_membership(row.get(column)))
+        if not memberships:
+            continue
+        total_items.add(item_id)
+        intersections.setdefault(memberships, set()).add(item_id)
+    if not intersections:
+        return _empty_plot_spec("venn", "No set memberships were detected for Venn rendering.", context["table_summary"])
+
+    circle_layout = _venn_circle_layout(set_columns)
+    shapes = []
+    for index, set_name in enumerate(set_columns):
+        center_x, center_y = circle_layout[set_name]
+        color = PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+        shapes.append(
+            {
+                "type": "circle",
+                "xref": "x",
+                "yref": "y",
+                "x0": center_x - 1.0,
+                "x1": center_x + 1.0,
+                "y0": center_y - 1.0,
+                "y1": center_y + 1.0,
+                "fillcolor": color,
+                "opacity": 0.24,
+                "line": {"color": color, "width": 2},
+                "layer": "below",
+            }
+        )
+
+    show_counts = _truthy(params.get("show_counts"), True)
+    show_percent = _truthy(params.get("show_percent"), False)
+    label_x = []
+    label_y = []
+    label_text = []
+    label_hover = []
+    denominator = max(len(total_items), 1)
+    for memberships, items in sorted(intersections.items(), key=lambda item: (len(item[0]), item[0])):
+        x_value, y_value = _venn_label_position(memberships, circle_layout)
+        count = len(items)
+        parts = []
+        if show_counts:
+            parts.append(str(count))
+        if show_percent:
+            parts.append(f"{count / denominator:.1%}")
+        label_x.append(x_value)
+        label_y.append(y_value)
+        label_text.append("<br>".join(parts) if parts else _intersection_label(memberships))
+        label_hover.append(f"{_intersection_label(memberships)}<br>count={count}<br>items={', '.join(sorted(items)[:8])}")
+
+    set_label_x = []
+    set_label_y = []
+    set_label_text = []
+    for set_name in set_columns:
+        center_x, center_y = circle_layout[set_name]
+        set_label_x.append(center_x)
+        set_label_y.append(center_y + 1.12)
+        set_label_text.append(set_name)
+
+    label_trace = {
+        "type": "scatter",
+        "mode": "text",
+        "name": "Intersection labels",
+        "x": label_x,
+        "y": label_y,
+        "text": label_text,
+        "customdata": label_hover,
+        "textfont": {"size": _bounded_int(params.get("font_size"), 13, 8, 28), "color": "#07131f"},
+        "hovertemplate": "%{customdata}<extra></extra>",
+        "showlegend": False,
+    }
+    set_trace = {
+        "type": "scatter",
+        "mode": "text",
+        "name": "Set labels",
+        "x": set_label_x,
+        "y": set_label_y,
+        "text": set_label_text,
+        "textfont": {"size": 13, "color": "#24323f"},
+        "hoverinfo": "skip",
+        "showlegend": False,
+    }
+    layout = _base_layout(title=f"Venn: {len(set_columns)} sets", x_title="", y_title="", params=params)
+    layout.update(
+        {
+            "shapes": shapes,
+            "xaxis": {"visible": False, "range": [-2.25, 2.25], "scaleanchor": "y", "scaleratio": 1},
+            "yaxis": {"visible": False, "range": [-1.9, 2.0]},
+            "showlegend": False,
+            "plot_bgcolor": "rgba(0,0,0,0)" if params.get("background") == "transparent" else "#ffffff",
+        }
+    )
+    warnings = []
+    if len(set_columns) == 4:
+        warnings.append("Four-set Venn is an approximate sketch; use UpSet for publication-grade complex intersections.")
+    return {"data": [label_trace, set_trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
 def _build_heatmap_spec(context: dict[str, Any]) -> dict[str, Any]:
     params = context["params"]
     numeric_columns = _selected_columns(
@@ -734,6 +1011,17 @@ def _build_heatmap_spec(context: dict[str, Any]) -> dict[str, Any]:
     scale = str(params.get("scale") or "row_zscore")
     labels = [item["label"] for item in matrix_rows]
     z_values = [_scale_values(item["values"], scale) for item in matrix_rows]
+    cluster_warning: str | None = None
+    row_cluster = _cluster_vectors(z_values, params) if _truthy(params.get("cluster_rows"), True) else None
+    if row_cluster:
+        labels = [labels[index] for index in row_cluster["order"]]
+        z_values = [z_values[index] for index in row_cluster["order"]]
+    elif _truthy(params.get("cluster_rows"), True) and len(z_values) > 180:
+        cluster_warning = "Row clustering skipped for more than 180 rows to keep interactive rendering responsive."
+    column_cluster = _cluster_vectors(_transpose(z_values), params) if _truthy(params.get("cluster_columns"), True) else None
+    if column_cluster:
+        numeric_columns = [numeric_columns[index] for index in column_cluster["order"]]
+        z_values = [[row[index] for index in column_cluster["order"]] for row in z_values]
     trace = {
         "type": "heatmap",
         "x": numeric_columns,
@@ -753,9 +1041,13 @@ def _build_heatmap_spec(context: dict[str, Any]) -> dict[str, Any]:
         layout["height"] = max(520, min(1800, 220 + len(labels) * 14))
     layout["yaxis"]["automargin"] = True
     layout["xaxis"]["automargin"] = True
+    if _truthy(params.get("show_dendrogram"), True):
+        _attach_dendrogram_guides(layout, row_cluster, column_cluster, row_count=len(labels), column_count=len(numeric_columns))
     warnings = []
     if len(context["records"]) > len(matrix_rows):
         warnings.append(f"Showing top {len(matrix_rows)} rows ranked by variance.")
+    if cluster_warning:
+        warnings.append(cluster_warning)
     return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
@@ -780,6 +1072,11 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
             else:
                 row.append(_pearson(series[row_column], series[column]))
         z_values.append(row)
+    row_cluster = _cluster_vectors(z_values, params) if _truthy(params.get("cluster_rows"), True) else None
+    if row_cluster:
+        order = row_cluster["order"]
+        numeric_columns = [numeric_columns[index] for index in order]
+        z_values = [[row[index] for index in order] for row in [z_values[index] for index in order]]
 
     trace = {
         "type": "heatmap",
@@ -802,6 +1099,7 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
         layout["height"] = max(560, min(1800, 220 + len(numeric_columns) * 13))
     layout["xaxis"]["automargin"] = True
     layout["yaxis"]["automargin"] = True
+    _attach_dendrogram_guides(layout, row_cluster, row_cluster, row_count=len(numeric_columns), column_count=len(numeric_columns))
     warnings = []
     if len(context["numeric_columns"]) > len(numeric_columns):
         warnings.append(f"Showing first {len(numeric_columns)} numeric columns to keep correlation readable.")
@@ -1069,6 +1367,193 @@ def _top_matrix_rows(
         ranked.append({"label": label, "values": filled_values, "variance": _variance(filled_values)})
     ranked.sort(key=lambda item: item["variance"], reverse=True)
     return ranked[:top_n]
+
+
+def _cluster_vectors(vectors: list[list[float]], params: dict[str, Any]) -> dict[str, Any] | None:
+    if len(vectors) < 2 or len(vectors) > 180:
+        return None
+    distance = str(params.get("distance") or "correlation")
+    linkage = str(params.get("linkage") or "average")
+    clusters = [
+        {"items": [index], "height": 0.0, "left": None, "right": None}
+        for index in range(len(vectors))
+    ]
+    active = list(range(len(clusters)))
+    while len(active) > 1:
+        best_pair: tuple[int, int] | None = None
+        best_distance = math.inf
+        for first_pos, first_id in enumerate(active[:-1]):
+            for second_id in active[first_pos + 1 :]:
+                merged_distance = _cluster_distance(clusters[first_id]["items"], clusters[second_id]["items"], vectors, distance, linkage)
+                if merged_distance < best_distance:
+                    best_distance = merged_distance
+                    best_pair = (first_id, second_id)
+        if best_pair is None:
+            break
+        left_id, right_id = best_pair
+        clusters.append(
+            {
+                "items": clusters[left_id]["items"] + clusters[right_id]["items"],
+                "height": best_distance,
+                "left": left_id,
+                "right": right_id,
+            }
+        )
+        active = [cluster_id for cluster_id in active if cluster_id not in {left_id, right_id}]
+        active.append(len(clusters) - 1)
+    if not active:
+        return None
+    root_id = active[0]
+    order = _cluster_leaf_order(root_id, clusters)
+    return {"order": order, "clusters": clusters, "root": root_id}
+
+
+def _cluster_distance(
+    first_items: list[int],
+    second_items: list[int],
+    vectors: list[list[float]],
+    distance: str,
+    linkage: str,
+) -> float:
+    distances = [
+        _vector_distance(vectors[first_index], vectors[second_index], distance)
+        for first_index in first_items
+        for second_index in second_items
+    ]
+    if not distances:
+        return 0.0
+    if linkage == "single":
+        return min(distances)
+    if linkage == "complete":
+        return max(distances)
+    return fmean(distances)
+
+
+def _vector_distance(left: list[float], right: list[float], distance: str) -> float:
+    pairs = list(zip(left, right, strict=False))
+    if not pairs:
+        return 0.0
+    if distance == "euclidean":
+        return math.sqrt(sum((left_value - right_value) ** 2 for left_value, right_value in pairs))
+    if distance == "manhattan":
+        return sum(abs(left_value - right_value) for left_value, right_value in pairs)
+    return 1 - _pearson([left_value for left_value, _ in pairs], [right_value for _, right_value in pairs])
+
+
+def _cluster_leaf_order(cluster_id: int, clusters: list[dict[str, Any]]) -> list[int]:
+    cluster = clusters[cluster_id]
+    left_id = cluster.get("left")
+    right_id = cluster.get("right")
+    if left_id is None or right_id is None:
+        return cluster["items"][:]
+    left_order = _cluster_leaf_order(left_id, clusters)
+    right_order = _cluster_leaf_order(right_id, clusters)
+    return left_order + right_order
+
+
+def _transpose(matrix: list[list[float]]) -> list[list[float]]:
+    if not matrix:
+        return []
+    return [list(column) for column in zip(*matrix, strict=False)]
+
+
+def _attach_dendrogram_guides(
+    layout: dict[str, Any],
+    row_cluster: dict[str, Any] | None,
+    column_cluster: dict[str, Any] | None,
+    *,
+    row_count: int,
+    column_count: int,
+) -> None:
+    shapes = layout.setdefault("shapes", [])
+    if row_cluster:
+        shapes.extend(_dendrogram_shapes(row_cluster, orientation="row", leaf_count=row_count))
+    if column_cluster:
+        shapes.extend(_dendrogram_shapes(column_cluster, orientation="column", leaf_count=column_count))
+    if row_cluster or column_cluster:
+        layout["meta"] = {
+            **dict(layout.get("meta") or {}),
+            "dendrogram_guides": {
+                "rows": bool(row_cluster),
+                "columns": bool(column_cluster),
+                "note": "Lightweight Plotly paper-space dendrogram guides; leaf order is clustered in the heatmap trace.",
+            },
+        }
+
+
+def _dendrogram_shapes(cluster_result: dict[str, Any], *, orientation: str, leaf_count: int) -> list[dict[str, Any]]:
+    if leaf_count < 2:
+        return []
+    clusters = cluster_result["clusters"]
+    order = cluster_result["order"]
+    ranks = {leaf: rank for rank, leaf in enumerate(order)}
+    max_height = max((float(cluster.get("height") or 0.0) for cluster in clusters), default=1.0) or 1.0
+    positions: dict[int, tuple[float, float]] = {}
+    shapes: list[dict[str, Any]] = []
+
+    def build(cluster_id: int) -> tuple[float, float]:
+        cluster = clusters[cluster_id]
+        left_id = cluster.get("left")
+        right_id = cluster.get("right")
+        if left_id is None or right_id is None:
+            leaf = cluster["items"][0]
+            position = (ranks[leaf] + 0.5) / leaf_count
+            positions[cluster_id] = (position, 0.0)
+            return positions[cluster_id]
+        left_position, left_height = build(left_id)
+        right_position, right_height = build(right_id)
+        current_height = float(cluster.get("height") or 0.0) / max_height
+        position = (left_position + right_position) / 2
+        positions[cluster_id] = (position, current_height)
+        shapes.extend(_cluster_branch_shapes(left_position, left_height, right_position, right_height, current_height, orientation))
+        return positions[cluster_id]
+
+    build(cluster_result["root"])
+    return shapes
+
+
+def _cluster_branch_shapes(
+    first_position: float,
+    first_height: float,
+    second_position: float,
+    second_height: float,
+    parent_height: float,
+    orientation: str,
+) -> list[dict[str, Any]]:
+    if orientation == "row":
+        x_base = -0.012
+        width = 0.055
+        parent_x = x_base - parent_height * width
+        first_x = x_base - first_height * width
+        second_x = x_base - second_height * width
+        return [
+            _paper_shape_line(first_x, first_position, parent_x, first_position),
+            _paper_shape_line(second_x, second_position, parent_x, second_position),
+            _paper_shape_line(parent_x, first_position, parent_x, second_position),
+        ]
+    y_base = 1.012
+    height = 0.055
+    parent_y = y_base + parent_height * height
+    first_y = y_base + first_height * height
+    second_y = y_base + second_height * height
+    return [
+        _paper_shape_line(first_position, first_y, first_position, parent_y),
+        _paper_shape_line(second_position, second_y, second_position, parent_y),
+        _paper_shape_line(first_position, parent_y, second_position, parent_y),
+    ]
+
+
+def _paper_shape_line(x0: float, y0: float, x1: float, y1: float) -> dict[str, Any]:
+    return {
+        "type": "line",
+        "xref": "paper",
+        "yref": "paper",
+        "x0": x0,
+        "x1": x1,
+        "y0": y0,
+        "y1": y1,
+        "line": {"color": "#8ba1b2", "width": 0.85},
+    }
 
 
 def _fill_missing_numeric(values: list[float | None]) -> list[float]:
@@ -1663,6 +2148,45 @@ def _p_value_label(p_value: float) -> str:
     if p_value < 0.001:
         return "p<0.001"
     return f"p={p_value:.3g}"
+
+
+def _truthy_membership(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    normalized = str(value).strip().lower()
+    return normalized not in {"", "0", "false", "no", "none", "na", "nan", "-"}
+
+
+def _intersection_label(set_names: tuple[str, ...]) -> str:
+    return "&".join(set_names)
+
+
+def _venn_circle_layout(set_columns: list[str]) -> dict[str, tuple[float, float]]:
+    centers_by_count = {
+        2: [(-0.62, 0.0), (0.62, 0.0)],
+        3: [(-0.68, 0.42), (0.68, 0.42), (0.0, -0.62)],
+        4: [(-0.72, 0.52), (0.72, 0.52), (-0.72, -0.52), (0.72, -0.52)],
+    }
+    centers = centers_by_count.get(len(set_columns), centers_by_count[4])
+    return {set_name: centers[index] for index, set_name in enumerate(set_columns)}
+
+
+def _venn_label_position(
+    memberships: tuple[str, ...],
+    circle_layout: dict[str, tuple[float, float]],
+) -> tuple[float, float]:
+    points = [circle_layout[set_name] for set_name in memberships if set_name in circle_layout]
+    if not points:
+        return (0.0, 0.0)
+    x_value = fmean([point[0] for point in points])
+    y_value = fmean([point[1] for point in points])
+    if len(memberships) == 1:
+        center_x, center_y = points[0]
+        x_value += 0.22 if center_x >= 0 else -0.22
+        y_value += 0.08 if center_y >= 0 else -0.08
+    return (x_value, y_value)
 
 
 def _aggregate_values(values: list[float], method: str) -> float:

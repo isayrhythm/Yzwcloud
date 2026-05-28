@@ -27,6 +27,8 @@ SUPPORTED_PLOTLY_SPEC_TYPES = {
     "surface_3d",
     "bubble",
     "volcano",
+    "upset",
+    "venn",
     "heatmap",
     "correlation",
     "enrichment_dot",
@@ -380,7 +382,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
     {
         "id": "line",
         "label": "Line",
-        "engine": "echarts",
+        "engine": "plotly",
         "description": "Time-course or ordered series plot with optional grouping and smoothing.",
         "default_params": {
             "line_shape": "linear",
@@ -556,7 +558,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
     {
         "id": "heatmap",
         "label": "Heatmap",
-        "engine": "echarts",
+        "engine": "plotly",
         "description": "Matrix heatmap with row and column scaling, clustering, annotations, and labels.",
         "default_params": {
             "scale": "row_zscore",
@@ -660,7 +662,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
     {
         "id": "upset",
         "label": "UpSet",
-        "engine": "echarts",
+        "engine": "plotly",
         "description": "Set intersection chart for multiple gene lists or feature groups.",
         "default_params": {"min_intersection_size": 1, "max_sets": 8, "sort_by": "intersection_size"},
         "parameter_groups": [
@@ -678,6 +680,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                 [
                     _param("min_intersection_size", "Min intersection", "number", 1, min_value=1, max_value=1000, step=1),
                     _param("max_sets", "Max sets", "number", 8, min_value=2, max_value=20, step=1),
+                    _param("max_intersections", "Max intersections", "number", 40, min_value=5, max_value=120, step=1),
                     _param("sort_by", "Sort by", "select", "intersection_size", options=["intersection_size", "degree", "set_name"]),
                 ],
             ),
@@ -687,7 +690,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
     {
         "id": "venn",
         "label": "Venn",
-        "engine": "echarts",
+        "engine": "plotly",
         "description": "Two- to four-set overlap diagram for small set comparisons.",
         "default_params": {"max_sets": 4, "show_counts": True, "show_percent": False},
         "parameter_groups": [
@@ -714,7 +717,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
     {
         "id": "correlation",
         "label": "Correlation",
-        "engine": "echarts",
+        "engine": "plotly",
         "description": "Correlation matrix heatmap with optional hierarchical clustering and group side bars.",
         "default_params": {
             "method": "pearson",
@@ -822,7 +825,7 @@ def list_plot_presets() -> list[dict[str, Any]]:
 def get_plot_studio_manifest() -> dict[str, Any]:
     return {
         "version": PLOT_STUDIO_VERSION,
-        "engines": ["plotly", "echarts"],
+        "engines": ["plotly"],
         "parameter_groups": [
             "Data mapping",
             "Grouping and facets",

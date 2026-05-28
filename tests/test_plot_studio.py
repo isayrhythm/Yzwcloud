@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
 
 from yzwcloud.main import app  # noqa: E402
 from yzwcloud.plot_studio import inspect_table, recommend_plot_types  # noqa: E402
-from yzwcloud.plot_studio_presets import PLOT_PRESETS  # noqa: E402
+from yzwcloud.plot_studio_presets import PLOT_PRESETS, SUPPORTED_PLOTLY_SPEC_TYPES  # noqa: E402
 
 
 DATA_FILE = ROOT / "expression_matrix.csv"
@@ -32,12 +32,14 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     manifest = _request(client, "GET", "/api/plot-studio/presets")
 
     assert manifest["version"] == "0.1"
-    assert {"plotly", "echarts"} <= set(manifest["engines"])
+    assert manifest["engines"] == ["plotly"]
     presets = {item["id"]: item for item in manifest["presets"]}
     assert {
         "boxplot",
         "heatmap",
         "volcano",
+        "upset",
+        "venn",
         "correlation",
         "histogram",
         "density_contour",
@@ -47,6 +49,7 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
 
     boxplot = presets["boxplot"]
     assert boxplot["engine"] == "plotly"
+    assert all(presets[plot_id]["engine"] == "plotly" for plot_id in SUPPORTED_PLOTLY_SPEC_TYPES)
     assert boxplot["category"] == "Distribution"
     assert boxplot["thumbnail"] == "boxplot"
     assert "Group comparison" in boxplot["use_case"]
@@ -90,6 +93,12 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     top_n = next(param for param in clustering_group["parameters"] if param["id"] == "top_n")
     assert top_n["step"] == 1
 
+    upset = presets["upset"]
+    upset_sets = next(group for group in upset["parameter_groups"] if group["id"] == "sets")
+    assert {param["id"] for param in upset_sets["parameters"]} >= {"max_sets", "max_intersections"}
+    venn = presets["venn"]
+    assert venn["default_params"]["max_sets"] == 4
+
 
 def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
     assert DATA_FILE.exists(), f"Missing demo expression matrix: {DATA_FILE}"
@@ -110,7 +119,18 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
                 "meta": {"sample_count": 52, "gene_count": 2000},
             },
             "plotType": "Heatmap",
-            "params": {"top_n": 40, "title": "QC heatmap", "width": 980, "height": 640, "format": "png"},
+            "params": {
+                "top_n": 40,
+                "title": "QC heatmap",
+                "width": 980,
+                "height": 640,
+                "format": "png",
+                "cluster_rows": True,
+                "cluster_columns": True,
+                "distance": "correlation",
+                "linkage": "average",
+                "show_dendrogram": True,
+            },
         },
     )
 
@@ -122,6 +142,8 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
     sections = {section["title"]: section for section in report["report"]["sections"]}
     assert "scanned" in sections["Data readiness"]["text"]
     assert "top_n=40" in sections["Parameter notes"]["text"]
+    assert "cluster rows=True" in sections["Parameter notes"]["text"]
+    assert "distance=correlation" in sections["Parameter notes"]["text"]
     assert "title='QC heatmap'" in sections["Parameter notes"]["text"]
     assert "canvas=980x640" in sections["Parameter notes"]["text"]
     assert any("Rendered images are not inspected" in item for item in report["report"]["limitations"])
@@ -129,6 +151,8 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
     assert report["agent_context"]["plot"]["id"] == "heatmap"
     assert report["agent_context"]["table"]["filename"] == DATA_FILE.name
     assert report["agent_context"]["params"]["title"] == "QC heatmap"
+    assert "dendrogram guides shown" in report["agent_context"]["parameter_summary"]["display"]
+    assert "linkage=average" in report["agent_context"]["parameter_summary"]["statistics"]
     assert any("Do not infer visual details" in item for item in report["agent_context"]["interpretation_rules"])
 
 
@@ -201,6 +225,130 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
     assert "multiple testing=BH" in sections["Parameter notes"]
     assert "p-values shown on plot" in sections["Parameter notes"]
     assert "pairwise test=t_test" in report["agent_context"]["parameter_summary"]["statistics"]
+
+
+def test_plot_studio_report_summarizes_upset_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_upset.csv"
+    table_file.write_text(
+        "\n".join(
+            [
+                "gene,A,B,C",
+                "g1,1,1,0",
+                "g2,1,0,1",
+                "g3,1,1,1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Gene sets",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "upset",
+            "params": {
+                "item_id": "gene",
+                "set_columns": ["A", "B", "C"],
+                "min_intersection_size": 1,
+                "max_sets": 3,
+                "max_intersections": 10,
+                "sort_by": "degree",
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "min intersection=1" in sections["Parameter notes"]
+    assert "max intersections=10" in sections["Parameter notes"]
+    assert "sort by=degree" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_venn_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_venn.csv"
+    table_file.write_text(
+        "\n".join(
+            [
+                "gene,A,B,C",
+                "g1,1,1,0",
+                "g2,1,0,1",
+                "g3,1,1,1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Gene sets",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "venn",
+            "params": {
+                "item_id": "gene",
+                "set_columns": ["A", "B", "C"],
+                "max_sets": 3,
+                "show_counts": True,
+                "show_percent": True,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "max sets=3" in sections["Parameter notes"]
+    assert "show percent=True" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_volcano_label_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_volcano.csv"
+    table_file.write_text("gene,log2fc,p_value\nA,2.1,0.001\nB,-1.8,0.002\n", encoding="utf-8")
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Diff result",
+                "type": "diff_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "volcano",
+            "params": {
+                "log2fc_threshold": 1.2,
+                "p_value_threshold": 0.01,
+                "label_top_n": 5,
+                "label_mode": "top_p",
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "abs log2FC threshold=1.2" in sections["Parameter notes"]
+    assert "top labels=5" in report["agent_context"]["parameter_summary"]["display"]
+    assert "label mode=top_p" in report["agent_context"]["parameter_summary"]["display"]
 
 
 def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> None:
@@ -551,6 +699,90 @@ def test_plot_studio_boxplot_pairwise_p_values_render_brackets(tmp_path: Path) -
     assert spec["layout"]["yaxis"]["range"][1] > 3.7
 
 
+def test_plot_studio_spec_builds_upset_intersections(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_upset.csv"
+    table_file.write_text(
+        "\n".join(
+            [
+                "gene,A,B,C",
+                "g1,1,1,0",
+                "g2,1,0,1",
+                "g3,1,1,1",
+                "g4,0,1,1",
+                "g5,1,0,0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Gene sets",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "upset",
+            "params": {"item_id": "gene", "set_columns": ["A", "B", "C"], "max_intersections": 5},
+        },
+    )
+
+    assert spec["plot_type"] == "upset"
+    assert spec["data"][0]["type"] == "bar"
+    assert spec["data"][0]["name"] == "Intersection size"
+    assert "A&B" in spec["data"][0]["x"]
+    assert any(trace.get("xaxis") == "x2" for trace in spec["data"][1:])
+    assert spec["layout"]["xaxis3"]["title"] == "Set size"
+
+
+def test_plot_studio_spec_builds_venn_overlap_sketch(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_venn.csv"
+    table_file.write_text(
+        "\n".join(
+            [
+                "gene,A,B,C",
+                "g1,1,1,0",
+                "g2,1,0,1",
+                "g3,1,1,1",
+                "g4,0,1,1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Gene sets",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "venn",
+            "params": {"item_id": "gene", "set_columns": ["A", "B", "C"], "show_counts": True, "show_percent": True},
+        },
+    )
+
+    assert spec["plot_type"] == "venn"
+    assert len(spec["layout"]["shapes"]) == 3
+    assert spec["data"][0]["mode"] == "text"
+    assert any("A&B&C" in hover for hover in spec["data"][0]["customdata"])
+    assert spec["layout"]["xaxis"]["visible"] is False
+
+
 def test_plot_studio_spec_builds_volcano_from_diff_table(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
     allowed_tmp.mkdir(parents=True, exist_ok=True)
@@ -573,12 +805,16 @@ def test_plot_studio_spec_builds_volcano_from_diff_table(tmp_path: Path) -> None
                 "dataPath": str(diff_file),
             },
             "plotType": "volcano",
+            "params": {"label_top_n": 2, "label_mode": "top_p"},
         },
     )
 
     assert spec["plot_type"] == "volcano"
-    assert {trace["name"] for trace in spec["data"]} == {"Up", "Down", "Not significant"}
+    assert {trace["name"] for trace in spec["data"]} == {"Up", "Down", "Not significant", "Gene labels"}
     assert len(spec["layout"]["shapes"]) == 3
+    labels = [trace for trace in spec["data"] if trace["name"] == "Gene labels"][0]
+    assert labels["mode"] == "text"
+    assert labels["text"] == ["A", "B"]
 
 
 def test_plot_studio_spec_builds_heatmap_and_correlation() -> None:
@@ -601,6 +837,9 @@ def test_plot_studio_spec_builds_heatmap_and_correlation() -> None:
     assert heatmap["data"][0]["type"] == "heatmap"
     assert len(heatmap["data"][0]["z"]) == 12
     assert len(heatmap["data"][0]["x"]) == 6
+    assert heatmap["layout"]["meta"]["dendrogram_guides"]["rows"] is True
+    assert heatmap["layout"]["meta"]["dendrogram_guides"]["columns"] is True
+    assert len(heatmap["layout"]["shapes"]) > 0
 
     correlation = _request(
         client,
@@ -612,6 +851,8 @@ def test_plot_studio_spec_builds_heatmap_and_correlation() -> None:
     assert correlation["data"][0]["type"] == "heatmap"
     assert len(correlation["data"][0]["z"]) == 7
     assert correlation["data"][0]["z"][0][0] == 1
+    assert correlation["layout"]["meta"]["dendrogram_guides"]["rows"] is True
+    assert len(correlation["layout"]["shapes"]) > 0
 
 
 def test_plot_studio_spec_builds_added_interactive_plot_types() -> None:

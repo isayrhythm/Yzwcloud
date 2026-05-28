@@ -336,6 +336,44 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"line shape={params.get('line_shape')}")
         if params.get("line_width"):
             summary["display"].append(f"line width={params.get('line_width')}")
+    if plot_id == "volcano":
+        if params.get("log2fc_threshold") is not None:
+            summary["statistics"].append(f"abs log2FC threshold={params.get('log2fc_threshold')}")
+        if params.get("p_value_threshold") is not None:
+            summary["statistics"].append(f"p-value threshold={params.get('p_value_threshold')}")
+        if params.get("label_top_n") is not None:
+            summary["display"].append(f"top labels={params.get('label_top_n')}")
+        if params.get("label_mode"):
+            summary["display"].append(f"label mode={params.get('label_mode')}")
+    if plot_id in {"heatmap", "correlation"}:
+        if "cluster_rows" in params:
+            summary["statistics"].append(f"cluster rows={bool(params.get('cluster_rows'))}")
+        if "cluster_columns" in params:
+            summary["statistics"].append(f"cluster columns={bool(params.get('cluster_columns'))}")
+        if params.get("distance"):
+            summary["statistics"].append(f"distance={params.get('distance')}")
+        if params.get("linkage"):
+            summary["statistics"].append(f"linkage={params.get('linkage')}")
+        if plot_id == "heatmap" and params.get("show_dendrogram"):
+            summary["display"].append("dendrogram guides shown")
+        if params.get("top_n"):
+            summary["display"].append(f"top rows={params.get('top_n')}")
+    if plot_id == "upset":
+        if params.get("min_intersection_size"):
+            summary["statistics"].append(f"min intersection={params.get('min_intersection_size')}")
+        if params.get("max_sets"):
+            summary["display"].append(f"max sets={params.get('max_sets')}")
+        if params.get("max_intersections"):
+            summary["display"].append(f"max intersections={params.get('max_intersections')}")
+        if params.get("sort_by"):
+            summary["display"].append(f"sort by={params.get('sort_by')}")
+    if plot_id == "venn":
+        if params.get("max_sets"):
+            summary["display"].append(f"max sets={params.get('max_sets')}")
+        if "show_counts" in params:
+            summary["display"].append(f"show counts={bool(params.get('show_counts'))}")
+        if "show_percent" in params:
+            summary["display"].append(f"show percent={bool(params.get('show_percent'))}")
     if params.get("width") or params.get("height"):
         summary["export"].append(f"canvas={params.get('width', 'auto')}x{params.get('height', 'auto')}")
     if params.get("format") or params.get("dpi"):

@@ -4,13 +4,16 @@ __pycache__/
 *.py[cod]
 .pdm-python
 data/tasks/
+data/plot_studio_uploads/
+data/plot_studio_examples/
 data/tmp*/
 logs/*
 !logs/.gitkeep
 .tmp-uvicorn.*.log
 uvicorn-*.log
 server-*.log
-references/plotting/*.pdf
+testdata/
+references/
 node_modules/
 dist/
 .ruff_cache/

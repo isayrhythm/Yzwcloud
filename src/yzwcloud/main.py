@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+from uuid import uuid4
+
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from yzwcloud.config import STATIC_DIR
+from yzwcloud.config import DATA_DIR, STATIC_DIR
 from yzwcloud.executor import NodeExecutionError, run_node
 from yzwcloud.models import (
     ComparisonOptionsResponse,
@@ -26,6 +29,7 @@ from yzwcloud.plot_studio import (
     create_plot_studio_spec,
     get_plot_studio_manifest,
 )
+from yzwcloud.plot_studio_examples import example_source_for_plot
 from yzwcloud.task_store import (
     TaskNotFoundError,
     create_diff_analysis_branch,
@@ -47,6 +51,9 @@ from yzwcloud.task_store import (
 
 app = FastAPI(title="Yzwcloud Bioinformatics Platform", version="0.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+PLOT_STUDIO_UPLOADS_DIR = DATA_DIR / "plot_studio_uploads"
+PLOT_STUDIO_UPLOAD_SUFFIXES = {".csv", ".tsv", ".txt", ".xlsx", ".xlsm"}
 
 
 @app.get("/", include_in_schema=False)
@@ -80,6 +87,58 @@ def api_create_plot_studio_spec(payload: PlotStudioSpecRequest) -> dict[str, obj
         plot_type=payload.plot_type,
         params=payload.params,
     )
+
+
+@app.post("/api/plot-studio/uploads")
+async def api_upload_plot_studio_table(request: Request, filename: str = "plot_studio_table.csv") -> dict[str, object]:
+    original_name = Path(filename or "plot_studio_table.csv").name
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in PLOT_STUDIO_UPLOAD_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail="Plot Studio uploads support .csv, .tsv, .txt, .xlsx, and .xlsm files.",
+        )
+
+    PLOT_STUDIO_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    safe_stem = "".join(
+        char if char.isalnum() or char in {"-", "_"} else "_"
+        for char in Path(original_name).stem
+    ).strip("_") or "plot_studio_table"
+    target = PLOT_STUDIO_UPLOADS_DIR / f"{safe_stem}_{uuid4().hex[:8]}{suffix}"
+    content = await request.body()
+    size = len(content)
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded table is empty.")
+    with target.open("wb") as output:
+        output.write(content)
+
+    source = {
+        "sourceKind": "plot_studio_upload",
+        "taskId": "",
+        "taskName": "",
+        "nodeId": target.stem,
+        "name": original_name,
+        "status": "ready",
+        "type": "uploaded_table",
+        "summary": f"{original_name} ({size} bytes)",
+        "dataPath": str(target),
+        "previewUrl": "",
+        "htmlUrl": "",
+        "meta": {
+            "uploaded_file": str(target),
+            "filename": original_name,
+            "size": size,
+        },
+    }
+    return {"source": source}
+
+
+@app.get("/api/plot-studio/examples/{plot_id}")
+def api_get_plot_studio_example(plot_id: str) -> dict[str, object]:
+    try:
+        return {"source": example_source_for_plot(plot_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/tasks", response_model=TaskDetail)

@@ -176,8 +176,8 @@ body{{margin:0;font-family:Inter,'Segoe UI','Microsoft YaHei',sans-serif;backgro
 .card strong{{display:block;color:#0e5160;font-size:12px;text-transform:uppercase}}
 .card span{{font-size:24px;font-weight:900}}
 .grid{{display:grid;grid-template-columns:minmax(420px,1fr) minmax(340px,.82fr);gap:18px;align-items:start}}
-.panel{{padding:14px;border:1px solid #d9e5ec;border-radius:16px;background:white;overflow:auto}}
-canvas{{display:block;max-width:100%}}
+.panel{{padding:14px;border:1px solid #d9e5ec;border-radius:16px;background:white;overflow:hidden}}
+canvas{{display:block;width:100%;max-width:100%;height:auto;margin:0 auto}}
 table{{width:100%;border-collapse:collapse;background:white;border:1px solid #d9e5ec;border-radius:14px;overflow:hidden}}
 th,td{{padding:8px 10px;border-bottom:1px solid #edf3f6;text-align:left;font-size:13px;vertical-align:top}}
 th{{color:#0e5160;background:#eaf3f6;font-size:12px;text-transform:uppercase}}
@@ -203,6 +203,25 @@ const data = {data};
 const tip = document.getElementById('tip');
 const modules = data.modules || [];
 const conditions = data.conditions || [];
+function setPlotFont(ctx, size = 12, weight = 400) {{
+  ctx.font = `${{weight}} ${{size}}px Inter, "Segoe UI", sans-serif`;
+}}
+function canvasPanelWidth(canvas, fallback = 680) {{
+  const panel = canvas.closest('.panel');
+  return Math.max(320, Math.floor((panel?.clientWidth || fallback) - 28));
+}}
+function maxTextWidth(ctx, texts) {{
+  return Math.max(0, ...texts.map(text => ctx.measureText(String(text || '')).width));
+}}
+function fitText(ctx, text, maxWidth) {{
+  const value = String(text || '');
+  if (ctx.measureText(value).width <= maxWidth) return value;
+  let clipped = value;
+  while (clipped.length > 1 && ctx.measureText(clipped + '...').width > maxWidth) {{
+    clipped = clipped.slice(0, -1);
+  }}
+  return clipped.length > 1 ? clipped + '...' : value.slice(0, 1);
+}}
 function heatColor(value) {{
   const v = Math.max(-1, Math.min(1, value));
   if (v >= 0) {{
@@ -218,17 +237,32 @@ function heatColor(value) {{
 function drawTraitHeatmap() {{
   const canvas = document.getElementById('traitPlot');
   const ctx = canvas.getContext('2d');
-  const left = 112, topPad = 38, cellW = 96, cellH = 32;
-  canvas.width = Math.max(620, left + conditions.length * cellW + 30);
+  setPlotFont(ctx, 12, 400);
+  const panelWidth = canvasPanelWidth(canvas, 680);
+  const moduleLabels = modules.map(module => `${{module.module}} (${{module.gene_count}})`);
+  const labelWidth = Math.min(Math.max(96, panelWidth * 0.34), Math.max(126, Math.ceil(maxTextWidth(ctx, moduleLabels))));
+  const topPad = 44, cellH = 32;
+  const cellW = Math.max(
+    42,
+    Math.min(96, Math.floor((panelWidth - labelWidth - 66) / Math.max(1, conditions.length))),
+  );
+  const contentWidth = 24 + labelWidth + 18 + conditions.length * cellW;
+  const contentStart = Math.max(10, Math.floor((panelWidth - contentWidth) / 2));
+  const swatchX = contentStart + 6, labelX = contentStart + 24, left = labelX + labelWidth + 18;
+  canvas.width = panelWidth;
   canvas.height = Math.max(240, topPad + modules.length * cellH + 42);
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle = '#172635'; ctx.font = '12px Inter, sans-serif';
-  conditions.forEach((condition, c) => ctx.fillText(condition, left + c * cellW + 8, 22));
+  setPlotFont(ctx, 12, 400);
+  ctx.fillStyle = '#172635';
+  conditions.forEach((condition, c) => {{
+    const x = left + c * cellW + Math.max(6, (cellW - ctx.measureText(condition).width) / 2);
+    ctx.fillText(condition, x, 24);
+  }});
   modules.forEach((module, r) => {{
     ctx.fillStyle = module.color_hex;
-    ctx.beginPath(); ctx.arc(20, topPad + r * cellH + 15, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(swatchX, topPad + r * cellH + 15, 6, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#172635';
-    ctx.fillText(`${{module.module}} (${{module.gene_count}})`, 34, topPad + r * cellH + 19);
+    ctx.fillText(fitText(ctx, `${{module.module}} (${{module.gene_count}})`, labelWidth), labelX, topPad + r * cellH + 19);
     conditions.forEach((condition, c) => {{
       const entry = (data.module_trait || []).find(item => item.module === module.module && item.condition === condition);
       const value = Number(entry?.correlation || 0);
@@ -238,7 +272,7 @@ function drawTraitHeatmap() {{
       ctx.fillText(value.toFixed(2), x + 28, y + 20);
     }});
   }});
-  canvas.addEventListener('mousemove', event => {{
+  canvas.onmousemove = event => {{
     const rect = canvas.getBoundingClientRect();
     const x = (event.clientX - rect.left) * canvas.width / rect.width;
     const y = (event.clientY - rect.top) * canvas.height / rect.height;
@@ -250,33 +284,50 @@ function drawTraitHeatmap() {{
       tip.style.display = 'block'; tip.style.left = event.clientX + 12 + 'px'; tip.style.top = event.clientY + 12 + 'px';
       tip.innerHTML = `${{module.module}} / ${{condition}}<br>r=${{Number(entry?.correlation || 0).toFixed(3)}}<br>p=${{Number(entry?.p_value || 1).toExponential(2)}}`;
     }} else tip.style.display = 'none';
-  }});
+  }};
 }}
 function drawWaterfall() {{
   const canvas = document.getElementById('waterfallPlot'), ctx = canvas.getContext('2d');
   const sorted = [...modules].sort((a,b) => Math.abs(b.top_correlation) - Math.abs(a.top_correlation));
-  const left = 72, mid = 220, top = 28, rowH = 28;
+  setPlotFont(ctx, 12, 400);
+  const panelWidth = canvasPanelWidth(canvas, 720);
+  const valueLabels = sorted.map(module => `${{module.top_condition}} ${{Number(module.top_correlation || 0).toFixed(2)}}`);
+  const moduleLabelWidth = Math.min(Math.max(82, panelWidth * 0.28), Math.max(88, Math.ceil(maxTextWidth(ctx, sorted.map(module => module.module)))));
+  const valueLabelWidth = Math.min(Math.max(72, panelWidth * 0.22), Math.max(72, Math.ceil(maxTextWidth(ctx, valueLabels))));
+  const barMax = Math.max(70, Math.floor((panelWidth - moduleLabelWidth - valueLabelWidth - 88) / 2));
+  const contentWidth = 22 + moduleLabelWidth + 18 + barMax * 2 + 16 + valueLabelWidth;
+  const contentStart = Math.max(10, Math.floor((panelWidth - contentWidth) / 2));
+  const dotX = contentStart + 6, labelX = contentStart + 22, left = labelX + moduleLabelWidth + 18;
+  const mid = left + barMax, valueX = mid + barMax + 16, top = 42, rowH = 30;
+  canvas.width = panelWidth;
   canvas.height = Math.max(220, top + sorted.length * rowH + 36);
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.strokeStyle = '#b9cbd8'; ctx.beginPath(); ctx.moveTo(mid, top-8); ctx.lineTo(mid, canvas.height-24); ctx.stroke();
-  ctx.fillStyle = '#5f7284'; ctx.fillText('-1', mid-170, 14); ctx.fillText('0', mid-4, 14); ctx.fillText('+1', mid+154, 14);
+  setPlotFont(ctx, 12, 400);
+  ctx.strokeStyle = '#b9cbd8'; ctx.beginPath(); ctx.moveTo(mid, top-12); ctx.lineTo(mid, canvas.height-24); ctx.stroke();
+  ctx.fillStyle = '#5f7284';
+  ctx.fillText('-1', mid - barMax - 4, 18);
+  ctx.fillText('0', mid - 4, 18);
+  ctx.fillText('+1', mid + barMax - 10, 18);
   sorted.forEach((module, i) => {{
     const y = top + i * rowH;
     const value = Number(module.top_correlation || 0);
-    const w = Math.abs(value) * 160;
+    const w = Math.abs(value) * barMax;
     const x = value >= 0 ? mid : mid - w;
     ctx.fillStyle = module.color_hex;
+    ctx.beginPath(); ctx.arc(dotX, y + 8, 5, 0, Math.PI * 2); ctx.fill();
     ctx.fillRect(x, y, w, 16);
     ctx.fillStyle = '#172635';
-    ctx.fillText(module.module, 8, y + 12);
-    ctx.fillText(`${{module.top_condition}} ${{value.toFixed(2)}}`, value >= 0 ? x + w + 8 : x - 82, y + 12);
+    ctx.fillText(fitText(ctx, module.module, moduleLabelWidth), labelX, y + 12);
+    ctx.fillText(fitText(ctx, `${{module.top_condition}} ${{value.toFixed(2)}}`, valueLabelWidth), valueX, y + 12);
   }});
 }}
 function drawPower() {{
   const canvas = document.getElementById('powerPlot'), ctx = canvas.getContext('2d');
   const rows = data.soft_threshold || [];
   if (!rows.length) return;
-  const left = 48, top = 22, width = canvas.width - 78, height = canvas.height - 64;
+  canvas.width = canvasPanelWidth(canvas, 560);
+  canvas.height = Math.max(300, Math.min(360, Math.floor(canvas.width * 0.64)));
+  const left = 58, top = 28, width = canvas.width - 94, height = canvas.height - 72;
   const xs = rows.map(item => Number(item.power));
   const ys = rows.map(item => Number(item.scale_free_fit || 0));
   const xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys, 0), ymax = Math.max(...ys, .9);
@@ -290,7 +341,15 @@ function drawPower() {{
   rows.forEach(item => {{ ctx.fillStyle = Number(item.power) === Number(data.summary.soft_power) ? '#c44f3a' : '#315fd6'; ctx.beginPath(); ctx.arc(sx(Number(item.power)), sy(Number(item.scale_free_fit || 0)), 4, 0, Math.PI*2); ctx.fill(); }});
   ctx.fillStyle = '#172635'; ctx.fillText('power', left + width / 2, canvas.height - 14); ctx.fillText('scale-free fit', 8, top + 10);
 }}
-drawTraitHeatmap(); drawWaterfall(); drawPower();
+function drawAllPlots() {{
+  drawTraitHeatmap(); drawWaterfall(); drawPower();
+}}
+drawAllPlots();
+let resizeTimer;
+window.addEventListener('resize', () => {{
+  window.clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(drawAllPlots, 120);
+}});
 </script></body></html>""",
         encoding="utf-8",
     )

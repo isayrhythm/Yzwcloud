@@ -7,11 +7,16 @@ import pytest
 
 import yzwcloud.dev_server as dev_server
 from yzwcloud.dev_server import (
+    DEFAULT_PORT,
+    LOG_DIR_NAME,
     cleanup_server_logs,
     cleanup_server_logs_detailed,
+    default_log_dir,
     main,
     matching_server_logs,
     normalized_process_env,
+    server_log_path,
+    server_pid_path,
     restart_server,
     start_server,
     stop_server,
@@ -21,6 +26,20 @@ from yzwcloud.dev_server import (
 def _touch(path: Path, mtime: int) -> None:
     path.write_text("log", encoding="utf-8")
     os.utime(path, (mtime, mtime))
+
+
+def test_default_server_runtime_uses_8010_and_logs_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(dev_server, "project_root", lambda: tmp_path)
+
+    assert DEFAULT_PORT == 8010
+    assert DEFAULT_PORT != 5174
+    assert LOG_DIR_NAME == "logs"
+    assert default_log_dir() == tmp_path / "logs"
+    assert server_pid_path(default_log_dir()).name == "server-8010.pid"
+    assert server_log_path(default_log_dir()).parent == tmp_path / "logs"
+    assert server_log_path(default_log_dir()).name.startswith("server-8010-")
 
 
 def test_cleanup_server_logs_keeps_latest_matching_port(tmp_path: Path) -> None:

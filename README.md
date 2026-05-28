@@ -134,12 +134,17 @@ src/yzwcloud/
   - 分析共享数据结构、统计和读写辅助
 - `analyses/differential.py`
   - 差异分析、火山图、差异热图、结果导出
+  - 转录组/蛋白组差异统计均通过 `Rscript` 调用 `r/differential_transcriptomics.R` 或 `r/differential_protein.R`，Python 只负责输入整理、结果归一化和前端输出
 - `analyses/expression.py`
   - PCA、矩阵 QC、样本相关性、表达热图、单基因表达
 - `analyses/rendering.py`
   - 共用的热图渲染输出
 - `analyses/wgcna.py`
   - 调用 `Rscript + WGCNA` 做标准共表达模块计算，再由 Python 生成交互 HTML
+- `r/differential_transcriptomics.R`
+  - R 转录组差异脚本；仅在输入矩阵为 count-like 非负整数时优先使用 `DESeq2`，否则降级为 R 内置双样本检验，避免对 log/标准化表达矩阵误用 DESeq2
+- `r/differential_protein.R`
+  - R 蛋白组差异脚本；使用 R 内置双样本检验和 fold-change 阈值输出上下调结果
 - `r/run_wgcna.R`
   - R WGCNA 执行脚本，输出模块表、hub gene、module-trait correlation、soft-threshold 结果
 - `analysis_outputs.py`
@@ -193,7 +198,7 @@ Current positioning:
 - Python `>= 3.12`
 - Node.js `>= 18`
 - R `>= 4.3`，并且命令行可找到 `Rscript`
-- R packages: `WGCNA`, `jsonlite`, `BiocManager`, `impute`, `preprocessCore`, `GO.db`, `AnnotationDbi`
+- R packages: `DESeq2`, `WGCNA`, `jsonlite`, `BiocManager`, `impute`, `preprocessCore`, `GO.db`, `AnnotationDbi`
 
 安装依赖：
 
@@ -204,8 +209,10 @@ npm install
 
 安装 R 依赖：
 ```bash
-Rscript src/yzwcloud/r/install_wgcna_packages.R
+pdm run install-r
 ```
+
+等价底层命令为 `Rscript src/yzwcloud/r/install_wgcna_packages.R`。该脚本会安装差异分析与 WGCNA 所需的 R 包。
 
 如果 `Rscript` 不在 PATH，可以设置：
 ```bash

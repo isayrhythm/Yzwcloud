@@ -5716,6 +5716,7 @@ def _profile_group_from_column(column: str) -> str:
     if not text:
         return "Profile"
     cleaned = re.sub(r"[-_.\s]+(?:rep(?:licate)?|r)?\d+$", "", text, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"(?<=[A-Za-z])\d+$", "", cleaned).strip()
     return cleaned or "Profile"
 
 
@@ -6715,6 +6716,11 @@ def _pairwise_comparison_overlays(
     step_y = y_span * 0.12
     bracket_height = y_span * 0.035
     denominator = max(len(grouped_values) - 1, 1)
+    bracket_color = str(params.get("p_value_bracket_color") or "#324657")
+    bracket_width = _bounded_float(params.get("p_value_bracket_width"), 1.1, 0.4, 5)
+    label_color = str(params.get("p_value_color") or "#24323f")
+    label_font_size = _bounded_int(params.get("p_value_font_size"), 11, 8, 22)
+    label_format = str(params.get("p_value_label_format") or "threshold")
     shapes = []
     annotations = []
     for layer, (comparison, adjusted_p) in enumerate(zip(comparisons, adjusted_values, strict=False)):
@@ -6723,9 +6729,9 @@ def _pairwise_comparison_overlays(
         y = base_y + layer * step_y
         shapes.extend(
             [
-                _paper_y_line(x0, y, y + bracket_height),
-                _paper_y_line(x1, y, y + bracket_height),
-                _paper_x_line(x0, x1, y + bracket_height),
+                _paper_y_line(x0, y, y + bracket_height, bracket_color, bracket_width),
+                _paper_y_line(x1, y, y + bracket_height, bracket_color, bracket_width),
+                _paper_x_line(x0, x1, y + bracket_height, bracket_color, bracket_width),
             ]
         )
         annotations.append(
@@ -6734,10 +6740,10 @@ def _pairwise_comparison_overlays(
                 "yref": "y",
                 "x": (x0 + x1) / 2,
                 "y": y + bracket_height,
-                "text": _p_value_label(adjusted_p),
+                "text": _p_value_label(adjusted_p, label_format),
                 "showarrow": False,
                 "yshift": 7,
-                "font": {"size": 11, "color": "#24323f"},
+                "font": {"size": label_font_size, "color": label_color},
                 "hovertext": (
                     f"{comparison['first_name']} vs {comparison['second_name']}: "
                     f"raw p={comparison['p_value']:.4g}, adjusted p={adjusted_p:.4g}"
@@ -6756,7 +6762,7 @@ def _pairwise_comparison_overlays(
     }
 
 
-def _paper_y_line(x_value: float, y0: float, y1: float) -> dict[str, Any]:
+def _paper_y_line(x_value: float, y0: float, y1: float, color: str = "#324657", width: float = 1.1) -> dict[str, Any]:
     return {
         "type": "line",
         "xref": "paper",
@@ -6765,11 +6771,11 @@ def _paper_y_line(x_value: float, y0: float, y1: float) -> dict[str, Any]:
         "x1": x_value,
         "y0": y0,
         "y1": y1,
-        "line": {"color": "#324657", "width": 1.1},
+        "line": {"color": color, "width": width},
     }
 
 
-def _paper_x_line(x0: float, x1: float, y_value: float) -> dict[str, Any]:
+def _paper_x_line(x0: float, x1: float, y_value: float, color: str = "#324657", width: float = 1.1) -> dict[str, Any]:
     return {
         "type": "line",
         "xref": "paper",
@@ -6778,7 +6784,7 @@ def _paper_x_line(x0: float, x1: float, y_value: float) -> dict[str, Any]:
         "x1": x1,
         "y0": y_value,
         "y1": y_value,
-        "line": {"color": "#324657", "width": 1.1},
+        "line": {"color": color, "width": width},
     }
 
 
@@ -6878,7 +6884,19 @@ def _adjust_p_values(p_values: list[float], method: str) -> list[float]:
     return adjusted
 
 
-def _p_value_label(p_value: float) -> str:
+def _p_value_label(p_value: float, label_format: str = "threshold") -> str:
+    if label_format == "stars":
+        if p_value < 0.0001:
+            return "****"
+        if p_value < 0.001:
+            return "***"
+        if p_value < 0.01:
+            return "**"
+        if p_value < 0.05:
+            return "*"
+        return "ns"
+    if label_format == "exact":
+        return f"p={p_value:.3g}"
     if p_value < 0.0001:
         return "p<0.0001"
     if p_value < 0.001:

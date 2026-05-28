@@ -37,15 +37,6 @@ const FALLBACK_PARAMETER_GROUPS = [
   "Export size and format",
 ];
 
-const FALLBACK_WORKFLOW_STAGES = [
-  { id: "source", label: "Select source", description: "Attach an upstream result or table." },
-  { id: "plot", label: "Choose plot", description: "Pick a recommended figure type." },
-  { id: "mapping", label: "Map data", description: "Bind columns to figure roles." },
-  { id: "parameters", label: "Tune parameters", description: "Set basic and advanced controls." },
-  { id: "preview", label: "Render preview", description: "Review the interactive chart." },
-  { id: "report", label: "Explain / export", description: "Generate context and export." },
-];
-
 async function fetchJson(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -305,19 +296,32 @@ function mappingSummaryForPlot(preset, params, tableSummary) {
   return rows;
 }
 
-function ParamLabel({ parameter, options }) {
+function paramValuesEqual(left, right) {
+  return JSON.stringify(left ?? "") === JSON.stringify(right ?? "");
+}
+
+function parameterValueIsModified(parameter, value) {
+  if (value === undefined) return false;
+  return !paramValuesEqual(value, parameter.default);
+}
+
+function ParamLabel({ parameter, options, modified, modifiedLabel }) {
   const help = parameterHelpText(parameter, options);
   return (
     <span className="plot-param-label">
-      <strong>{parameter.label}</strong>
+      <strong>
+        {parameter.label}
+        {modified ? <em className="plot-param-modified">{modifiedLabel}</em> : null}
+      </strong>
       {help ? <small>{help}</small> : null}
     </span>
   );
 }
 
-function ParameterControl({ parameter, value, tableSummary, plotId, onChange }) {
+function ParameterControl({ parameter, value, tableSummary, plotId, onChange, t }) {
   const options = optionsForParameter(parameter, tableSummary, plotId);
   const resolvedValue = value ?? parameter.default ?? "";
+  const modified = parameterValueIsModified(parameter, value);
 
   if (parameter.type === "boolean") {
     return (
@@ -327,7 +331,7 @@ function ParameterControl({ parameter, value, tableSummary, plotId, onChange }) 
           checked={Boolean(resolvedValue)}
           onChange={(event) => onChange(parameter.id, event.target.checked)}
         />
-        <ParamLabel parameter={parameter} options={options} />
+        <ParamLabel parameter={parameter} options={options} modified={modified} modifiedLabel={t("parameterModified")} />
       </label>
     );
   }
@@ -335,7 +339,7 @@ function ParameterControl({ parameter, value, tableSummary, plotId, onChange }) 
   if (parameter.type === "select") {
     return (
       <label className="plot-param-row">
-        <ParamLabel parameter={parameter} options={options} />
+        <ParamLabel parameter={parameter} options={options} modified={modified} modifiedLabel={t("parameterModified")} />
         <select value={resolvedValue} onChange={(event) => onChange(parameter.id, event.target.value)}>
           {(parameter.options || []).map((option) => (
             <option value={option} key={option}>{option}</option>
@@ -349,7 +353,7 @@ function ParameterControl({ parameter, value, tableSummary, plotId, onChange }) 
     const selected = Array.isArray(resolvedValue) ? resolvedValue : [];
     return (
       <label className="plot-param-row">
-        <ParamLabel parameter={parameter} options={options} />
+        <ParamLabel parameter={parameter} options={options} modified={modified} modifiedLabel={t("parameterModified")} />
         <select
           multiple
           value={selected}
@@ -369,7 +373,7 @@ function ParameterControl({ parameter, value, tableSummary, plotId, onChange }) 
   if (parameter.type === "column" || parameter.type === "column_or_none") {
     return (
       <label className="plot-param-row">
-        <ParamLabel parameter={parameter} options={options} />
+        <ParamLabel parameter={parameter} options={options} modified={modified} modifiedLabel={t("parameterModified")} />
         <select value={resolvedValue || ""} onChange={(event) => onChange(parameter.id, event.target.value || null)}>
           <option value="">{parameter.required ? "Select column" : "Auto / none"}</option>
           {options.map((option) => (
@@ -383,7 +387,7 @@ function ParameterControl({ parameter, value, tableSummary, plotId, onChange }) 
   if (parameter.type === "color") {
     return (
       <label className="plot-param-row">
-        <ParamLabel parameter={parameter} options={options} />
+        <ParamLabel parameter={parameter} options={options} modified={modified} modifiedLabel={t("parameterModified")} />
         <span className="plot-param-color-controls">
           <input
             aria-label={`${parameter.label} swatch`}
@@ -405,7 +409,7 @@ function ParameterControl({ parameter, value, tableSummary, plotId, onChange }) 
     const isAuto = resolvedValue === "auto";
     return (
       <label className="plot-param-row">
-        <ParamLabel parameter={parameter} options={options} />
+        <ParamLabel parameter={parameter} options={options} modified={modified} modifiedLabel={t("parameterModified")} />
         <span className="plot-param-number-controls">
           <input
             type="number"
@@ -433,7 +437,7 @@ function ParameterControl({ parameter, value, tableSummary, plotId, onChange }) 
 
   return (
     <label className="plot-param-row">
-      <ParamLabel parameter={parameter} options={options} />
+      <ParamLabel parameter={parameter} options={options} modified={modified} modifiedLabel={t("parameterModified")} />
       <input value={resolvedValue} onChange={(event) => onChange(parameter.id, event.target.value)} />
     </label>
   );
@@ -445,6 +449,67 @@ function ReportSection({ section }) {
       <strong>{section.title}</strong>
       <p>{section.text}</p>
     </article>
+  );
+}
+
+function ReportGuidance({ guidance, t }) {
+  if (!guidance) return null;
+  const groups = [
+    { id: "safe", title: t("safeClaims"), items: guidance.safe_claims || [] },
+    { id: "avoid", title: t("avoidClaims"), items: guidance.avoid_claims || [] },
+    { id: "next", title: t("nextChecks"), items: guidance.next_checks || [] },
+  ].filter((group) => group.items.length);
+  if (!groups.length) return null;
+  return (
+    <section className="plot-report-guidance" aria-label={t("reportGuidance")}>
+      <div>
+        <strong>{t("reportGuidance")}</strong>
+        <small>{t("reportGuidanceHint")}</small>
+      </div>
+      {groups.map((group) => (
+        <article className={`plot-report-guidance-card ${group.id}`} key={group.id}>
+          <span>{group.title}</span>
+          <ul>
+            {group.items.slice(0, 4).map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function formatReportPrompt(prompt) {
+  if (!prompt) return "";
+  const checklist = Array.isArray(prompt.checklist) && prompt.checklist.length
+    ? `\n\nChecklist:\n${prompt.checklist.map((item) => `- ${item}`).join("\n")}`
+    : "";
+  return `System:\n${prompt.system || ""}\n\nUser:\n${prompt.user || ""}${checklist}`;
+}
+
+function ReportPrompt({ prompt, copied, onCopy, t }) {
+  if (!prompt) return null;
+  return (
+    <details className="plot-report-prompt">
+      <summary>
+        <span>{t("reportPrompt")}</span>
+        <button type="button" onClick={onCopy}>{copied ? t("copied") : t("copyPrompt")}</button>
+      </summary>
+      <p>{t("reportPromptHint")}</p>
+      <div>
+        <strong>System</strong>
+        <pre>{prompt.system}</pre>
+      </div>
+      <div>
+        <strong>User</strong>
+        <pre>{prompt.user}</pre>
+      </div>
+      {Array.isArray(prompt.checklist) && prompt.checklist.length ? (
+        <div>
+          <strong>{t("promptChecklist")}</strong>
+          <ul>{prompt.checklist.map((item) => <li key={item}>{item}</li>)}</ul>
+        </div>
+      ) : null}
+    </details>
   );
 }
 
@@ -581,15 +646,20 @@ function clampPreviewMargin(margin, width, height) {
 }
 
 function fitPlotlyLayoutToPreview(layout, width, height) {
-  const fittedWidth = Math.max(260, Math.min(Math.floor(width), 1120));
-  const fittedHeight = Math.max(300, Math.min(Math.floor(height), 640));
+  const renderInset = 10;
+  const fittedWidth = Math.max(260, Math.floor(width - renderInset));
+  const fittedHeight = Math.max(300, Math.floor(height - renderInset));
   const margin = clampPreviewMargin(layout?.margin, fittedWidth, fittedHeight);
   const previewLayout = {
     ...(layout || {}),
     autosize: false,
     width: fittedWidth,
     height: fittedHeight,
-    margin,
+    margin: { ...margin, pad: 0 },
+    title: {
+      ...(layout?.title || {}),
+      automargin: true,
+    },
   };
   Object.keys(previewLayout)
     .filter((key) => /^xaxis\d*$|^yaxis\d*$/.test(key))
@@ -600,15 +670,15 @@ function fitPlotlyLayoutToPreview(layout, width, height) {
       };
     });
   if (layout?.polar) {
-    const aspectPadding = Math.max(0, (fittedWidth - fittedHeight) / Math.max(fittedWidth, fittedHeight, 1)) * 0.18;
-    const horizontalPad = Math.min(0.3, (fittedWidth < 720 ? 0.24 : 0.2) + aspectPadding);
-    const verticalPad = fittedHeight < 520 ? 0.24 : 0.2;
+    const radialPad = fittedHeight < 520 ? 0.16 : 0.12;
+    const availableRatio = Math.min(1, fittedHeight / Math.max(fittedWidth, 1));
+    const halfWidth = Math.max(0.22, Math.min(0.42, availableRatio * 0.42));
     previewLayout.polar = {
       ...layout.polar,
       domain: {
         ...(layout.polar.domain || {}),
-        x: [horizontalPad, 1 - horizontalPad],
-        y: [verticalPad, 1 - verticalPad],
+        x: [0.5 - halfWidth, 0.5 + halfWidth],
+        y: [radialPad, 1 - radialPad],
       },
     };
   }
@@ -651,9 +721,10 @@ function InteractivePlot({ spec }) {
       if (cancelled) return;
       const renderPlot = (force = false) => {
         if (cancelled) return;
-        const bounds = plotElement.getBoundingClientRect();
-        const width = Math.max(280, Math.floor(plotElement.clientWidth || bounds.width || 640));
-        const height = Math.max(320, Math.floor(plotElement.clientHeight || bounds.height || 520));
+        const shellElement = plotElement.closest(".plotly-preview-shell") || plotElement;
+        const bounds = shellElement.getBoundingClientRect();
+        const width = Math.max(280, Math.floor(shellElement.clientWidth || bounds.width || 640));
+        const height = Math.max(320, Math.floor(shellElement.clientHeight || bounds.height || 520));
         if (!force && width === lastSize.width && height === lastSize.height) return;
         lastSize = { width, height };
         const previewLayout = fitPlotlyLayoutToPreview(spec.layout, width, height);
@@ -666,6 +737,8 @@ function InteractivePlot({ spec }) {
         resizeFrame = window.requestAnimationFrame(renderPlot);
       });
       resizeObserver.observe(plotElement);
+      const shellElement = plotElement.closest(".plotly-preview-shell");
+      if (shellElement && shellElement !== plotElement) resizeObserver.observe(shellElement);
     });
     return () => {
       cancelled = true;
@@ -675,7 +748,11 @@ function InteractivePlot({ spec }) {
     };
   }, [spec]);
 
-  return <div className="plotly-preview" ref={plotRef} />;
+  return (
+    <div className="plotly-preview-shell">
+      <div className="plotly-preview" ref={plotRef} />
+    </div>
+  );
 }
 
 function MiniPlotThumbnail({ plotId, thumbnail }) {
@@ -1169,26 +1246,6 @@ function parameterCount(groups) {
   return groups.reduce((total, group) => total + (group.parameters?.length || 0), 0);
 }
 
-function workflowStageState(stage, { selectedSource, selectedPreset, params, plotSpec, studioReport }) {
-  if (stage.id === "source") return selectedSource ? "done" : "active";
-  if (!selectedSource) return "locked";
-  if (stage.id === "plot") return selectedPreset ? "done" : "active";
-  if (!selectedPreset) return "locked";
-  if (stage.id === "mapping") {
-    const mappingGroup = selectedPreset.parameter_groups?.find((group) => group.id === "mapping");
-    const requiredParams = mappingGroup?.parameters?.filter((parameter) => parameter.required) || [];
-    const mapped = requiredParams.length === 0 || requiredParams.every((parameter) => {
-      const value = params[parameter.id];
-      return Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined && value !== "";
-    });
-    return mapped ? "done" : "active";
-  }
-  if (stage.id === "parameters") return Object.keys(params || {}).length ? "done" : "active";
-  if (stage.id === "preview") return plotSpec?.data?.length ? "done" : "active";
-  if (stage.id === "report") return studioReport?.report ? "done" : "active";
-  return "active";
-}
-
 export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, onOpenAnalysis }) {
   const { t } = useI18n();
   const outputs = report?.outputs || [];
@@ -1204,10 +1261,15 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const [specError, setSpecError] = useState("");
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [agentContextCopied, setAgentContextCopied] = useState(false);
+  const [reportPromptCopied, setReportPromptCopied] = useState(false);
   const [plotSearch, setPlotSearch] = useState("");
   const [parameterSearch, setParameterSearch] = useState("");
   const [recommendedOnly, setRecommendedOnly] = useState(false);
   const [selectedRecipeId, setSelectedRecipeId] = useState("");
+  const [expandedPlotCategories, setExpandedPlotCategories] = useState(() => new Set());
+  const [uploadStatus, setUploadStatus] = useState("idle");
+  const [uploadError, setUploadError] = useState("");
+  const [exampleLoadingId, setExampleLoadingId] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -1231,7 +1293,6 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
 
   const plotPresets = manifest?.presets || [];
   const styleRecipes = manifest?.style_recipes || [];
-  const workflowStages = manifest?.workflow_stages?.length ? manifest.workflow_stages : FALLBACK_WORKFLOW_STAGES;
   const tableSummary = studioReport?.table_summary || null;
   const preferredPreviewNumericColumns = useMemo(() => preferredNumericColumns(tableSummary), [tableSummary]);
   const skippedPreviewNumericColumns = tableSummary?.signals?.matrix_profile?.excluded_numeric_columns || [];
@@ -1249,6 +1310,9 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     return groupPlotPresets(filtered);
   }, [plotPresets, plotSearch, recommendedOnly, recommendedPlotIds]);
   const visiblePlotCount = filteredGroupedPresets.reduce((total, group) => total + group.items.length, 0);
+  const filteredGroupSignature = filteredGroupedPresets
+    .map((group) => `${group.category}:${group.items.map((item) => item.id).join(",")}`)
+    .join("|");
   const selectedPreset = useMemo(() => {
     if (!plotPresets.length) return null;
     const reportSelected = studioReport?.selected_plot?.id;
@@ -1262,6 +1326,29 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     [plotPresets, recommendedPlotIds],
   );
   const selectedPresetIsSupported = plotSupportedForTable(selectedPreset, tableSummary);
+
+  useEffect(() => {
+    const categories = filteredGroupedPresets.map((group) => group.category);
+    if (!categories.length) {
+      setExpandedPlotCategories(new Set());
+      return;
+    }
+    const requiredOpen = new Set();
+    if (selectedPreset?.category) requiredOpen.add(selectedPreset.category || "Other");
+    filteredGroupedPresets.forEach((group) => {
+      if (group.items.some((plot) => recommendedPlotIds.includes(plot.id))) {
+        requiredOpen.add(group.category);
+      }
+    });
+    setExpandedPlotCategories((current) => {
+      if (plotSearch.trim()) return new Set(categories);
+      const next = current.size
+        ? new Set([...current].filter((category) => categories.includes(category)))
+        : new Set(requiredOpen);
+      requiredOpen.forEach((category) => next.add(category));
+      return next;
+    });
+  }, [filteredGroupSignature, plotSearch, recommendedPlotIds.join("|"), selectedPreset?.category]);
 
   useEffect(() => {
     if (!selectedPreset) return;
@@ -1382,6 +1469,12 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const advancedParameterCount = parameterCount(filteredAdvancedParameterGroups);
   const hasParameterMatches = basicParameterCount + advancedParameterCount > 0;
   const reportSections = studioReport?.report?.sections || [];
+  const reportGuidance = studioReport?.agent_context?.report_guidance || null;
+  const reportPrompt = studioReport?.agent_context?.report_prompt || null;
+  const reportPromptText = useMemo(
+    () => formatReportPrompt(reportPrompt),
+    [reportPrompt],
+  );
   const agentContextText = useMemo(
     () => (studioReport?.agent_context ? JSON.stringify(studioReport.agent_context, null, 2) : ""),
     [studioReport?.agent_context],
@@ -1402,9 +1495,69 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     setSelectedRecipeId("");
   };
 
+  const loadExampleData = async (plot) => {
+    setExampleLoadingId(plot.id);
+    setUploadError("");
+    try {
+      const payload = await fetchJson(`/api/plot-studio/examples/${encodeURIComponent(plot.id)}`);
+      const nextSource = normalizeSource(payload.source);
+      onSelectSource?.(nextSource);
+      setSelectedPlotId(plot.id);
+      setParams(defaultParamsFromPreset(plot));
+      setSelectedRecipeId("");
+      setUploadStatus("idle");
+    } catch (exampleFailure) {
+      setUploadError(exampleFailure.message);
+    } finally {
+      setExampleLoadingId("");
+    }
+  };
+
+  const togglePlotCategory = (category) => {
+    setExpandedPlotCategories((current) => {
+      const next = new Set(current);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
+
   const resetParams = () => {
     if (selectedPreset) setParams(defaultParamsFromPreset(selectedPreset));
     setSelectedRecipeId("");
+  };
+
+  const uploadPlotStudioTable = async (file) => {
+    if (!file) return;
+    setUploadStatus("loading");
+    setUploadError("");
+    try {
+      const response = await fetch(`/api/plot-studio/uploads?filename=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!response.ok) {
+        let detail = response.statusText;
+        try {
+          const payload = await response.json();
+          detail = payload.detail || detail;
+        } catch {
+          detail = await response.text();
+        }
+        throw new Error(detail);
+      }
+      const payload = await response.json();
+      const nextSource = normalizeSource(payload.source);
+      onSelectSource?.(nextSource);
+      setSelectedPlotId("");
+      setParams({});
+      setSelectedRecipeId("");
+      setUploadStatus("ready");
+    } catch (uploadFailure) {
+      setUploadError(uploadFailure.message);
+      setUploadStatus("error");
+    }
   };
 
   return (
@@ -1413,24 +1566,8 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
         <div>
           <p className="eyebrow">Plot Studio</p>
           <h1>{t("figureWorkspaceTitle")}</h1>
-          <p className="summary">{t("figureWorkspaceSummary")}</p>
         </div>
         <button className="primary" type="button" onClick={onOpenAnalysis}>{t("backToAnalysis")}</button>
-      </section>
-
-      <section className="plot-workflow-strip" aria-label="Plot Studio workflow">
-        {workflowStages.map((stage, index) => {
-          const state = workflowStageState(stage, { selectedSource, selectedPreset, params, plotSpec: previewSpec, studioReport });
-          return (
-            <article className={`plot-workflow-step ${state}`} key={stage.id}>
-              <span>{index + 1}</span>
-              <div>
-                <strong>{stage.label}</strong>
-                <small>{stage.description}</small>
-              </div>
-            </article>
-          );
-        })}
       </section>
 
       <section className="plot-studio-layout">
@@ -1440,6 +1577,19 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
             <span className="muted">{status === "loading" ? t("updating") : selectedSource?.type || t("selectSourceFirst")}</span>
           </div>
           {error ? <p className="plot-error">{error}</p> : null}
+          <label className={`plot-upload-card ${uploadStatus === "loading" ? "loading" : ""}`}>
+            <input
+              type="file"
+              accept=".csv,.tsv,.txt,.xlsx,.xlsm"
+              onChange={(event) => {
+                uploadPlotStudioTable(event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
+            <span>{t("uploadTable")}</span>
+            <strong>{uploadStatus === "loading" ? t("uploading") : t("uploadTableHint")}</strong>
+          </label>
+          {uploadError ? <p className="plot-error">{uploadError}</p> : null}
           <div className="plot-type-filter" role="search">
             <input
               type="search"
@@ -1460,36 +1610,66 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
           </div>
           <div className="plot-type-toolbox">
             {filteredGroupedPresets.length ? filteredGroupedPresets.map((group) => (
-              <section className="plot-type-section" key={group.category}>
-                <h3>{group.category}</h3>
-                <div className="plot-type-grid compact">
-                  {group.items.map((plot) => {
-                    const recommended = recommendedPlotIds.includes(plot.id);
-                    const active = selectedPreset?.id === plot.id;
-                    const supported = plotSupportedForTable(plot, tableSummary);
-                    return (
-                      <button
-                        className={`plot-type-card ${recommended ? "recommended" : ""} ${active ? "active" : ""} ${supported ? "" : "unsupported"}`}
-                        key={plot.id}
-                        type="button"
-                        disabled={!supported}
-                        title={supported ? plot.label : t("chartNotSuitable")}
-                        onClick={() => selectPlotPreset(plot)}
-                      >
-                        <MiniPlotThumbnail plotId={plot.id} thumbnail={plot.thumbnail} />
-                        <span className="plot-type-card-main">
-                          <strong>{plot.label}</strong>
-                          <small>{plot.use_case || plot.description}</small>
-                          <span className="plot-type-meta">
-                            <em>{plot.engine}</em>
-                            {recommended ? <em className="recommended-badge">{t("recommendedForSource")}</em> : null}
-                            {!supported ? <em className="unsupported-badge">{t("chartNotSuitable")}</em> : null}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+              <section className={`plot-type-section ${expandedPlotCategories.has(group.category) ? "expanded" : "collapsed"}`} key={group.category}>
+                <button
+                  className="plot-type-section-header"
+                  type="button"
+                  aria-expanded={expandedPlotCategories.has(group.category)}
+                  onClick={() => togglePlotCategory(group.category)}
+                >
+                  <span>
+                    <strong>{group.category}</strong>
+                    <small>{group.items.length}</small>
+                  </span>
+                  <i aria-hidden="true">{expandedPlotCategories.has(group.category) ? "-" : "+"}</i>
+                </button>
+                {expandedPlotCategories.has(group.category) ? (
+                  <div className="plot-type-grid compact">
+                    {group.items.map((plot) => {
+                      const recommended = recommendedPlotIds.includes(plot.id);
+                      const active = selectedPreset?.id === plot.id;
+                      const unsupportedReason = tableSuitabilityWarning(plot, tableSummary);
+                      const supported = !unsupportedReason;
+                      return (
+                        <article
+                          className={`plot-type-card ${recommended ? "recommended" : ""} ${active ? "active" : ""} ${supported ? "" : "unsupported"}`}
+                          key={plot.id}
+                          title={supported ? plot.label : unsupportedReason}
+                        >
+                          <button
+                            className="plot-type-select"
+                            type="button"
+                            disabled={!supported}
+                            onClick={() => selectPlotPreset(plot)}
+                          >
+                            <span className="plot-card-example">
+                              <MiniPlotThumbnail plotId={plot.id} thumbnail={plot.thumbnail} />
+                              <em>{t("plotExample")}</em>
+                            </span>
+                            <span className="plot-type-card-main">
+                              <strong>{plot.label}</strong>
+                              <small>{plot.use_case || plot.description}</small>
+                              {!supported ? <small className="plot-type-unsupported-reason">{unsupportedReason}</small> : null}
+                              <span className="plot-type-meta">
+                                <em>{plot.engine}</em>
+                                {recommended ? <em className="recommended-badge">{t("recommendedForSource")}</em> : null}
+                                {!supported ? <em className="unsupported-badge">{t("chartNotSuitable")}</em> : null}
+                              </span>
+                            </span>
+                          </button>
+                          <button
+                            className="plot-example-action"
+                            type="button"
+                            onClick={() => loadExampleData(plot)}
+                            disabled={exampleLoadingId === plot.id}
+                          >
+                            {exampleLoadingId === plot.id ? t("loadingExample") : t("useExampleData")}
+                          </button>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </section>
             )) : <p className="muted">{plotPresets.length ? t("noPlotTypeMatches") : t("loadingPresets")}</p>}
           </div>
@@ -1616,7 +1796,6 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
           ) : (
             <div className="plot-dropzone compact">
               <strong>{t("selectAnalysisOutput")}</strong>
-              <p>{t("chooseWorkflowResult")}</p>
             </div>
           )}
 
@@ -1687,6 +1866,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                             tableSummary={tableSummary}
                             plotId={selectedPreset?.id}
                             onChange={updateParam}
+                            t={t}
                           />
                         ))}
                       </div>
@@ -1713,6 +1893,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                               tableSummary={tableSummary}
                               plotId={selectedPreset?.id}
                               onChange={updateParam}
+                              t={t}
                             />
                           ))}
                         </div>
@@ -1735,6 +1916,19 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                 <ReportSection section={section} key={section.title} />
               )) : <p className="muted">{t("selectSourceReport")}</p>}
             </div>
+            <ReportGuidance guidance={reportGuidance} t={t} />
+            <ReportPrompt
+              prompt={reportPrompt}
+              copied={reportPromptCopied}
+              t={t}
+              onCopy={async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const copied = await copyTextToClipboard(reportPromptText);
+                setReportPromptCopied(copied);
+                window.setTimeout(() => setReportPromptCopied(false), 1600);
+              }}
+            />
             {studioReport?.report?.limitations?.length ? (
               <div className="plot-limitations">
                 {studioReport.report.limitations.map((item) => <span key={item}>{item}</span>)}

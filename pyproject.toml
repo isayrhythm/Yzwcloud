@@ -25,6 +25,7 @@ start-bg = "python -m yzwcloud.dev_server start --port 8010"
 stop-bg = "python -m yzwcloud.dev_server stop --port 8010"
 restart-bg = "python -m yzwcloud.dev_server restart --port 8010"
 clean-logs = "python -m yzwcloud.dev_server clean-logs --all-ports"
+install-r = "Rscript src/yzwcloud/r/install_wgcna_packages.R"
 
 [tool.pdm.build]
 package-dir = "src"

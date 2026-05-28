@@ -512,6 +512,19 @@ def _analysis_parameter_text(plot_id: str, params: dict[str, Any]) -> str:
     return "Analysis/display overrides: " + "; ".join(notes) + "."
 
 
+def _summarize_p_value_display(summary: dict[str, list[str]], params: dict[str, Any]) -> None:
+    if params.get("p_value_label_format"):
+        summary["statistics"].append(f"p-value label format={params.get('p_value_label_format')}")
+    if params.get("p_value_font_size"):
+        summary["display"].append(f"p-value font size={params.get('p_value_font_size')}")
+    if params.get("p_value_color"):
+        summary["display"].append(f"p-value color={params.get('p_value_color')}")
+    if params.get("p_value_bracket_color"):
+        summary["display"].append(f"p-value bracket color={params.get('p_value_bracket_color')}")
+    if params.get("p_value_bracket_width") is not None:
+        summary["display"].append(f"p-value bracket width={params.get('p_value_bracket_width')}")
+
+
 def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[str]]:
     summary: dict[str, list[str]] = {"statistics": [], "display": [], "interaction": [], "export": []}
     if plot_id == "boxplot":
@@ -521,6 +534,7 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"multiple testing={params.get('multiple_testing') or 'BH'}")
         if params.get("show_p_values"):
             summary["statistics"].append("p-values shown on plot")
+        _summarize_p_value_display(summary, params)
         if "show_points" in params:
             summary["display"].append(f"raw points shown={bool(params.get('show_points'))}")
         if params.get("point_jitter") is not None:
@@ -691,6 +705,7 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"multiple testing={params.get('multiple_testing') or 'BH'}")
         if params.get("show_p_values"):
             summary["statistics"].append("p-values shown on plot")
+        _summarize_p_value_display(summary, params)
     if plot_id == "line":
         if params.get("line_shape"):
             summary["display"].append(f"line shape={params.get('line_shape')}")
@@ -1499,6 +1514,22 @@ def _build_agent_context(
     path_reason: str,
 ) -> dict[str, Any]:
     meta = dict(source.get("meta") or {})
+    table_context = _compact_table_context(table_summary)
+    plot_suitability = _plot_suitability_context(
+        selected_preset["id"],
+        recommended_plot_ids,
+        data_profile,
+        table_summary,
+    )
+    report_guidance = _llm_report_guidance(
+        selected_preset["id"],
+        selected_preset,
+        table_summary,
+        data_profile,
+        meta,
+        params,
+    )
+    parameter_summary = _parameter_summary(selected_preset["id"], params)
     return {
         "purpose": "LLM-readable context for explaining a Plot Studio figure without image vision.",
         "source_type": source_type or "unknown",
@@ -1510,21 +1541,80 @@ def _build_agent_context(
             "engine": selected_preset["engine"],
             "focus": PLOT_REPORT_GUIDANCE.get(selected_preset["id"], {}).get("focus", ""),
         },
-        "table": _compact_table_context(table_summary),
+        "table": table_context,
         "data_profile": data_profile,
-        "plot_suitability": _plot_suitability_context(
-            selected_preset["id"],
-            recommended_plot_ids,
+        "plot_suitability": plot_suitability,
+        "report_guidance": report_guidance,
+        "report_prompt": _llm_report_prompt(
+            selected_preset,
+            table_context,
             data_profile,
-            table_summary,
+            plot_suitability,
+            report_guidance,
+            parameter_summary,
         ),
         "metadata": {key: meta[key] for key in sorted(meta)[:12]},
         "params": params,
-        "parameter_summary": _parameter_summary(selected_preset["id"], params),
+        "parameter_summary": parameter_summary,
         "interpretation_rules": [
             "Use only metadata, table summaries, statistics, and parameters in this object.",
             "Do not infer visual details from a rendered image.",
             "State uncertainty when the table is missing or only partially scanned.",
+        ],
+    }
+
+
+def _llm_report_prompt(
+    selected_preset: dict[str, Any],
+    table_context: dict[str, Any] | None,
+    data_profile: dict[str, Any] | None,
+    plot_suitability: dict[str, Any],
+    report_guidance: dict[str, Any],
+    parameter_summary: dict[str, list[str]],
+) -> dict[str, Any]:
+    table_line = "No readable table was resolved."
+    if table_context:
+        table_line = (
+            f"Table {table_context.get('filename')} has {table_context.get('scanned_rows')} scanned row(s), "
+            f"{table_context.get('column_count')} column(s), "
+            f"{len(table_context.get('numeric_columns') or [])} listed numeric column(s), and "
+            f"{len(table_context.get('categorical_columns') or [])} listed categorical column(s)."
+        )
+    profile_line = ""
+    if data_profile:
+        profile_line = (
+            f"Single-row profile {data_profile['identifier']} has {data_profile['value_count']} sample-like values; "
+            f"highest {data_profile['maximum']['column']}={data_profile['maximum']['value']}, "
+            f"lowest {data_profile['minimum']['column']}={data_profile['minimum']['value']}."
+        )
+    parameter_line = "; ".join(
+        f"{group}: {', '.join(values[:4])}"
+        for group, values in parameter_summary.items()
+        if values
+    )
+    return {
+        "system": (
+            "You are a cautious bioinformatics report agent. Explain the chart using only structured data, "
+            "table summaries, parameters, and report_guidance. Do not claim to see the rendered image."
+        ),
+        "user": "\n".join(
+            line
+            for line in [
+                f"Write a concise interpretation for a {selected_preset['label']} Plot Studio chart.",
+                table_line,
+                profile_line,
+                f"Selected plot suitability: {plot_suitability.get('reason')}",
+                f"Safe claims: {' | '.join(report_guidance.get('safe_claims', [])[:4])}",
+                f"Avoid claims: {' | '.join(report_guidance.get('avoid_claims', [])[:3])}",
+                f"Next checks: {' | '.join(report_guidance.get('next_checks', [])[:4])}",
+                f"Parameter summary: {parameter_line}" if parameter_line else "",
+            ]
+            if line
+        ),
+        "checklist": [
+            "Mention evidence source and uncertainty.",
+            "Separate descriptive observations from statistical conclusions.",
+            "Avoid visual-only claims because the LLM cannot inspect images.",
         ],
     }
 
@@ -1592,6 +1682,79 @@ def _plot_suitability_context(
             }
         )
     return context
+
+
+def _llm_report_guidance(
+    plot_id: str,
+    selected_preset: dict[str, Any],
+    table_summary: dict[str, Any] | None,
+    data_profile: dict[str, Any] | None,
+    meta: dict[str, Any],
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    guidance = PLOT_REPORT_GUIDANCE.get(plot_id, {})
+    evidence_sources = [
+        "source metadata",
+        "selected plot preset",
+        "plot parameters",
+    ]
+    safe_claims = [
+        f"Selected chart is {selected_preset['label']} using the {selected_preset['engine']} engine.",
+    ]
+    avoid_claims = [
+        "Do not describe colors, visible clusters, point overlap, or annotation placement unless those values are present in structured data or parameters.",
+        "Do not claim causality, mechanism, or biological validation from a visualization alone.",
+    ]
+    next_checks = [
+        "Verify that required data mappings match the intended biological question.",
+        "Check warnings and renderability before interpreting the figure.",
+    ]
+
+    if table_summary:
+        evidence_sources.append("table summary")
+        safe_claims.append(
+            f"Input table scan contains {table_summary.get('scanned_rows')} row(s), "
+            f"{table_summary.get('column_count')} column(s), "
+            f"{len(table_summary.get('numeric_columns') or [])} numeric column(s), and "
+            f"{len(table_summary.get('categorical_columns') or [])} categorical column(s)."
+        )
+        if table_summary.get("truncated"):
+            avoid_claims.append("The table summary is truncated; avoid claiming dataset-wide counts beyond the scanned rows.")
+        next_checks.append("Confirm missing values and metadata columns were handled as intended.")
+    else:
+        safe_claims.append("No readable table was resolved; interpretation must stay metadata-only.")
+        avoid_claims.append("Do not infer any numeric distribution, ranking, or group separation without a resolved table.")
+        next_checks.append("Attach a table output if numeric interpretation is needed.")
+
+    if data_profile:
+        evidence_sources.append("single-row expression profile statistics")
+        safe_claims.append(
+            f"Single-row profile {data_profile['identifier']} has {data_profile['value_count']} sample-like value(s); "
+            f"highest is {data_profile['maximum']['column']}={data_profile['maximum']['value']} and "
+            f"lowest is {data_profile['minimum']['column']}={data_profile['minimum']['value']}."
+        )
+        avoid_claims.append("Do not treat a single-row profile as a statistically tested group comparison.")
+        next_checks.append("Use inferred group summaries only as descriptive values unless replicate-level tests are explicitly run.")
+
+    if meta.get("method"):
+        evidence_sources.append("analysis-node method metadata")
+        safe_claims.append(f"Upstream method metadata reports method={meta.get('method')}.")
+    if meta.get("r_script_file"):
+        safe_claims.append(f"Upstream R script is {Path(str(meta.get('r_script_file'))).name}.")
+    if params:
+        safe_claims.append("Parameter overrides are available in parameter_summary and params.")
+
+    if guidance.get("focus"):
+        next_checks.append(f"For this plot family, focus the narrative on {guidance['focus']}.")
+    if guidance.get("parameter_hint"):
+        next_checks.append(guidance["parameter_hint"])
+
+    return {
+        "evidence_sources": evidence_sources,
+        "safe_claims": safe_claims,
+        "avoid_claims": avoid_claims,
+        "next_checks": next_checks,
+    }
 
 
 def _compact_table_context(table_summary: dict[str, Any] | None) -> dict[str, Any] | None:

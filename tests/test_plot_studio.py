@@ -178,7 +178,17 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "point_size",
         "point_alpha",
     }
-    assert any(group["id"] == "statistics" for group in boxplot["parameter_groups"])
+    statistics_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "statistics")
+    assert {param["id"] for param in statistics_group["parameters"]} >= {
+        "pairwise_test",
+        "multiple_testing",
+        "show_p_values",
+        "p_value_label_format",
+        "p_value_font_size",
+        "p_value_color",
+        "p_value_bracket_color",
+        "p_value_bracket_width",
+    }
     assert any(group["id"] == "export" for group in boxplot["parameter_groups"])
     assert any(group["id"] == "labels" for group in boxplot["parameter_groups"])
     assert next(group for group in boxplot["parameter_groups"] if group["id"] == "mapping")["advanced"] is False
@@ -314,6 +324,11 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "pairwise_test",
         "multiple_testing",
         "show_p_values",
+        "p_value_label_format",
+        "p_value_font_size",
+        "p_value_color",
+        "p_value_bracket_color",
+        "p_value_bracket_width",
     }
     volcano = presets["volcano"]
     volcano_thresholds = next(group for group in volcano["parameter_groups"] if group["id"] == "thresholds")
@@ -859,6 +874,12 @@ def test_plot_studio_metadata_only_report_still_recommends_by_output_type() -> N
     assert "method=r_transcriptomics_differential" in sections["Signals to inspect"]["text"]
     assert "R script=differential_transcriptomics.R" in sections["Signals to inspect"]["text"]
     assert any("metadata-only" in item for item in report["report"]["limitations"])
+    guidance = report["agent_context"]["report_guidance"]
+    assert "source metadata" in guidance["evidence_sources"]
+    assert any("method=r_transcriptomics_differential" in item for item in guidance["safe_claims"])
+    assert any("differential_transcriptomics.R" in item for item in guidance["safe_claims"])
+    assert any("metadata-only" in item for item in guidance["safe_claims"])
+    assert any("Do not infer any numeric distribution" in item for item in guidance["avoid_claims"])
 
 
 def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) -> None:
@@ -929,6 +950,11 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
                 "pairwise_test": "wilcoxon",
                 "multiple_testing": "bonferroni",
                 "show_p_values": True,
+                "p_value_label_format": "stars",
+                "p_value_font_size": 14,
+                "p_value_color": "#552211",
+                "p_value_bracket_color": "#114477",
+                "p_value_bracket_width": 2.4,
             },
         },
     )
@@ -938,6 +964,11 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
     assert "pairwise test=wilcoxon" in bar_sections["Parameter notes"]
     assert "multiple testing=bonferroni" in bar_sections["Parameter notes"]
     assert "p-values shown on plot" in bar_report["agent_context"]["parameter_summary"]["statistics"]
+    assert "p-value label format=stars" in bar_report["agent_context"]["parameter_summary"]["statistics"]
+    assert "p-value font size=14" in bar_report["agent_context"]["parameter_summary"]["display"]
+    assert "p-value color=#552211" in bar_report["agent_context"]["parameter_summary"]["display"]
+    assert "p-value bracket color=#114477" in bar_report["agent_context"]["parameter_summary"]["display"]
+    assert "p-value bracket width=2.4" in bar_report["agent_context"]["parameter_summary"]["display"]
 
     bar_display_report = _request(
         client,
@@ -2444,6 +2475,11 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
                 "n_label_position": "bottom",
                 "n_label_font_size": 13,
                 "n_label_color": "#123456",
+                "p_value_label_format": "stars",
+                "p_value_font_size": 12,
+                "p_value_color": "#884422",
+                "p_value_bracket_color": "#225588",
+                "p_value_bracket_width": 1.8,
             },
         },
     )
@@ -2464,7 +2500,12 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
     assert "n label position=bottom" in boxplot_summary
     assert "n label font size=13" in boxplot_summary
     assert "n label color=#123456" in boxplot_summary
+    assert "p-value font size=12" in boxplot_summary
+    assert "p-value color=#884422" in boxplot_summary
+    assert "p-value bracket color=#225588" in boxplot_summary
+    assert "p-value bracket width=1.8" in boxplot_summary
     assert "quartile method=inclusive" in boxplot_report["agent_context"]["parameter_summary"]["statistics"]
+    assert "p-value label format=stars" in boxplot_report["agent_context"]["parameter_summary"]["statistics"]
 
     violin_report = _request(
         client,
@@ -2863,6 +2904,19 @@ def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> Non
         assert report["agent_context"]["plot"]["focus"]
         assert report["agent_context"]["source_type"] == "expression_matrix"
         assert report["agent_context"]["table"]["numeric_columns"]
+        guidance = report["agent_context"]["report_guidance"]
+        assert {"source metadata", "selected plot preset", "plot parameters", "table summary"} <= set(
+            guidance["evidence_sources"]
+        )
+        assert guidance["safe_claims"]
+        assert guidance["avoid_claims"]
+        assert guidance["next_checks"]
+        prompt = report["agent_context"]["report_prompt"]
+        assert "cautious bioinformatics report agent" in prompt["system"]
+        assert preset["label"] in prompt["user"]
+        assert "Safe claims:" in prompt["user"]
+        assert "Avoid claims:" in prompt["user"]
+        assert any("cannot inspect images" in item for item in prompt["checklist"])
         assert any("metadata, table summaries" in item for item in report["agent_context"]["interpretation_rules"])
 
 
@@ -3554,6 +3608,11 @@ def test_plot_studio_boxplot_pairwise_p_values_render_brackets(tmp_path: Path) -
                 "pairwise_test": "t_test",
                 "multiple_testing": "bonferroni",
                 "show_p_values": True,
+                "p_value_label_format": "stars",
+                "p_value_font_size": 14,
+                "p_value_color": "#552211",
+                "p_value_bracket_color": "#114477",
+                "p_value_bracket_width": 2.4,
             },
         },
     )
@@ -3568,10 +3627,14 @@ def test_plot_studio_boxplot_pairwise_p_values_render_brackets(tmp_path: Path) -
     assert all(trace["fillcolor"].endswith(", 0.42)") for trace in spec["data"])
     assert all(trace["line"]["width"] == 2.6 for trace in spec["data"])
     p_value_annotations = [
-        annotation for annotation in spec["layout"]["annotations"] if str(annotation.get("text", "")).startswith("p")
+        annotation
+        for annotation in spec["layout"]["annotations"]
+        if str(annotation.get("text", "")) in {"ns", "*", "**", "***", "****"}
     ]
     assert len(p_value_annotations) == 3
+    assert all(annotation["font"] == {"size": 14, "color": "#552211"} for annotation in p_value_annotations)
     assert len(spec["layout"]["shapes"]) == 9
+    assert all(shape["line"] == {"color": "#114477", "width": 2.4} for shape in spec["layout"]["shapes"])
     assert spec["layout"]["yaxis"]["range"][1] > 3.7
 
 
@@ -5403,6 +5466,81 @@ def test_plot_studio_recommends_profile_charts_for_single_gene_matrices(tmp_path
     assert "correlation" not in recommendations
 
 
+def test_plot_studio_data_shape_overrides_expression_matrix_label_for_single_gene_profiles(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_single_gene_expression_matrix.csv"
+    table_file.write_text(
+        "gene_short_name,gene_id,Length,Group A-1,Group A-2,Group B-1,Group B-2\n"
+        "AL590714.1,ENSG00000268387,1120,8.2,8.6,3.1,3.5\n",
+        encoding="utf-8",
+    )
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "Single gene expression matrix",
+        "type": "expression_matrix",
+        "dataPath": str(table_file),
+    }
+    client = TestClient(app)
+
+    summary = inspect_table(table_file)
+    recommendations = recommend_plot_types("expression_matrix", summary)
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={"source": source},
+    )
+
+    assert summary["signals"]["matrix_profile"]["kind"] == "expression_like"
+    assert recommendations[:6] == ["bar", "grouped_dotplot", "boxplot", "raincloud", "histogram", "violin"]
+    assert "heatmap" not in recommendations[:6]
+    assert "correlation" not in recommendations
+    assert report["selected_plot"]["id"] == "bar"
+    assert report["recommended_plot_ids"][:4] == ["bar", "grouped_dotplot", "boxplot", "raincloud"]
+    assert report["agent_context"]["plot_suitability"]["selected_requirements"] == [
+        "Compatible numeric/categorical mappings for this chart type"
+    ]
+
+
+def test_plot_studio_detects_small_single_gene_profiles(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_four_sample_profile.csv"
+    table_file.write_text(
+        "gene_short_name,gene_id,Length,S1,S2,S3,S4\n"
+        "AL590714.1,ENSG00000268387,1120,8.2,8.6,3.1,3.5\n",
+        encoding="utf-8",
+    )
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "Four sample profile",
+        "type": "unknown_table",
+        "dataPath": str(table_file),
+    }
+    client = TestClient(app)
+
+    summary = inspect_table(table_file)
+    recommendations = recommend_plot_types("unknown_table", summary)
+    boxplot = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "boxplot"},
+    )
+
+    assert summary["signals"]["matrix_profile"]["kind"] == "expression_like"
+    assert summary["signals"]["matrix_profile"]["value_columns"] == ["S1", "S2", "S3", "S4"]
+    assert "Length" in summary["signals"]["matrix_profile"]["excluded_numeric_columns"]
+    assert recommendations[:4] == ["bar", "grouped_dotplot", "boxplot", "raincloud"]
+    assert boxplot["layout"]["title"]["text"] == "Boxplot profile: AL590714.1"
+    assert boxplot["layout"]["xaxis"]["title"]["text"] == "inferred group"
+    assert boxplot["layout"]["yaxis"]["title"]["text"] == "sample-like value"
+    assert [trace["name"] for trace in boxplot["data"]] == ["Profile"]
+    assert boxplot["data"][0]["y"] == [8.2, 8.6, 3.1, 3.5]
+    assert boxplot["data"][0]["customdata"] == ["S1", "S2", "S3", "S4"]
+
+
 def test_plot_studio_single_gene_matrix_profile_charts_use_sample_columns(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
     allowed_tmp.mkdir(parents=True, exist_ok=True)
@@ -5644,6 +5782,14 @@ def test_plot_studio_report_summarizes_single_gene_profile_values(tmp_path: Path
     assert {"scatter", "radar", "correlation"}.issubset(set(suitability["not_recommended_plot_ids"]))
     assert "Single-row expression profiles" in suitability["reason"]
     assert "grouped dot plots" in suitability["reason"]
+    guidance = report["agent_context"]["report_guidance"]
+    prompt = report["agent_context"]["report_prompt"]
+    assert "single-row expression profile statistics" in guidance["evidence_sources"]
+    assert any("highest is Group A-2=8.6" in item for item in guidance["safe_claims"])
+    assert any("lowest is Group B-1=3.1" in item for item in guidance["safe_claims"])
+    assert any("single-row profile as a statistically tested group comparison" in item for item in guidance["avoid_claims"])
+    assert "Single-row profile AL590714.1 has 6 sample-like values" in prompt["user"]
+    assert "Do not claim to see the rendered image" in prompt["system"]
     assert "Do not infer visual details" in report["agent_context"]["interpretation_rules"][1]
 
 

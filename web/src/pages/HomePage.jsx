@@ -121,7 +121,7 @@ export function HomePage({ onStart, onOpenPlot }) {
   const [selectedNodeId, setSelectedNodeId] = useState("intake");
   const [selectedChart, setSelectedChart] = useState("pca");
   const [demoStep, setDemoStep] = useState(0);
-  const [autoPlay, setAutoPlay] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+  const [autoPlay] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
 
   const visibleNodes = useMemo(
     () => NODE_GROUPS.filter((node) => visibleNodeIds.has(node.id)),
@@ -171,7 +171,6 @@ export function HomePage({ onStart, onOpenPlot }) {
   }
 
   function activateNode(node) {
-    setAutoPlay(false);
     setVisibleNodeIds((current) => {
       const next = new Set(current);
       next.add(node.id);
@@ -184,13 +183,6 @@ export function HomePage({ onStart, onOpenPlot }) {
       setSelectedChart(node.chart);
     }
     setSelectedNodeId(node.id);
-  }
-
-  function expandAll() {
-    setAutoPlay(false);
-    setVisibleNodeIds(new Set(NODE_GROUPS.map((node) => node.id)));
-    setSelectedNodeId("volcano");
-    setSelectedChart("volcano");
   }
 
   return (
@@ -206,12 +198,6 @@ export function HomePage({ onStart, onOpenPlot }) {
             </button>
             <button className="hero-ghost" onClick={onOpenPlot}>
               {t("openPlotStudio")}
-            </button>
-            <button className="hero-ghost compact" onClick={expandAll}>
-              {t("homeExpandDemo")}
-            </button>
-            <button className={`hero-ghost compact ${autoPlay ? "active" : ""}`} onClick={() => setAutoPlay((current) => !current)}>
-              {autoPlay ? t("homePauseDemo") : t("homePlayDemo")}
             </button>
           </div>
           </div>
@@ -247,20 +233,6 @@ export function HomePage({ onStart, onOpenPlot }) {
                 <small>{t(node.detailKey)}</small>
               </button>
             ))}
-            {selectedNodeHasChart ? (
-              <div className="board-chart-popout" aria-live="polite">
-                <div className="plot-card-top">
-                  <div>
-                    <strong>{t(chart.titleKey)}</strong>
-                    <span>{chart.subtitle}</span>
-                  </div>
-                  <button type="button" onClick={onOpenPlot}>
-                    Plot Studio
-                  </button>
-                </div>
-                <DemoChart chart={selectedChart} />
-              </div>
-            ) : null}
           </div>
 
           <div className={`workflow-inspector ${selectedNodeHasChart ? "chart-expanded" : ""}`}>

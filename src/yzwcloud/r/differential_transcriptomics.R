@@ -107,7 +107,20 @@ run_deseq2 <- function() {
   }
 }
 
-if (requireNamespace("DESeq2", quietly = TRUE)) {
+is_count_like_matrix <- function() {
+  samples <- metadata$sample[metadata$sample %in% colnames(matrix)]
+  if (length(samples) < 2) {
+    return(FALSE)
+  }
+  values <- safe_num(unlist(matrix[, samples, drop = FALSE]))
+  values <- values[is.finite(values)]
+  if (length(values) == 0) {
+    return(FALSE)
+  }
+  all(values >= 0 & abs(values - round(values)) < 1e-6)
+}
+
+if (requireNamespace("DESeq2", quietly = TRUE) && is_count_like_matrix()) {
   run_deseq2()
 } else {
   for (i in seq_len(nrow(comparisons))) {

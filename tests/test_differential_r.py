@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+R_DIR = SRC / "yzwcloud" / "r"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
@@ -62,6 +64,28 @@ def test_create_diff_analysis_request_defaults_to_r_transcriptomics() -> None:
 def test_node_registry_no_longer_exposes_python_diff_executor() -> None:
     assert not hasattr(node_registry, "_execute_diff_node")
     assert node_registry.NODE_DEFINITIONS["diff_analysis"].default_params["method"] == "r_transcriptomics"
+
+
+def test_r_differential_scripts_and_dependencies_are_packaged() -> None:
+    installer = (R_DIR / "install_wgcna_packages.R").read_text(encoding="utf-8")
+    transcriptomics = (R_DIR / "differential_transcriptomics.R").read_text(encoding="utf-8")
+    protein = (R_DIR / "differential_protein.R").read_text(encoding="utf-8")
+
+    assert "DESeq2" in installer
+    assert "WGCNA" in installer
+    assert "differential and WGCNA dependencies" in installer
+    assert "library(DESeq2)" in transcriptomics
+    assert "is_count_like_matrix" in transcriptomics
+    assert "values >= 0" in transcriptomics
+    assert "t.test" in protein
+
+
+def test_pdm_exposes_r_dependency_bootstrap_command() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert pyproject["tool"]["pdm"]["scripts"]["install-r"] == (
+        "Rscript src/yzwcloud/r/install_wgcna_packages.R"
+    )
 
 
 def test_differential_analysis_calls_transcriptomics_r(monkeypatch: Any, tmp_path: Path) -> None:

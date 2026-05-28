@@ -14,7 +14,7 @@ install_if_missing <- function(package) {
 
 install_if_missing("BiocManager")
 
-bioc_packages <- c("impute", "preprocessCore", "GO.db", "AnnotationDbi")
+bioc_packages <- c("DESeq2", "impute", "preprocessCore", "GO.db", "AnnotationDbi")
 for (package in bioc_packages) {
   if (!requireNamespace(package, quietly = TRUE)) {
     BiocManager::install(package, ask = FALSE, update = FALSE, lib = user_library)
@@ -26,4 +26,4 @@ for (package in cran_packages) {
   install_if_missing(package)
 }
 
-cat("R WGCNA dependencies are ready. Library:", user_library, "\n")
+cat("R differential and WGCNA dependencies are ready. Library:", user_library, "\n")

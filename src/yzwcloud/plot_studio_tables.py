@@ -212,7 +212,7 @@ def _detect_table_signals(columns: list[str], rows: list[list[str]]) -> dict[str
     ]
     excluded_numeric_columns = [column for column in numeric_columns if _is_matrix_numeric_metadata(column)]
     value_columns = [column for column in numeric_columns if column not in excluded_numeric_columns]
-    if identifier_columns and len(value_columns) >= 6:
+    if identifier_columns and len(value_columns) >= 2:
         signals["matrix_profile"] = {
             "kind": "expression_like",
             "identifier_columns": identifier_columns[:5],

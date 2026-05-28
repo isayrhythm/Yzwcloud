@@ -732,6 +732,11 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "n_label_position": "top",
             "n_label_font_size": 11,
             "n_label_color": "#617383",
+            "p_value_label_format": "threshold",
+            "p_value_font_size": 11,
+            "p_value_color": "#24323f",
+            "p_value_bracket_color": "#324657",
+            "p_value_bracket_width": 1.1,
         },
         "parameter_groups": [
             _group(
@@ -780,6 +785,11 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     ),
                     _param("multiple_testing", "Multiple testing", "select", "BH", options=["none", "BH", "bonferroni"]),
                     _param("show_p_values", "Show p-values", "boolean", False),
+                    _param("p_value_label_format", "P-value label", "select", "threshold", options=["threshold", "exact", "stars"]),
+                    _param("p_value_font_size", "P-value font size", "number", 11, min_value=8, max_value=22, step=1),
+                    _param("p_value_color", "P-value color", "color", "#24323f"),
+                    _param("p_value_bracket_color", "Bracket color", "color", "#324657"),
+                    _param("p_value_bracket_width", "Bracket line width", "number", 1.1, min_value=0.4, max_value=5, step=0.1),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -1013,6 +1023,11 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "bar_width": 0.72,
             "pairwise_test": "none",
             "show_p_values": False,
+            "p_value_label_format": "threshold",
+            "p_value_font_size": 11,
+            "p_value_color": "#24323f",
+            "p_value_bracket_color": "#324657",
+            "p_value_bracket_width": 1.1,
         },
         "parameter_groups": [
             _group(
@@ -1045,6 +1060,11 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     ),
                     _param("multiple_testing", "Multiple testing", "select", "BH", options=["none", "BH", "bonferroni"]),
                     _param("show_p_values", "Show p-values", "boolean", False),
+                    _param("p_value_label_format", "P-value label", "select", "threshold", options=["threshold", "exact", "stars"]),
+                    _param("p_value_font_size", "P-value font size", "number", 11, min_value=8, max_value=22, step=1),
+                    _param("p_value_color", "P-value color", "color", "#24323f"),
+                    _param("p_value_bracket_color", "Bracket color", "color", "#324657"),
+                    _param("p_value_bracket_width", "Bracket line width", "number", 1.1, min_value=0.4, max_value=5, step=0.1),
                     _param("sort", "Sort bars", "select", "input", options=["input", "ascending", "descending"]),
                     _param("orientation", "Orientation", "select", "vertical", options=["vertical", "horizontal"]),
                 ],
@@ -2951,10 +2971,6 @@ def get_plot_studio_manifest() -> dict[str, Any]:
 
 def recommend_plot_types(source_type: str, table_summary: dict[str, Any] | None = None) -> list[str]:
     normalized_type = source_type.lower()
-    for key, plot_ids in RECOMMENDATIONS_BY_OUTPUT.items():
-        if key in normalized_type:
-            return plot_ids[:]
-
     if table_summary:
         numeric_count = len(table_summary.get("numeric_columns") or [])
         categorical_count = len(table_summary.get("categorical_columns") or [])
@@ -2984,6 +3000,10 @@ def recommend_plot_types(source_type: str, table_summary: dict[str, Any] | None 
             return ["scatter", "correlation", "parallel_coordinates", "heatmap"]
         if numeric_count == 1 and categorical_count >= 1:
             return ["grouped_dotplot", "raincloud", "boxplot", "density_curve", "ecdf", "ridgeline", "bar", "violin"]
+
+    for key, plot_ids in RECOMMENDATIONS_BY_OUTPUT.items():
+        if key in normalized_type:
+            return plot_ids[:]
     return ["scatter", "boxplot", "bar"]
 
 

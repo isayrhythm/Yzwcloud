@@ -232,6 +232,8 @@ def test_plot_studio_has_collapsed_categories_examples_and_upload() -> None:
         'fetch(`/api/plot-studio/uploads?filename=${encodeURIComponent(file.name)}`',
         "loadExampleData",
         "/api/plot-studio/examples/",
+        'sourceKind === "plot_studio_example"',
+        "selectedSource?.meta?.plot_id",
         "plot-example-action",
         "plot-upload-card",
         "plot-card-example",

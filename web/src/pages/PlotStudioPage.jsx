@@ -1285,14 +1285,18 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     };
   }, []);
 
+  const plotPresets = manifest?.presets || [];
+  const styleRecipes = manifest?.style_recipes || [];
+
   useEffect(() => {
-    setSelectedPlotId("");
+    const examplePlotId = selectedSource?.sourceKind === "plot_studio_example"
+      ? selectedSource?.meta?.plot_id || ""
+      : "";
+    setSelectedPlotId(examplePlotId);
     setParams({});
     setSelectedRecipeId("");
   }, [sourceKey(selectedSource)]);
 
-  const plotPresets = manifest?.presets || [];
-  const styleRecipes = manifest?.style_recipes || [];
   const tableSummary = studioReport?.table_summary || null;
   const preferredPreviewNumericColumns = useMemo(() => preferredNumericColumns(tableSummary), [tableSummary]);
   const skippedPreviewNumericColumns = tableSummary?.signals?.matrix_profile?.excluded_numeric_columns || [];

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
+import csv
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,11 @@ def _request(client: TestClient, method: str, path: str, **kwargs: Any) -> Any:
 
 def _upload_node(detail: dict[str, Any]) -> dict[str, Any]:
     return next(node for node in detail["graph"]["nodes"] if node["id"] == "upload_expression")
+
+
+def _metadata_rows_from_path(path: str) -> list[dict[str, str]]:
+    with Path(path).open(encoding="utf-8-sig", newline="") as file:
+        return list(csv.DictReader(file))
 
 
 def test_sample_metadata_text_upload_preserves_path_when_matrix_arrives_later() -> None:
@@ -62,3 +68,35 @@ def test_sample_metadata_text_upload_preserves_path_when_matrix_arrives_later() 
     upload_node = _upload_node(matrix_detail)
     assert upload_node["params"]["sample_metadata_path"] == metadata_path
     assert upload_node["params"]["source_path"].endswith("matrix.csv")
+
+
+def test_sample_metadata_text_and_file_inputs_are_merged() -> None:
+    client = TestClient(app)
+    created = _request(client, "POST", "/api/tasks", json={"name": "metadata-merge-test"})
+    task_id = created["task"]["task_id"]
+
+    text_detail = _request(
+        client,
+        "POST",
+        f"/api/tasks/{task_id}/inputs/sample_metadata/text",
+        json={
+            "filename": "sample_metadata.csv",
+            "content": "sample,group,condition\nS1,groupA,case\nS2,groupA,case",
+        },
+    )
+    text_path = Path(_upload_node(text_detail)["params"]["sample_metadata_path"])
+    rows_after_text = _metadata_rows_from_path(str(text_path))
+    assert [row["sample"] for row in rows_after_text] == ["S1", "S2"]
+
+    _request(
+        client,
+        "POST",
+        f"/api/tasks/{task_id}/inputs/sample_metadata",
+        params={"filename": "uploaded_meta.csv"},
+        headers={"Content-Type": "application/octet-stream"},
+        content="sample,group,condition\nS2,groupB,control\nS3,groupB,control".encode("utf-8"),
+    )
+    merged_detail = _request(client, "GET", f"/api/tasks/{task_id}")
+    merged_path = Path(_upload_node(merged_detail)["params"]["sample_metadata_path"])
+    rows_merged = _metadata_rows_from_path(str(merged_path))
+    assert {row["sample"]: row["group"] for row in rows_merged} == {"S1": "groupA", "S2": "groupB", "S3": "groupB"}

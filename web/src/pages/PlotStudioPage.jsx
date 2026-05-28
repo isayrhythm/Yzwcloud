@@ -307,6 +307,30 @@ function ReportSection({ section }) {
   );
 }
 
+function PlotMethodOverview({ preset, source, tableSummary, t }) {
+  if (!preset) return null;
+  const inputSummary = tableSummary
+    ? `${tableSummary.scanned_rows} rows / ${tableSummary.column_count} columns`
+    : source?.type || t("selectSourceFirst");
+  const outputSummary = preset.engine === "plotly" ? t("interactivePlotlyOutput") : preset.engine || "-";
+  return (
+    <section className="plot-method-overview" aria-label={t("methodOverview")}>
+      <div>
+        <span>{t("application")}</span>
+        <strong>{preset.use_case || preset.description || preset.label}</strong>
+      </div>
+      <div>
+        <span>{t("input")}</span>
+        <strong>{inputSummary}</strong>
+      </div>
+      <div>
+        <span>{t("output")}</span>
+        <strong>{outputSummary}</strong>
+      </div>
+    </section>
+  );
+}
+
 function InteractivePlot({ spec }) {
   const plotRef = useRef(null);
 
@@ -355,6 +379,16 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
       </div>
     );
   }
+  if (kind === "ridgeline") {
+    return (
+      <div className="mini-plot mini-ridgeline" aria-hidden="true">
+        <span className="ridge r1" />
+        <span className="ridge r2" />
+        <span className="ridge r3" />
+        <span className="ridge r4" />
+      </div>
+    );
+  }
   if (kind === "bar") {
     return (
       <div className="mini-plot mini-bar" aria-hidden="true">
@@ -382,6 +416,15 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
       <div className="mini-plot mini-histogram" aria-hidden="true">
         {[28, 42, 67, 54, 78, 49, 32].map((height, index) => (
           <span style={{ height: `${height}%` }} key={index} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "calendar_heatmap") {
+    return (
+      <div className="mini-plot mini-calendar" aria-hidden="true">
+        {Array.from({ length: 35 }, (_, index) => (
+          <span key={index} />
         ))}
       </div>
     );
@@ -470,6 +513,17 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
       <div className="mini-plot mini-waterfall" aria-hidden="true">
         {[-52, -38, -21, 16, 29, 44, 63, 78].map((height, index) => (
           <span className={height < 0 ? "neg" : "pos"} style={{ height: `${Math.abs(height)}%` }} key={index} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "lollipop") {
+    return (
+      <div className="mini-plot mini-lollipop" aria-hidden="true">
+        {[18, 34, 50, 66, 82].map((top, index) => (
+          <span style={{ top: `${top}%`, width: `${28 + index * 10}%` }} key={top}>
+            <i />
+          </span>
         ))}
       </div>
     );
@@ -571,6 +625,18 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
       </div>
     );
   }
+  if (kind === "dumbbell") {
+    return (
+      <div className="mini-plot mini-dumbbell" aria-hidden="true">
+        {[20, 38, 56, 74].map((top, index) => (
+          <span style={{ top: `${top}%`, left: `${18 + index * 3}%`, width: `${42 + index * 7}%` }} key={top}>
+            <i />
+            <b />
+          </span>
+        ))}
+      </div>
+    );
+  }
   if (kind === "upset") {
     return (
       <div className="mini-plot mini-upset" aria-hidden="true">
@@ -654,6 +720,30 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
         <i className="flow f1" />
         <i className="flow f2" />
         <i className="flow f3" />
+      </div>
+    );
+  }
+  if (kind === "composition_bar") {
+    return (
+      <div className="mini-plot mini-composition" aria-hidden="true">
+        {[0, 1, 2].map((bar) => (
+          <span className={`bar b${bar}`} key={bar}>
+            <i className="c1" />
+            <i className="c2" />
+            <i className="c3" />
+          </span>
+        ))}
+      </div>
+    );
+  }
+  if (kind === "donut") {
+    return (
+      <div className="mini-plot mini-donut" aria-hidden="true">
+        <span className="ring" />
+        <span className="slice s1" />
+        <span className="slice s2" />
+        <span className="slice s3" />
+        <i />
       </div>
     );
   }
@@ -979,6 +1069,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
               </div>
               <span className="muted">{specStatus === "loading" ? t("rendering") : specStatus === "ready" ? t("ready") : specStatus}</span>
             </div>
+            <PlotMethodOverview preset={selectedPreset} source={selectedSource} tableSummary={tableSummary} t={t} />
             {specError ? <p className="plot-error">{specError}</p> : null}
             {plotSpec?.data?.length ? (
               <InteractivePlot spec={plotSpec} />

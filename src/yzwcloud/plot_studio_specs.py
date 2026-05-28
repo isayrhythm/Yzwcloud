@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import math
+from datetime import date, datetime
 from statistics import fmean, median, pstdev
 from typing import Any
 
@@ -57,15 +58,18 @@ def create_plot_studio_spec(
         "scatter": _build_scatter_spec,
         "boxplot": _build_boxplot_spec,
         "violin": _build_violin_spec,
+        "ridgeline": _build_ridgeline_spec,
         "bar": _build_bar_spec,
         "line": _build_line_spec,
         "histogram": _build_histogram_spec,
+        "calendar_heatmap": _build_calendar_heatmap_spec,
         "density_contour": _build_density_contour_spec,
         "scatter_3d": _build_scatter_3d_spec,
         "surface_3d": _build_surface_3d_spec,
         "radar": _build_radar_spec,
         "parallel_coordinates": _build_parallel_coordinates_spec,
         "waterfall": _build_waterfall_spec,
+        "lollipop": _build_lollipop_spec,
         "ma_plot": _build_ma_plot_spec,
         "qq_plot": _build_qq_plot_spec,
         "forest_plot": _build_forest_plot_spec,
@@ -75,6 +79,7 @@ def create_plot_studio_spec(
         "bland_altman": _build_bland_altman_spec,
         "dose_response": _build_dose_response_spec,
         "paired_dot": _build_paired_dot_spec,
+        "dumbbell": _build_dumbbell_spec,
         "bubble": _build_bubble_spec,
         "volcano": _build_volcano_spec,
         "upset": _build_upset_spec,
@@ -83,6 +88,8 @@ def create_plot_studio_spec(
         "correlation": _build_correlation_spec,
         "enrichment_dot": _build_enrichment_dot_spec,
         "enrichment_bar": _build_enrichment_bar_spec,
+        "composition_bar": _build_composition_bar_spec,
+        "donut": _build_donut_spec,
         "sankey": _build_sankey_spec,
         "treemap": _build_treemap_spec,
         "sunburst": _build_sunburst_spec,
@@ -358,6 +365,105 @@ def _build_boxplot_spec(context: dict[str, Any]) -> dict[str, Any]:
 
 def _build_violin_spec(context: dict[str, Any]) -> dict[str, Any]:
     return _build_distribution_spec(context, trace_type="violin")
+
+
+def _build_ridgeline_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    x_column = _choose_column(params.get("x"), context["numeric_columns"])
+    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    if not x_column or not group_column:
+        return _empty_plot_spec("ridgeline", "Ridgeline requires one numeric value column and one grouping column.", context["table_summary"])
+
+    grouped = []
+    for group_name, rows in _records_by_category(context["records"], group_column).items():
+        values = [_number_or_none(row.get(x_column)) for row in rows]
+        values = [value for value in values if value is not None]
+        if values:
+            grouped.append((group_name, values))
+    if not grouped:
+        return _empty_plot_spec("ridgeline", "No numeric grouped values were available for ridgeline rendering.", context["table_summary"])
+
+    sort_groups = str(params.get("sort_groups") or "input")
+    if sort_groups == "median_desc":
+        grouped.sort(key=lambda item: median(item[1]), reverse=True)
+    elif sort_groups == "median_asc":
+        grouped.sort(key=lambda item: median(item[1]))
+    elif sort_groups == "size_desc":
+        grouped.sort(key=lambda item: len(item[1]), reverse=True)
+
+    max_groups = _bounded_int(params.get("max_groups"), 12, 2, 40)
+    warnings = []
+    if len(grouped) > max_groups:
+        warnings.append(f"Showing first {max_groups} groups to keep the ridgeline readable.")
+        grouped = grouped[:max_groups]
+
+    all_values = [value for _, values in grouped for value in values]
+    x_min = min(all_values)
+    x_max = max(all_values)
+    span = max(x_max - x_min, 1e-9)
+    padding = span * 0.08
+    x_grid = _linspace(x_min - padding, x_max + padding, _bounded_int(params.get("density_points"), 90, 30, 300))
+    ridge_height = _bounded_float(params.get("ridge_height"), 0.86, 0.1, 2.5)
+    overlap = _bounded_float(params.get("overlap"), 0.55, 0, 1.5)
+    step = max(0.18, ridge_height * max(0.12, 1 - min(overlap, 0.95)))
+    fill_alpha = _bounded_float(params.get("fill_alpha"), 0.52, 0.05, 1)
+    line_width = _bounded_float(params.get("line_width"), 1.8, 0.2, 8)
+    traces = []
+    tick_values = []
+    tick_text = []
+    label_column = _choose_column(params.get("label"), context["columns"])
+
+    for index, (group_name, values) in enumerate(grouped):
+        offset = index * step
+        tick_values.append(offset)
+        tick_text.append(group_name)
+        color = PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+        density_values = _kernel_density(values, x_grid, params.get("bandwidth"))
+        max_density = max(density_values) if density_values else 0
+        scaled = [offset + (value / max_density * ridge_height if max_density > 0 else 0) for value in density_values]
+        traces.append(
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "name": group_name,
+                "x": [*x_grid, *reversed(x_grid)],
+                "y": [*scaled, *([offset] * len(x_grid))],
+                "fill": "toself",
+                "fillcolor": _rgba_from_hex(color, fill_alpha),
+                "line": {"color": color, "width": line_width},
+                "hovertemplate": f"{group_name}<br>{x_column}=%{{x:.4g}}<extra></extra>",
+            }
+        )
+        if _truthy(params.get("show_points"), True):
+            point_text = []
+            for row in context["records"]:
+                if str(row.get(group_column) or "All") == group_name and _number_or_none(row.get(x_column)) is not None:
+                    point_text.append(str(row.get(label_column) or group_name) if label_column else group_name)
+            traces.append(
+                {
+                    "type": "scattergl",
+                    "mode": "markers",
+                    "name": f"{group_name} points",
+                    "x": values,
+                    "y": [offset - ridge_height * 0.08 + ((item % 5) - 2) * ridge_height * 0.012 for item in range(len(values))],
+                    "text": point_text[: len(values)],
+                    "marker": {
+                        "color": color,
+                        "size": _bounded_float(params.get("point_size"), 4, 1, 16),
+                        "opacity": _bounded_float(params.get("point_alpha"), 0.45, 0.05, 1),
+                    },
+                    "hovertemplate": "%{text}<br>value=%{x:.4g}<extra></extra>",
+                    "showlegend": False,
+                }
+            )
+
+    layout = _base_layout(title=f"Ridgeline: {x_column} by {group_column}", x_title=x_column, y_title=group_column, params=params)
+    layout["yaxis"]["tickmode"] = "array"
+    layout["yaxis"]["tickvals"] = tick_values
+    layout["yaxis"]["ticktext"] = tick_text
+    layout["yaxis"]["range"] = [-ridge_height * 0.22, tick_values[-1] + ridge_height * 1.18]
+    layout["hovermode"] = str(params.get("hover_mode") or "closest")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dict[str, Any]:
@@ -679,6 +785,140 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
         layout.setdefault("shapes", []).extend(reference_shapes)
         layout.setdefault("annotations", []).extend(reference_annotations)
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
+
+
+def _build_calendar_heatmap_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    date_column = _requested_column(params.get("date_column"), columns) or _find_column(
+        columns, ["date", "day", "time", "sample_date", "collection_date", "sampling_date"]
+    )
+    value_column = _requested_column(params.get("value_column"), context["numeric_columns"]) or _find_column(
+        context["numeric_columns"], ["count", "counts", "value", "score", "abundance", "intensity"]
+    )
+    if not date_column:
+        return _empty_plot_spec("calendar_heatmap", "Calendar heatmap requires a date column.", context["table_summary"])
+
+    aggregation = str(params.get("aggregation") or "sum")
+    if aggregation != "count" and not value_column:
+        return _empty_plot_spec("calendar_heatmap", "Calendar heatmap requires a numeric value column unless aggregation=count.", context["table_summary"])
+
+    by_day: dict[date, list[float]] = {}
+    skipped_dates = 0
+    skipped_values = 0
+    for row in context["records"]:
+        parsed_date = _parse_calendar_date(row.get(date_column))
+        if parsed_date is None:
+            skipped_dates += 1
+            continue
+        value = 1.0 if aggregation == "count" else _number_or_none(row.get(value_column))
+        if value is None:
+            skipped_values += 1
+            continue
+        by_day.setdefault(parsed_date, []).append(value)
+    if not by_day:
+        return _empty_plot_spec("calendar_heatmap", "No valid date/value rows were available for calendar heatmap rendering.", context["table_summary"])
+
+    aggregated = {day: _aggregate_calendar_values(values, aggregation) for day, values in by_day.items()}
+    week_start = str(params.get("week_start") or "monday")
+    weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] if week_start != "sunday" else ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    years = sorted({day.year for day in aggregated})
+    y_labels = [f"{year} {weekday}" for year in years for weekday in weekdays]
+    week_numbers = list(range(54))
+    z_matrix = [[None for _ in week_numbers] for _ in y_labels]
+    text_matrix = [["" for _ in week_numbers] for _ in y_labels]
+    customdata = [["" for _ in week_numbers] for _ in y_labels]
+    y_index = {label: index for index, label in enumerate(y_labels)}
+    precision = _bounded_int(params.get("value_precision"), 0, 0, 6)
+    for day, value in aggregated.items():
+        weekday_index = _calendar_weekday_index(day, week_start)
+        week_number = _calendar_week_number(day, week_start)
+        y_label = f"{day.year} {weekdays[weekday_index]}"
+        row_index = y_index[y_label]
+        z_matrix[row_index][week_number] = value
+        text_matrix[row_index][week_number] = f"{value:.{precision}f}"
+        customdata[row_index][week_number] = day.isoformat()
+
+    trace = {
+        "type": "heatmap",
+        "name": value_column or "event count",
+        "x": week_numbers,
+        "y": y_labels,
+        "z": z_matrix,
+        "text": text_matrix,
+        "customdata": customdata,
+        "colorscale": _colorscale(str(params.get("color_scale") or "ylorrd")),
+        "colorbar": {"title": value_column or "count"},
+        "hovertemplate": "date=%{customdata}<br>week=%{x}<br>value=%{z:.4g}<extra></extra>",
+        "xgap": 1,
+        "ygap": 1,
+    }
+    if _truthy(params.get("show_values"), False):
+        trace["texttemplate"] = "%{text}"
+        trace["textfont"] = {"size": 9, "color": "#07131f"}
+
+    warnings = []
+    if skipped_dates:
+        warnings.append(f"Skipped {skipped_dates} rows with unparseable dates.")
+    if skipped_values:
+        warnings.append(f"Skipped {skipped_values} rows without finite values.")
+    layout = _base_layout(
+        title=f"Calendar heatmap: {value_column or 'row count'} by {date_column}",
+        x_title="week of year",
+        y_title="year / weekday",
+        params=params,
+    )
+    layout["height"] = max(layout.get("height", 760), min(3000, 180 + len(y_labels) * 24))
+    layout["xaxis"]["tickmode"] = "array"
+    layout["xaxis"]["tickvals"] = list(range(0, 54, 4))
+    layout["xaxis"]["dtick"] = 4
+    layout["yaxis"]["autorange"] = "reversed"
+    layout["plot_bgcolor"] = str(params.get("missing_color") or "#f1f5f9")
+    layout["meta"] = {
+        "calendar_heatmap": {
+            "date_column": date_column,
+            "value_column": value_column,
+            "aggregation": aggregation,
+            "days": len(aggregated),
+            "years": years,
+        }
+    }
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _parse_calendar_date(value: Any) -> date | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    formats = ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y", "%Y%m%d", "%d/%m/%Y", "%d-%m-%Y")
+    for fmt in formats:
+        try:
+            return datetime.strptime(raw.split()[0], fmt).date()
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _aggregate_calendar_values(values: list[float], aggregation: str) -> float:
+    if aggregation == "mean":
+        return fmean(values)
+    if aggregation == "median":
+        return float(median(values))
+    if aggregation == "count":
+        return float(len(values))
+    return float(sum(values))
+
+
+def _calendar_weekday_index(day: date, week_start: str) -> int:
+    weekday = day.weekday()
+    return (weekday + 1) % 7 if week_start == "sunday" else weekday
+
+
+def _calendar_week_number(day: date, week_start: str) -> int:
+    return int(day.strftime("%U" if week_start == "sunday" else "%W"))
 
 
 def _build_density_contour_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -1137,6 +1377,142 @@ def _waterfall_color(
     if color_mode == "significance" and not is_significant:
         return neutral_color
     return positive_color if item["value"] >= 0 else negative_color
+
+
+def _build_lollipop_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    value_column = _requested_column(params.get("value_column"), columns) or _find_column(
+        columns, ["score", "log2fc", "log2_fold_change", "effect_size", "importance", "count", "value"]
+    )
+    label_column = _requested_column(params.get("label_column"), columns) or _find_column(
+        columns, ["gene", "symbol", "term", "description", "name", "feature", "id"]
+    )
+    color_column = _requested_column(params.get("color_column"), columns)
+    size_column = _requested_column(params.get("size_column"), columns)
+    if not value_column:
+        return _empty_plot_spec("lollipop", "Lollipop requires one numeric value column.", context["table_summary"])
+
+    rows = []
+    for index, row in enumerate(context["records"]):
+        value = _number_or_none(row.get(value_column))
+        if value is None:
+            continue
+        label = str(row.get(label_column) or f"row {index + 1}") if label_column else f"row {index + 1}"
+        color_value = str(row.get(color_column) or "") if color_column else ""
+        size_value = _number_or_none(row.get(size_column)) if size_column else None
+        rows.append({"label": label, "value": value, "color": color_value, "size_value": size_value, "input_index": index})
+    if not rows:
+        return _empty_plot_spec("lollipop", "No finite values were available for lollipop rendering.", context["table_summary"])
+
+    sort_by = str(params.get("sort_by") or "abs_value")
+    if sort_by == "value_desc":
+        rows.sort(key=lambda item: item["value"], reverse=True)
+    elif sort_by == "value_asc":
+        rows.sort(key=lambda item: item["value"])
+    elif sort_by == "input":
+        rows.sort(key=lambda item: item["input_index"])
+    else:
+        rows.sort(key=lambda item: abs(item["value"]), reverse=True)
+    top_n = _bounded_int(params.get("top_n"), 40, 1, 5000)
+    warnings = []
+    if len(rows) > top_n:
+        warnings.append(f"Showing top {top_n} lollipop points ranked by {sort_by}.")
+        rows = rows[:top_n]
+
+    baseline = _bounded_float(params.get("baseline"), 0, -1_000_000, 1_000_000)
+    is_horizontal = str(params.get("orientation") or "horizontal") == "horizontal"
+    labels = [row["label"] for row in rows]
+    values = [row["value"] for row in rows]
+    positive_color = str(params.get("positive_color") or "#c44f3a")
+    negative_color = str(params.get("negative_color") or "#315fd6")
+    neutral_color = str(params.get("neutral_color") or "#0f8a8f")
+    group_colors: dict[str, str] = {}
+    colors = []
+    for row in rows:
+        if color_column and row["color"]:
+            group_colors.setdefault(row["color"], PLOTLY_PALETTE[len(group_colors) % len(PLOTLY_PALETTE)])
+            colors.append(group_colors[row["color"]])
+        elif row["value"] > baseline:
+            colors.append(positive_color)
+        elif row["value"] < baseline:
+            colors.append(negative_color)
+        else:
+            colors.append(neutral_color)
+
+    precision = _bounded_int(params.get("value_precision"), 2, 0, 6)
+    customdata = [[row["color"], row["size_value"] if row["size_value"] is not None else ""] for row in rows]
+    trace = {
+        "type": "scatter",
+        "mode": "markers+text" if _truthy(params.get("show_value_labels"), False) else "markers",
+        "name": value_column,
+        "x": values if is_horizontal else labels,
+        "y": labels if is_horizontal else values,
+        "marker": {
+            "size": _lollipop_marker_sizes(rows, params=params),
+            "color": colors,
+            "opacity": _bounded_float(params.get("point_alpha"), 0.88, 0.05, 1),
+            "line": {"color": "#ffffff", "width": 0.8},
+        },
+        "customdata": customdata,
+        "hovertemplate": (
+            "%{y}<br>"
+            + f"{value_column}=%{{x:.4g}}<br>color=%{{customdata[0]}}<br>size=%{{customdata[1]}}<extra></extra>"
+            if is_horizontal
+            else "%{x}<br>"
+            + f"{value_column}=%{{y:.4g}}<br>color=%{{customdata[0]}}<br>size=%{{customdata[1]}}<extra></extra>"
+        ),
+    }
+    if _truthy(params.get("show_value_labels"), False):
+        trace["text"] = [f"{value:.{precision}f}" for value in values]
+        trace["textposition"] = "middle right" if is_horizontal else "top center"
+
+    stem_line = {
+        "color": str(params.get("stem_color") or "#9aaab7"),
+        "width": _bounded_float(params.get("stem_width"), 1.4, 0.2, 8),
+    }
+    shapes = [
+        {
+            "type": "line",
+            "xref": "x",
+            "yref": "y",
+            "x0": baseline if is_horizontal else label,
+            "x1": value if is_horizontal else label,
+            "y0": label if is_horizontal else baseline,
+            "y1": label if is_horizontal else value,
+            "line": stem_line,
+            "layer": "below",
+        }
+        for label, value in zip(labels, values, strict=False)
+    ]
+    layout = _base_layout(
+        title=f"Lollipop: ranked {value_column}",
+        x_title=value_column if is_horizontal else label_column or "feature",
+        y_title=(label_column or "feature") if is_horizontal else value_column,
+        params=params,
+    )
+    layout["shapes"] = [*layout.get("shapes", []), *shapes]
+    layout["xaxis"]["automargin"] = True
+    layout["yaxis"]["automargin"] = True
+    if is_horizontal:
+        layout["yaxis"]["autorange"] = "reversed"
+    elif len(rows) > 30:
+        layout["xaxis"]["tickangle"] = _bounded_float(params.get("x_tick_angle"), -45, -90, 90)
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _lollipop_marker_sizes(rows: list[dict[str, Any]], *, params: dict[str, Any]) -> list[float]:
+    default_size = _bounded_float(params.get("point_size"), 10, 2, 64)
+    numeric_sizes = [row["size_value"] for row in rows if row.get("size_value") is not None]
+    if not numeric_sizes:
+        return [default_size for _ in rows]
+    minimum = min(numeric_sizes)
+    maximum = max(numeric_sizes)
+    span = max(maximum - minimum, 1e-9)
+    return [
+        default_size * 0.65 + ((row.get("size_value") or minimum) - minimum) / span * default_size * 1.35
+        for row in rows
+    ]
 
 
 def _build_ma_plot_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -2498,6 +2874,201 @@ def _build_paired_dot_spec(context: dict[str, Any]) -> dict[str, Any]:
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
+def _build_dumbbell_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    numeric_columns = context["numeric_columns"]
+    label_column = _requested_column(params.get("label_column"), columns) or _find_column(
+        columns, ["feature", "gene", "symbol", "term", "description", "name", "sample", "id"]
+    )
+    start_column = _requested_column(params.get("start_column"), numeric_columns) or _find_column(
+        numeric_columns, ["before", "baseline", "control", "start", "pre", "condition_a", "group_a"]
+    )
+    end_column = _requested_column(params.get("end_column"), numeric_columns) or _find_column(
+        numeric_columns, ["after", "case", "treated", "end", "post", "condition_b", "group_b"]
+    )
+    if not start_column and numeric_columns:
+        start_column = numeric_columns[0]
+    if not end_column and len(numeric_columns) > 1:
+        end_column = numeric_columns[1]
+    group_column = _requested_column(params.get("group"), columns)
+    if not start_column or not end_column or start_column == end_column:
+        return _empty_plot_spec("dumbbell", "Dumbbell requires two different numeric columns.", context["table_summary"])
+
+    rows = []
+    for index, row in enumerate(context["records"]):
+        start_value = _number_or_none(row.get(start_column))
+        end_value = _number_or_none(row.get(end_column))
+        if start_value is None or end_value is None:
+            continue
+        label = str(row.get(label_column) or f"row {index + 1}") if label_column else f"row {index + 1}"
+        group = str(row.get(group_column) or "All") if group_column else "All"
+        rows.append(
+            {
+                "label": label,
+                "start": start_value,
+                "end": end_value,
+                "delta": end_value - start_value,
+                "group": group,
+                "input_index": index,
+            }
+        )
+    if not rows:
+        return _empty_plot_spec("dumbbell", "No finite paired values were available for dumbbell rendering.", context["table_summary"])
+
+    sort_by = str(params.get("sort_by") or "delta_abs")
+    if sort_by == "delta_desc":
+        rows.sort(key=lambda item: item["delta"], reverse=True)
+    elif sort_by == "delta_asc":
+        rows.sort(key=lambda item: item["delta"])
+    elif sort_by == "start":
+        rows.sort(key=lambda item: item["start"], reverse=True)
+    elif sort_by == "end":
+        rows.sort(key=lambda item: item["end"], reverse=True)
+    elif sort_by == "input":
+        rows.sort(key=lambda item: item["input_index"])
+    else:
+        rows.sort(key=lambda item: abs(item["delta"]), reverse=True)
+
+    top_n = _bounded_int(params.get("top_n"), 40, 1, 5000)
+    warnings = []
+    if len(rows) > top_n:
+        warnings.append(f"Showing top {top_n} dumbbell pairs ranked by {sort_by}.")
+        rows = rows[:top_n]
+
+    is_horizontal = str(params.get("orientation") or "horizontal") == "horizontal"
+    labels = [row["label"] for row in rows]
+    start_values = [row["start"] for row in rows]
+    end_values = [row["end"] for row in rows]
+    deltas = [row["delta"] for row in rows]
+    groups = [row["group"] for row in rows]
+    precision = _bounded_int(params.get("value_precision"), 2, 0, 6)
+    start_label = str(params.get("start_label") or start_column)
+    end_label = str(params.get("end_label") or end_column)
+    point_alpha = _bounded_float(params.get("point_alpha"), 0.88, 0.05, 1)
+    point_size = _bounded_float(params.get("point_size"), 10, 2, 64)
+    line_width = _bounded_float(params.get("line_width"), 1.6, 0.2, 8)
+    line_color = str(params.get("line_color") or "#9aaab7")
+    color_by_group = bool(group_column and _truthy(params.get("color_by_group"), False))
+    line_traces = _dumbbell_line_traces(
+        rows,
+        is_horizontal=is_horizontal,
+        color_by_group=color_by_group,
+        line_color=line_color,
+        line_width=line_width,
+    )
+    common_customdata = [[delta, group] for delta, group in zip(deltas, groups, strict=False)]
+    hover_prefix = "%{y}" if is_horizontal else "%{x}"
+    start_trace = {
+        "type": "scatter",
+        "mode": "markers",
+        "name": start_label,
+        "x": start_values if is_horizontal else labels,
+        "y": labels if is_horizontal else start_values,
+        "customdata": common_customdata,
+        "marker": {
+            "size": point_size,
+            "color": str(params.get("start_color") or "#315fd6"),
+            "opacity": point_alpha,
+            "line": {"color": "#ffffff", "width": 0.7},
+        },
+        "hovertemplate": (
+            f"{hover_prefix}<br>{start_label}=%{{x:.4g}}<br>delta=%{{customdata[0]:.4g}}<br>group=%{{customdata[1]}}<extra></extra>"
+            if is_horizontal
+            else f"{hover_prefix}<br>{start_label}=%{{y:.4g}}<br>delta=%{{customdata[0]:.4g}}<br>group=%{{customdata[1]}}<extra></extra>"
+        ),
+    }
+    end_trace = {
+        "type": "scatter",
+        "mode": "markers+text" if _truthy(params.get("show_delta_labels"), False) else "markers",
+        "name": end_label,
+        "x": end_values if is_horizontal else labels,
+        "y": labels if is_horizontal else end_values,
+        "customdata": common_customdata,
+        "marker": {
+            "size": point_size,
+            "color": str(params.get("end_color") or "#c44f3a"),
+            "opacity": point_alpha,
+            "line": {"color": "#ffffff", "width": 0.7},
+        },
+        "hovertemplate": (
+            f"{hover_prefix}<br>{end_label}=%{{x:.4g}}<br>delta=%{{customdata[0]:.4g}}<br>group=%{{customdata[1]}}<extra></extra>"
+            if is_horizontal
+            else f"{hover_prefix}<br>{end_label}=%{{y:.4g}}<br>delta=%{{customdata[0]:.4g}}<br>group=%{{customdata[1]}}<extra></extra>"
+        ),
+    }
+    if _truthy(params.get("show_delta_labels"), False):
+        end_trace["text"] = [f"{delta:+.{precision}f}" for delta in deltas]
+        end_trace["textposition"] = "middle right" if is_horizontal else "top center"
+
+    layout = _base_layout(
+        title=f"Dumbbell: {start_label} vs {end_label}",
+        x_title=f"{start_column} / {end_column}" if is_horizontal else label_column or "feature",
+        y_title=(label_column or "feature") if is_horizontal else f"{start_column} / {end_column}",
+        params=params,
+    )
+    layout["xaxis"]["automargin"] = True
+    layout["yaxis"]["automargin"] = True
+    if is_horizontal:
+        layout["yaxis"]["autorange"] = "reversed"
+    elif len(rows) > 24:
+        layout["xaxis"]["tickangle"] = _bounded_float(params.get("x_tick_angle"), -45, -90, 90)
+    layout["meta"] = {
+        "dumbbell": {
+            "rows": len(rows),
+            "label_column": label_column,
+            "start_column": start_column,
+            "end_column": end_column,
+            "group_column": group_column,
+        }
+    }
+    return {"data": [*line_traces, start_trace, end_trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _dumbbell_line_traces(
+    rows: list[dict[str, Any]],
+    *,
+    is_horizontal: bool,
+    color_by_group: bool,
+    line_color: str,
+    line_width: float,
+) -> list[dict[str, Any]]:
+    grouped_rows: dict[str, list[dict[str, Any]]] = {}
+    if color_by_group:
+        for row in rows:
+            grouped_rows.setdefault(str(row.get("group") or "All"), []).append(row)
+    else:
+        grouped_rows = {"paired shift": rows}
+
+    traces = []
+    for index, (group_name, group_rows) in enumerate(grouped_rows.items()):
+        line_x: list[Any] = []
+        line_y: list[Any] = []
+        for row in group_rows:
+            if is_horizontal:
+                line_x.extend([row["start"], row["end"], None])
+                line_y.extend([row["label"], row["label"], None])
+            else:
+                line_x.extend([row["label"], row["label"], None])
+                line_y.extend([row["start"], row["end"], None])
+        traces.append(
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "name": f"shift: {group_name}" if color_by_group else "paired shift",
+                "x": line_x,
+                "y": line_y,
+                "line": {
+                    "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)] if color_by_group else line_color,
+                    "width": line_width,
+                },
+                "hoverinfo": "skip",
+                "showlegend": color_by_group,
+            }
+        )
+    return traces
+
+
 def _jittered_condition(condition: str, condition_index: dict[str, int], subject: str, jitter: float) -> str | float:
     if jitter <= 0:
         return condition
@@ -3354,6 +3925,207 @@ def _build_sankey_spec(context: dict[str, Any]) -> dict[str, Any]:
     if len(context["records"]) > len(links):
         warnings.append(f"Showing top {len(links)} Sankey links.")
     warnings.append(f"Resolved {len(node_labels)} unique Sankey nodes.")
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _build_composition_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    sample_column = _requested_column(params.get("sample_column"), columns) or _find_column(
+        columns, ["sample", "sample_id", "group", "condition", "name"]
+    )
+    category_column = _requested_column(params.get("category_column"), columns) or _find_column(
+        columns, ["category", "taxon", "taxonomy", "term", "pathway", "feature", "class"]
+    )
+    value_column = _requested_column(params.get("value_column"), columns) or _find_column(
+        columns, ["abundance", "relative_abundance", "count", "value", "size", "reads"]
+    )
+    group_column = _requested_column(params.get("group_column"), columns)
+    if not sample_column or not category_column or not value_column:
+        return _empty_plot_spec("composition_bar", "Composition bar requires sample, category, and numeric value columns.", context["table_summary"])
+
+    matrix: dict[str, dict[str, float]] = {}
+    sample_order: list[str] = []
+    category_totals: dict[str, float] = {}
+    raw_totals: dict[str, float] = {}
+    sample_groups: dict[str, str] = {}
+    for row in context["records"]:
+        sample = str(row.get(sample_column) or "").strip()
+        category = str(row.get(category_column) or "").strip()
+        value = _number_or_ratio(row.get(value_column))
+        if not sample or not category or value is None or value < 0:
+            continue
+        if sample not in matrix:
+            matrix[sample] = {}
+            sample_order.append(sample)
+        matrix[sample][category] = matrix[sample].get(category, 0.0) + value
+        category_totals[category] = category_totals.get(category, 0.0) + value
+        raw_totals[sample] = raw_totals.get(sample, 0.0) + value
+        if group_column and sample not in sample_groups:
+            sample_groups[sample] = str(row.get(group_column) or "")
+    if not matrix:
+        return _empty_plot_spec("composition_bar", "No valid composition rows were available.", context["table_summary"])
+
+    top_n = _bounded_int(params.get("top_n"), 12, 2, 80)
+    sort_categories = str(params.get("sort_categories") or "total_desc")
+    categories = sorted(category_totals, key=str.lower) if sort_categories == "name" else sorted(
+        category_totals,
+        key=lambda item: category_totals[item],
+        reverse=True,
+    )
+    top_categories = categories[:top_n]
+    other_label = str(params.get("other_label") or "Other")
+    has_other = any(category not in top_categories for category in categories)
+    display_categories = top_categories + ([other_label] if has_other else [])
+
+    sort_samples = str(params.get("sort_samples") or "input")
+    if sort_samples == "name":
+        sample_order = sorted(sample_order, key=str.lower)
+    elif sort_samples == "total_desc":
+        sample_order = sorted(sample_order, key=lambda sample: raw_totals.get(sample, 0.0), reverse=True)
+
+    normalize = str(params.get("normalize") or "percent")
+    traces = []
+    for index, category in enumerate(display_categories):
+        values = []
+        raw_values = []
+        for sample in sample_order:
+            sample_values = matrix[sample]
+            if category == other_label and has_other:
+                raw_value = sum(value for item, value in sample_values.items() if item not in top_categories)
+            else:
+                raw_value = sample_values.get(category, 0.0)
+            denominator = raw_totals.get(sample, 0.0) or 1.0
+            values.append(raw_value / denominator * 100 if normalize == "percent" else raw_value)
+            raw_values.append(raw_value)
+        customdata = [
+            [sample, category, raw_values[item_index], raw_totals.get(sample, 0.0), sample_groups.get(sample, "")]
+            for item_index, sample in enumerate(sample_order)
+        ]
+        trace: dict[str, Any] = {
+            "type": "bar",
+            "name": category,
+            "marker": {
+                "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+                "opacity": _bounded_float(params.get("bar_opacity"), 0.9, 0.05, 1),
+                "line": {
+                    "color": str(params.get("bar_line_color") or "#ffffff"),
+                    "width": _bounded_float(params.get("bar_line_width"), 0.4, 0, 4),
+                },
+            },
+            "customdata": customdata,
+            "hovertemplate": "%{customdata[0]}<br>category=%{fullData.name}<br>display=%{y:.4g}<br>raw=%{customdata[2]:.4g}<br>sample total=%{customdata[3]:.4g}<br>group=%{customdata[4]}<extra></extra>",
+        }
+        if str(params.get("orientation") or "vertical") == "horizontal":
+            trace["orientation"] = "h"
+            trace["x"] = values
+            trace["y"] = sample_order
+            trace["hovertemplate"] = "%{customdata[0]}<br>category=%{fullData.name}<br>display=%{x:.4g}<br>raw=%{customdata[2]:.4g}<br>sample total=%{customdata[3]:.4g}<br>group=%{customdata[4]}<extra></extra>"
+        else:
+            trace["x"] = sample_order
+            trace["y"] = values
+        traces.append(trace)
+
+    y_title = "Relative abundance (%)" if normalize == "percent" else value_column
+    layout = _base_layout(
+        title=f"Composition bar: {len(sample_order)} samples",
+        x_title=sample_column,
+        y_title=y_title,
+        params=params,
+    )
+    orientation = str(params.get("orientation") or "vertical")
+    if orientation == "horizontal":
+        layout["xaxis"]["title"]["text"] = y_title
+        layout["yaxis"]["title"]["text"] = sample_column
+        if normalize == "percent" and _truthy(params.get("show_percent_axis"), True):
+            layout["xaxis"]["range"] = [0, 100]
+    elif normalize == "percent" and _truthy(params.get("show_percent_axis"), True):
+        layout["yaxis"]["range"] = [0, 100]
+    layout["barmode"] = str(params.get("bar_mode") or "stack")
+    layout["showlegend"] = _truthy(params.get("show_legend"), True)
+    warnings = []
+    if has_other:
+        warnings.append(f"Collapsed {len(categories) - len(top_categories)} lower-abundance categories into {other_label}.")
+    if normalize == "percent":
+        warnings.append("Values are normalized to percent within each sample.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _build_donut_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    category_column = _requested_column(params.get("category_column"), columns) or _find_column(
+        columns, ["category", "taxon", "taxonomy", "term", "pathway", "feature", "class"]
+    )
+    value_column = _requested_column(params.get("value_column"), columns) or _find_column(
+        columns, ["abundance", "relative_abundance", "count", "value", "size", "reads"]
+    )
+    group_column = _requested_column(params.get("group_column"), columns)
+    selected_group = str(params.get("selected_group") or "").strip()
+    if not category_column or not value_column:
+        return _empty_plot_spec("donut", "Donut requires category and numeric value columns.", context["table_summary"])
+
+    totals: dict[str, float] = {}
+    scanned_rows = 0
+    for row in context["records"]:
+        if group_column and selected_group and str(row.get(group_column) or "").strip() != selected_group:
+            continue
+        category = str(row.get(category_column) or "").strip()
+        value = _number_or_ratio(row.get(value_column))
+        if not category or value is None or value < 0:
+            continue
+        scanned_rows += 1
+        totals[category] = totals.get(category, 0.0) + value
+    if not totals:
+        return _empty_plot_spec("donut", "No valid donut composition rows were available.", context["table_summary"])
+
+    sort_by = str(params.get("sort_by") or "value")
+    categories = sorted(totals, key=str.lower) if sort_by == "name" else sorted(totals, key=lambda item: totals[item], reverse=True)
+    top_n = _bounded_int(params.get("top_n"), 10, 2, 80)
+    top_categories = categories[:top_n]
+    labels = top_categories[:]
+    values = [totals[category] for category in top_categories]
+    other_count = len(categories) - len(top_categories)
+    if other_count > 0:
+        labels.append(str(params.get("other_label") or "Other"))
+        values.append(sum(totals[category] for category in categories[top_n:]))
+    pull = [0.0 for _ in labels]
+    if pull and _truthy(params.get("pull_largest"), True):
+        pull[0] = _bounded_float(params.get("pull_size"), 0.04, 0, 0.25)
+
+    trace = {
+        "type": "pie",
+        "labels": labels,
+        "values": values,
+        "hole": _bounded_float(params.get("hole"), 0.48, 0, 0.8),
+        "sort": False,
+        "direction": "clockwise",
+        "rotation": _bounded_float(params.get("rotation"), 0, 0, 360),
+        "textinfo": str(params.get("textinfo") or "label+percent"),
+        "textposition": str(params.get("textposition") or "auto"),
+        "pull": pull,
+        "marker": {
+            "colors": [PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)] for index in range(len(labels))],
+            "line": {"color": "#ffffff", "width": 1.2},
+        },
+        "customdata": [[label, value, sum(values)] for label, value in zip(labels, values)],
+        "hovertemplate": "%{label}<br>value=%{value:.4g}<br>percent=%{percent}<extra></extra>",
+    }
+    layout = _base_layout(
+        title=f"Donut composition{f': {selected_group}' if selected_group else ''}",
+        x_title="",
+        y_title="",
+        params=params,
+    )
+    layout.pop("xaxis", None)
+    layout.pop("yaxis", None)
+    layout["showlegend"] = _truthy(params.get("show_legend"), True)
+    warnings = []
+    if group_column and selected_group:
+        warnings.append(f"Filtered donut rows to {group_column}={selected_group}.")
+    if other_count > 0:
+        warnings.append(f"Collapsed {other_count} lower-value categories into {labels[-1]}.")
+    warnings.append(f"Aggregated {scanned_rows} rows into {len(labels)} donut slices.")
     return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
@@ -4419,6 +5191,12 @@ def _colorscale(name: str) -> str | list[list[Any]]:
         return normalized.title()
     if normalized in {"green_white_purple", "green_purple"}:
         return [[0, "#20804f"], [0.5, "#ffffff"], [1, "#7a4fb3"]]
+    if normalized in {"ylorrd", "yellow_orange_red"}:
+        return [[0, "#fff7bc"], [0.5, "#fdae61"], [1, "#b2182b"]]
+    if normalized in {"tealrose", "teal_rose"}:
+        return [[0, "#0f8a8f"], [0.5, "#ffffff"], [1, "#c44f3a"]]
+    if normalized in {"rdbu", "blue_white_red"}:
+        return [[0, "#315fd6"], [0.5, "#ffffff"], [1, "#c44f3a"]]
     if normalized in {"prism_muted", "group"}:
         return [[0, "#315fd6"], [0.5, "#ffffff"], [1, "#c44f3a"]]
     return [[0, "#315fd6"], [0.5, "#ffffff"], [1, "#c44f3a"]]
@@ -4734,6 +5512,33 @@ def _records_by_category(records: list[dict[str, str]], column: str | None) -> d
         key = str(row.get(column) or "All") if column else "All"
         grouped.setdefault(key, []).append(row)
     return grouped
+
+
+def _linspace(start: float, stop: float, count: int) -> list[float]:
+    if count <= 1:
+        return [start]
+    step = (stop - start) / (count - 1)
+    return [start + index * step for index in range(count)]
+
+
+def _kernel_density(values: list[float], grid: list[float], bandwidth_value: Any) -> list[float]:
+    if not values:
+        return [0.0 for _ in grid]
+    requested_bandwidth = _number_or_none(bandwidth_value)
+    if requested_bandwidth is not None and requested_bandwidth > 0:
+        bandwidth = requested_bandwidth
+    else:
+        value_span = max(values) - min(values)
+        sd = pstdev(values) if len(values) > 1 else 0.0
+        bandwidth = 1.06 * sd * (len(values) ** -0.2) if sd > 0 else value_span / 8
+        if bandwidth <= 0:
+            bandwidth = max(abs(values[0]) * 0.05, 1.0)
+    norm = len(values) * bandwidth * math.sqrt(2 * math.pi)
+    densities = []
+    for point in grid:
+        kernel_sum = sum(math.exp(-0.5 * ((point - value) / bandwidth) ** 2) for value in values)
+        densities.append(kernel_sum / norm)
+    return densities
 
 
 def _distribution_trace(

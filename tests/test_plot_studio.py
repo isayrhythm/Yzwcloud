@@ -58,12 +58,15 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "venn",
         "correlation",
         "histogram",
+        "calendar_heatmap",
+        "ridgeline",
         "density_contour",
         "scatter_3d",
         "surface_3d",
         "radar",
         "parallel_coordinates",
         "waterfall",
+        "lollipop",
         "ma_plot",
         "qq_plot",
         "forest_plot",
@@ -73,7 +76,10 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "bland_altman",
         "dose_response",
         "paired_dot",
+        "dumbbell",
         "enrichment_bar",
+        "composition_bar",
+        "donut",
         "sankey",
         "treemap",
         "sunburst",
@@ -91,6 +97,19 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert boxplot["default_params"]["point_alpha"] == 0.72
     violin_distribution = next(group for group in presets["violin"]["parameter_groups"] if group["id"] == "distribution")
     assert {param["id"] for param in violin_distribution["parameters"]} >= {"point_size", "point_alpha"}
+    ridge_density = next(group for group in presets["ridgeline"]["parameter_groups"] if group["id"] == "density")
+    assert presets["ridgeline"]["thumbnail"] == "ridgeline"
+    assert {param["id"] for param in ridge_density["parameters"]} >= {
+        "max_groups",
+        "density_points",
+        "bandwidth",
+        "ridge_height",
+        "overlap",
+        "sort_groups",
+        "show_points",
+        "point_size",
+        "point_alpha",
+    }
     assert any(group["id"] == "statistics" for group in boxplot["parameter_groups"])
     assert any(group["id"] == "export" for group in boxplot["parameter_groups"])
     assert any(group["id"] == "labels" for group in boxplot["parameter_groups"])
@@ -244,6 +263,20 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "log2fc_threshold",
         "p_value_threshold",
     }
+    lollipop_ranking = next(group for group in presets["lollipop"]["parameter_groups"] if group["id"] == "ranking")
+    assert presets["lollipop"]["thumbnail"] == "lollipop"
+    assert {param["id"] for param in lollipop_ranking["parameters"]} >= {
+        "sort_by",
+        "top_n",
+        "orientation",
+        "baseline",
+        "stem_width",
+        "stem_color",
+        "point_size",
+        "point_alpha",
+        "show_value_labels",
+        "value_precision",
+    }
     ma_thresholds = next(group for group in presets["ma_plot"]["parameter_groups"] if group["id"] == "thresholds")
     assert {param["id"] for param in ma_thresholds["parameters"]} >= {
         "x_log",
@@ -315,6 +348,20 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "summary_stat",
         "max_subjects",
     }
+    dumbbell_display = next(group for group in presets["dumbbell"]["parameter_groups"] if group["id"] == "paired")
+    assert presets["dumbbell"]["thumbnail"] == "dumbbell"
+    assert {param["id"] for param in dumbbell_display["parameters"]} >= {
+        "sort_by",
+        "top_n",
+        "orientation",
+        "start_label",
+        "end_label",
+        "line_width",
+        "color_by_group",
+        "point_size",
+        "point_alpha",
+        "show_delta_labels",
+    }
 
     heatmap = presets["heatmap"]
     assert heatmap["default_params"]["show_dendrogram"] is True
@@ -338,6 +385,16 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "reference_line_width",
         "reference_line_color_mode",
         "reference_line_color",
+    }
+    calendar_display = next(group for group in presets["calendar_heatmap"]["parameter_groups"] if group["id"] == "calendar")
+    assert presets["calendar_heatmap"]["thumbnail"] == "calendar_heatmap"
+    assert {param["id"] for param in calendar_display["parameters"]} >= {
+        "aggregation",
+        "week_start",
+        "color_scale",
+        "show_values",
+        "value_precision",
+        "missing_color",
     }
 
     upset = presets["upset"]
@@ -378,6 +435,32 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "node_thickness",
         "link_opacity",
         "label_font_size",
+    }
+    composition_display = next(group for group in presets["composition_bar"]["parameter_groups"] if group["id"] == "composition")
+    assert presets["composition_bar"]["thumbnail"] == "composition_bar"
+    assert {param["id"] for param in composition_display["parameters"]} >= {
+        "top_n",
+        "normalize",
+        "other_label",
+        "sort_samples",
+        "sort_categories",
+        "orientation",
+        "bar_mode",
+        "show_percent_axis",
+        "show_legend",
+    }
+    donut_display = next(group for group in presets["donut"]["parameter_groups"] if group["id"] == "composition")
+    assert presets["donut"]["thumbnail"] == "donut"
+    assert {param["id"] for param in donut_display["parameters"]} >= {
+        "top_n",
+        "other_label",
+        "sort_by",
+        "hole",
+        "textinfo",
+        "textposition",
+        "pull_largest",
+        "rotation",
+        "show_legend",
     }
     treemap_terms = next(group for group in presets["treemap"]["parameter_groups"] if group["id"] == "terms")
     assert presets["treemap"]["thumbnail"] == "treemap"
@@ -828,6 +911,77 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
     assert "reference line color=#334155" in histogram_display_summary
     assert "rug marks shown" in histogram_display_summary
 
+    ridgeline_report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "ridgeline",
+            "params": {
+                "x": "value",
+                "group": "condition",
+                "max_groups": 8,
+                "density_points": 120,
+                "bandwidth": "auto",
+                "ridge_height": 0.9,
+                "overlap": 0.6,
+                "sort_groups": "median_desc",
+                "show_points": True,
+            },
+        },
+    )
+    ridgeline_sections = {section["title"]: section["text"] for section in ridgeline_report["report"]["sections"]}
+    assert "stacked group distribution shapes" in ridgeline_sections["Figure interpretation"]
+    ridgeline_summary = ridgeline_report["agent_context"]["parameter_summary"]
+    assert "value=value" in ridgeline_summary["statistics"]
+    assert "group=condition" in ridgeline_summary["statistics"]
+    assert "density resolution=120" in ridgeline_summary["display"]
+    assert "group sorting=median_desc" in ridgeline_summary["display"]
+    assert "rug points shown=True" in ridgeline_summary["display"]
+
+    calendar_file = allowed_tmp / f"{tmp_path.name}_report_calendar.csv"
+    calendar_file.write_text(
+        "date,value\n2026-01-01,4\n2026-01-02,7\n2026-01-02,3\n",
+        encoding="utf-8",
+    )
+    calendar_report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Sampling calendar",
+                "type": "unknown_table",
+                "dataPath": str(calendar_file),
+            },
+            "plotType": "calendar_heatmap",
+            "params": {
+                "date_column": "date",
+                "value_column": "value",
+                "aggregation": "sum",
+                "week_start": "monday",
+                "color_scale": "ylorrd",
+                "show_values": True,
+                "missing_color": "#f1f5f9",
+            },
+        },
+    )
+    calendar_sections = {section["title"]: section["text"] for section in calendar_report["report"]["sections"]}
+    assert "daily temporal intensity" in calendar_sections["Figure interpretation"]
+    calendar_summary = calendar_report["agent_context"]["parameter_summary"]
+    assert "date=date" in calendar_summary["statistics"]
+    assert "value=value" in calendar_summary["statistics"]
+    assert "aggregation=sum" in calendar_summary["statistics"]
+    assert "week starts=monday" in calendar_summary["display"]
+    assert "cell values shown=True" in calendar_summary["display"]
+
 
 def test_plot_studio_report_summarizes_upset_parameters(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
@@ -1011,6 +1165,50 @@ def test_plot_studio_report_summarizes_waterfall_parameters(tmp_path: Path) -> N
     assert "sort by=p_value" in summary["display"]
     assert "top bars=25" in summary["display"]
     assert "bar opacity=0.62" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_lollipop_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_lollipop.csv"
+    table_file.write_text("gene,score,group,size\nA,2.5,up,10\nB,-1.4,down,4\n", encoding="utf-8")
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Ranked genes",
+                "type": "diff_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "lollipop",
+            "params": {
+                "value_column": "score",
+                "sort_by": "value_desc",
+                "top_n": 25,
+                "orientation": "horizontal",
+                "baseline": 0,
+                "stem_width": 2.2,
+                "stem_color": "#64748b",
+                "point_size": 12,
+                "point_alpha": 0.7,
+                "show_value_labels": True,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "top points=25" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "value=score" in summary["statistics"]
+    assert "baseline=0" in summary["statistics"]
+    assert "stem width=2.2" in summary["display"]
+    assert "point opacity=0.7" in summary["display"]
+    assert "value labels shown=True" in summary["display"]
 
 
 def test_plot_studio_report_summarizes_ma_plot_parameters(tmp_path: Path) -> None:
@@ -1413,6 +1611,58 @@ def test_plot_studio_report_summarizes_paired_dot_parameters(tmp_path: Path) -> 
     assert "summary=median" in summary["statistics"]
 
 
+def test_plot_studio_report_summarizes_dumbbell_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_dumbbell.csv"
+    table_file.write_text(
+        "feature,before,after,group\nA,1,3,up\nB,4,2,down\nC,2,2.5,flat\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Two-condition table",
+                "type": "paired_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "dumbbell",
+            "params": {
+                "label_column": "feature",
+                "start_column": "before",
+                "end_column": "after",
+                "group": "group",
+                "sort_by": "delta_abs",
+                "top_n": 2,
+                "orientation": "horizontal",
+                "start_label": "Start",
+                "end_label": "End",
+                "line_width": 2.4,
+                "color_by_group": True,
+                "point_size": 11,
+                "point_alpha": 0.7,
+                "show_delta_labels": True,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "two-condition changes" in sections["Figure interpretation"]
+    assert "start=before" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "end=after" in summary["statistics"]
+    assert "group=group" in summary["display"]
+    assert "top pairs=2" in summary["display"]
+    assert "group-colored connectors=True" in summary["display"]
+    assert "delta labels shown=True" in summary["display"]
+
+
 def test_plot_studio_report_summarizes_correlation_parameters() -> None:
     client = TestClient(app)
 
@@ -1746,6 +1996,108 @@ def test_plot_studio_report_summarizes_sankey_parameters(tmp_path: Path) -> None
     assert "arrangement=freeform" in summary["display"]
     assert "node padding=22" in summary["display"]
     assert "link opacity=0.44" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_composition_bar_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_composition.csv"
+    table_file.write_text(
+        "sample,category,abundance,condition\n"
+        "S1,A,10,case\n"
+        "S1,B,5,case\n"
+        "S2,A,6,control\n"
+        "S2,C,4,control\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Taxa composition",
+                "type": "taxonomy_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "composition_bar",
+            "params": {
+                "top_n": 8,
+                "normalize": "percent",
+                "other_label": "Low abundance",
+                "sort_samples": "name",
+                "sort_categories": "total_desc",
+                "orientation": "vertical",
+                "bar_mode": "stack",
+                "bar_opacity": 0.74,
+                "show_percent_axis": True,
+                "show_legend": False,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "top categories=8" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "normalize=percent" in summary["statistics"]
+    assert "other label=Low abundance" in summary["display"]
+    assert "sample order=name" in summary["display"]
+    assert "bar mode=stack" in summary["display"]
+    assert "legend shown=False" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_donut_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_donut.csv"
+    table_file.write_text(
+        "sample,category,abundance,condition\n"
+        "S1,A,10,case\n"
+        "S1,B,5,case\n"
+        "S2,A,6,control\n"
+        "S2,C,4,control\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Taxa donut",
+                "type": "taxonomy_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "donut",
+            "params": {
+                "top_n": 6,
+                "group_column": "condition",
+                "selected_group": "case",
+                "other_label": "Low abundance",
+                "sort_by": "value",
+                "hole": 0.52,
+                "textinfo": "label+percent",
+                "textposition": "outside",
+                "pull_largest": True,
+                "rotation": 35,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "top slices=6" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "group column=condition" in summary["statistics"]
+    assert "selected group=case" in summary["statistics"]
+    assert "donut hole=0.52" in summary["display"]
+    assert "text position=outside" in summary["display"]
+    assert "pull largest=True" in summary["display"]
 
 
 def test_plot_studio_report_summarizes_bubble_parameters(tmp_path: Path) -> None:
@@ -2133,15 +2485,18 @@ def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> Non
         "scatter": "relationship strength",
         "boxplot": "group medians",
         "violin": "distribution shape",
+        "ridgeline": "stacked group distribution shapes",
         "bar": "aggregated group summaries",
         "line": "ordered trends",
         "histogram": "single-variable distribution shape",
+        "calendar_heatmap": "daily temporal intensity",
         "density_contour": "two-variable density structure",
         "scatter_3d": "three-dimensional separation",
         "surface_3d": "matrix-level expression ridges",
         "radar": "multi-metric sample or group profiles",
         "parallel_coordinates": "high-dimensional numeric profiles",
         "waterfall": "ranked signed effects",
+        "lollipop": "ranked feature magnitude",
         "ma_plot": "mean-dependent fold-change patterns",
         "qq_plot": "p-value calibration",
         "forest_plot": "effect-size direction",
@@ -2151,6 +2506,7 @@ def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> Non
         "bland_altman": "measurement agreement",
         "dose_response": "dose-dependent response direction",
         "paired_dot": "within-subject direction of change",
+        "dumbbell": "two-condition changes",
         "heatmap": "row/column clustering",
         "bubble": "size and color encodings",
         "volcano": "up/down significant features",
@@ -2163,6 +2519,8 @@ def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> Non
         "sunburst": "radial hierarchy",
         "wordcloud": "dominant terms",
         "sankey": "dominant source-target flows",
+        "composition_bar": "dominant categories per sample",
+        "donut": "single-group composition",
     }
     source = {
         "sourceKind": "analysis_output",
@@ -2901,6 +3259,124 @@ def test_plot_studio_spec_builds_volcano_from_diff_table(tmp_path: Path) -> None
     assert trace["text"] == ["2.1", "-1.8"]
     assert len(waterfall["layout"]["shapes"]) == 1
 
+    lollipop = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Diff result",
+                "type": "diff_result",
+                "dataPath": str(diff_file),
+            },
+            "plotType": "lollipop",
+            "params": {
+                "label_column": "gene",
+                "value_column": "log2fc",
+                "size_column": "baseMean",
+                "sort_by": "abs_value",
+                "top_n": 2,
+                "orientation": "horizontal",
+                "baseline": 0,
+                "stem_width": 2,
+                "stem_color": "#64748b",
+                "point_size": 10,
+                "point_alpha": 0.6,
+                "show_value_labels": True,
+                "value_precision": 1,
+            },
+        },
+    )
+    assert lollipop["plot_type"] == "lollipop"
+    lollipop_trace = lollipop["data"][0]
+    assert lollipop_trace["type"] == "scatter"
+    assert lollipop_trace["mode"] == "markers+text"
+    assert lollipop_trace["x"] == [2.1, -1.8]
+    assert lollipop_trace["y"] == ["A", "B"]
+    assert lollipop_trace["text"] == ["2.1", "-1.8"]
+    assert lollipop_trace["marker"]["opacity"] == 0.6
+    assert len(lollipop["layout"]["shapes"]) == 2
+    assert lollipop["layout"]["shapes"][0]["line"] == {"color": "#64748b", "width": 2.0}
+    assert lollipop["layout"]["yaxis"]["autorange"] == "reversed"
+
+    dumbbell_file = allowed_tmp / f"{tmp_path.name}_dumbbell.csv"
+    dumbbell_file.write_text(
+        "feature,before,after,group\nA,1,4,up\nB,5,2,down\nC,3,3.5,flat\n",
+        encoding="utf-8",
+    )
+    dumbbell = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Two-condition table",
+                "type": "paired_result",
+                "dataPath": str(dumbbell_file),
+            },
+            "plotType": "dumbbell",
+            "params": {
+                "label_column": "feature",
+                "start_column": "before",
+                "end_column": "after",
+                "group": "group",
+                "sort_by": "delta_abs",
+                "top_n": 2,
+                "orientation": "horizontal",
+                "start_label": "Start",
+                "end_label": "End",
+                "line_width": 2.4,
+                "line_color": "#64748b",
+                "point_size": 11,
+                "point_alpha": 0.65,
+                "show_delta_labels": True,
+                "value_precision": 1,
+            },
+        },
+    )
+    assert dumbbell["plot_type"] == "dumbbell"
+    assert [trace["name"] for trace in dumbbell["data"]] == ["paired shift", "Start", "End"]
+    connector, start_trace, end_trace = dumbbell["data"]
+    assert connector["mode"] == "lines"
+    assert connector["x"] == [1.0, 4.0, None, 5.0, 2.0, None]
+    assert connector["line"] == {"color": "#64748b", "width": 2.4}
+    assert start_trace["x"] == [1.0, 5.0]
+    assert start_trace["y"] == ["A", "B"]
+    assert end_trace["mode"] == "markers+text"
+    assert end_trace["text"] == ["+3.0", "-3.0"]
+    assert end_trace["marker"]["opacity"] == 0.65
+    assert dumbbell["layout"]["yaxis"]["autorange"] == "reversed"
+    assert dumbbell["layout"]["meta"]["dumbbell"]["rows"] == 2
+
+    grouped_dumbbell = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Two-condition table",
+                "type": "paired_result",
+                "dataPath": str(dumbbell_file),
+            },
+            "plotType": "dumbbell",
+            "params": {
+                "label_column": "feature",
+                "start_column": "before",
+                "end_column": "after",
+                "group": "group",
+                "top_n": 2,
+                "color_by_group": True,
+            },
+        },
+    )
+    line_traces = [trace for trace in grouped_dumbbell["data"] if trace["mode"] == "lines"]
+    assert [trace["name"] for trace in line_traces] == ["shift: up", "shift: down"]
+    assert all(trace["showlegend"] is True for trace in line_traces)
+    assert line_traces[0]["line"]["color"] != line_traces[1]["line"]["color"]
+
     ma_plot = _request(
         client,
         "POST",
@@ -3336,6 +3812,54 @@ def test_plot_studio_spec_builds_paired_dot(tmp_path: Path) -> None:
     assert summary_trace["y"] == [25 / 3, 35 / 3]
 
 
+def test_plot_studio_spec_builds_ridgeline(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_ridgeline.csv"
+    table_file.write_text(
+        "sample,condition,value\n"
+        "S1,A,1.0\nS2,A,1.4\nS3,A,1.8\n"
+        "S4,B,2.8\nS5,B,3.1\nS6,B,3.8\n"
+        "S7,C,0.4\nS8,C,0.9\nS9,C,1.2\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "ridgeline",
+            "params": {
+                "x": "value",
+                "group": "condition",
+                "label": "sample",
+                "density_points": 50,
+                "sort_groups": "median_desc",
+                "show_points": True,
+                "ridge_height": 0.8,
+                "overlap": 0.5,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "ridgeline"
+    ridge_traces = [trace for trace in spec["data"] if trace["type"] == "scatter" and trace["fill"] == "toself"]
+    point_traces = [trace for trace in spec["data"] if trace["type"] == "scattergl"]
+    assert len(ridge_traces) == 3
+    assert len(point_traces) == 3
+    assert ridge_traces[0]["name"] == "B"
+    assert len(ridge_traces[0]["x"]) == 100
+    assert spec["layout"]["yaxis"]["ticktext"] == ["B", "A", "C"]
+
+
 def test_plot_studio_spec_builds_added_interactive_plot_types() -> None:
     client = TestClient(app)
     source = {
@@ -3374,6 +3898,44 @@ def test_plot_studio_spec_builds_added_interactive_plot_types() -> None:
     assert len(histogram["layout"]["shapes"]) >= 2
     assert any(shape["line"]["width"] == 2.4 and shape["line"]["color"] == "#334155" for shape in histogram["layout"]["shapes"])
     assert {annotation["text"].split()[-1] for annotation in histogram["layout"]["annotations"]} >= {"mean", "median"}
+
+    calendar_file = ROOT / "data" / "tmp_plot_studio_tests" / "calendar_spec.csv"
+    calendar_file.parent.mkdir(parents=True, exist_ok=True)
+    calendar_file.write_text(
+        "date,value\n2026-01-01,4\n2026-01-02,7\n2026-01-02,3\n2026-01-09,6\nbad,9\n",
+        encoding="utf-8",
+    )
+    calendar = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Sampling calendar",
+                "type": "unknown_table",
+                "dataPath": str(calendar_file),
+            },
+            "plotType": "calendar_heatmap",
+            "params": {
+                "date_column": "date",
+                "value_column": "value",
+                "aggregation": "sum",
+                "week_start": "monday",
+                "color_scale": "ylorrd",
+                "show_values": True,
+                "value_precision": 0,
+            },
+        },
+    )
+    assert calendar["plot_type"] == "calendar_heatmap"
+    calendar_trace = calendar["data"][0]
+    assert calendar_trace["type"] == "heatmap"
+    assert calendar_trace["texttemplate"] == "%{text}"
+    assert calendar_trace["z"][3][0] == 4.0
+    assert calendar_trace["z"][4][0] == 10.0
+    assert calendar["layout"]["meta"]["calendar_heatmap"]["days"] == 3
+    assert "Skipped 1 rows with unparseable dates." in calendar["warnings"]
 
     contour = _request(
         client,
@@ -3837,6 +4399,126 @@ def test_plot_studio_spec_builds_sankey(tmp_path: Path) -> None:
     assert trace["link"]["color"][0].startswith("rgba(")
     assert "xaxis" not in spec["layout"]
     assert any("Resolved" in warning for warning in spec["warnings"])
+
+
+def test_plot_studio_spec_builds_composition_bar(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    composition_file = allowed_tmp / f"{tmp_path.name}_composition.csv"
+    composition_file.write_text(
+        "sample,category,abundance,condition\n"
+        "S1,A,10,case\n"
+        "S1,B,5,case\n"
+        "S1,C,1,case\n"
+        "S2,A,6,control\n"
+        "S2,B,2,control\n"
+        "S2,D,2,control\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Taxa composition",
+                "type": "taxonomy_table",
+                "dataPath": str(composition_file),
+            },
+            "plotType": "composition_bar",
+            "params": {
+                "sample_column": "sample",
+                "category_column": "category",
+                "value_column": "abundance",
+                "group_column": "condition",
+                "top_n": 2,
+                "normalize": "percent",
+                "other_label": "Other taxa",
+                "sort_samples": "name",
+                "sort_categories": "total_desc",
+                "orientation": "vertical",
+                "bar_mode": "stack",
+                "bar_opacity": 0.7,
+                "bar_line_width": 1,
+                "bar_line_color": "#111827",
+                "show_percent_axis": True,
+                "show_legend": True,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "composition_bar"
+    assert [trace["type"] for trace in spec["data"]] == ["bar", "bar", "bar"]
+    assert [trace["name"] for trace in spec["data"]] == ["A", "B", "Other taxa"]
+    assert spec["layout"]["barmode"] == "stack"
+    assert spec["layout"]["yaxis"]["range"] == [0, 100]
+    assert spec["data"][0]["marker"]["opacity"] == 0.7
+    assert spec["data"][0]["marker"]["line"] == {"color": "#111827", "width": 1.0}
+    assert round(sum(trace["y"][0] for trace in spec["data"]), 6) == 100
+    assert any("Collapsed 2 lower-abundance categories" in warning for warning in spec["warnings"])
+    assert any("normalized to percent" in warning for warning in spec["warnings"])
+
+
+def test_plot_studio_spec_builds_donut(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    donut_file = allowed_tmp / f"{tmp_path.name}_donut.csv"
+    donut_file.write_text(
+        "sample,category,abundance,condition\n"
+        "S1,A,10,case\n"
+        "S1,B,5,case\n"
+        "S1,C,1,case\n"
+        "S2,A,6,control\n"
+        "S2,D,4,control\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Taxa donut",
+                "type": "taxonomy_table",
+                "dataPath": str(donut_file),
+            },
+            "plotType": "donut",
+            "params": {
+                "category_column": "category",
+                "value_column": "abundance",
+                "group_column": "condition",
+                "selected_group": "case",
+                "top_n": 2,
+                "other_label": "Other taxa",
+                "hole": 0.5,
+                "textinfo": "label+percent",
+                "textposition": "outside",
+                "pull_largest": True,
+                "pull_size": 0.08,
+                "rotation": 25,
+                "show_legend": False,
+            },
+        },
+    )
+
+    trace = spec["data"][0]
+    assert spec["plot_type"] == "donut"
+    assert trace["type"] == "pie"
+    assert trace["hole"] == 0.5
+    assert trace["labels"] == ["A", "B", "Other taxa"]
+    assert trace["values"] == [10.0, 5.0, 1.0]
+    assert trace["pull"][0] == 0.08
+    assert trace["rotation"] == 25.0
+    assert spec["layout"]["showlegend"] is False
+    assert "xaxis" not in spec["layout"]
+    assert any("Filtered donut rows to condition=case" in warning for warning in spec["warnings"])
+    assert any("Collapsed 1 lower-value categories" in warning for warning in spec["warnings"])
 
 
 def test_plot_studio_spec_builds_radar_and_parallel_coordinates(tmp_path: Path) -> None:

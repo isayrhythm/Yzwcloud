@@ -17,6 +17,8 @@ dist/
 .pytest_cache/
 .pytest_tmp/
 .env
+
+# Local private notes and application material.
 崖州湾杯/
 工作目标.md
 需求文档.md

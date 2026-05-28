@@ -17,7 +17,7 @@ export function AnalysisNode({ data }) {
     : null;
   const canOpenResult = Boolean(node.output?.meta?.html_file);
   const uploadedInput = node.params?.uploaded_inputs?.expression_matrix;
-  const uploadStateLabel = node.output ? "已识别" : uploadedInput ? "已上传，待 Agent 检查" : "等待上传";
+  const uploadStateLabel = uploadedInput ? "数据已识别：" : "等待上传";
 
   return (
     <article className={`analysis-node ${node.status} ${uploadedInput ? "has-uploaded-input" : ""}`}>
@@ -26,7 +26,7 @@ export function AnalysisNode({ data }) {
         <span className="status-dot" />
         <span className="status">{statusLabel[node.status] || node.status}</span>
         <button className="node-delete" onClick={() => data.onDelete(node.id)} title="删除节点">
-          ×
+          x
         </button>
       </div>
       <h3 title={node.description}>{node.name}</h3>
@@ -39,7 +39,7 @@ export function AnalysisNode({ data }) {
               <strong title={uploadedInput.filename}>{uploadedInput.filename}</strong>
               <small>
                 {formatBytes(uploadedInput.size)}
-                {uploadedInput.uploaded_at ? ` · ${formatDateTime(uploadedInput.uploaded_at)}` : ""}
+                {uploadedInput.uploaded_at ? ` 上传于 ${formatDateTime(uploadedInput.uploaded_at)}` : ""}
               </small>
               <input
                 type="file"
@@ -63,12 +63,22 @@ export function AnalysisNode({ data }) {
               />
             </label>
           )}
-          <button
-            type="button"
-            onClick={() => setShowMetadataEditor((current) => !current)}
-          >
-            手工填写 metadata
-          </button>
+          <div className="metadata-input-actions">
+            <button type="button" onClick={() => setShowMetadataEditor((current) => !current)}>
+              填写 metadata
+            </button>
+            <label className="upload-empty-picker upload-meta-picker">
+              上传 metadata
+              <input
+                type="file"
+                accept=".csv"
+                onChange={(event) => {
+                  data.onUploadInput("sample_metadata", event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          </div>
           {showMetadataEditor ? (
             <div className="metadata-editor">
               <textarea
@@ -90,17 +100,17 @@ export function AnalysisNode({ data }) {
                     setShowMetadataEditor(false);
                   }}
                 >
-                  提交
+                  上传并保存
                 </button>
                 <button type="button" onClick={() => setShowMetadataEditor(false)}>
-                  取消
+                  收起
                 </button>
               </div>
             </div>
           ) : null}
           {node.output?.meta?.sample_metadata_file ? (
             <button type="button" onClick={() => data.onEditGroups()}>
-              校准参数
+              编辑分组
             </button>
           ) : null}
         </div>
@@ -115,19 +125,19 @@ export function AnalysisNode({ data }) {
       {previewUrl ? (
         <button className="result-preview nodrag" onClick={() => data.onOpenResult(node)}>
           <img src={previewUrl} alt={`${node.name} 预览`} />
-          {canOpenResult ? <span>点击查看可视化</span> : null}
+          {canOpenResult ? <span>点击查看结果</span> : null}
         </button>
       ) : null}
       <div className="node-actions">
         <button className="run" disabled={!canRun} onClick={() => data.onRun(node.id)}>
           {node.id === "diff_analysis"
-            ? "选择对照组"
+            ? "创建下游分析"
             : node.status === "failed"
-            ? "重试运行"
+            ? "重新运行"
             : "运行节点"}
         </button>
         {options.length ? (
-          <button className="add-next" onClick={() => data.onAddNext(node.id)} title="添加下游分析">
+          <button className="add-next" onClick={() => data.onAddNext(node.id)} title="添加下游节点">
             +
           </button>
         ) : null}
@@ -149,7 +159,7 @@ function AgentProgress({ progress, failed, onOpenReport }) {
     { step: "inspect_file", label: "读取数据" },
     { step: "classify_data", label: "识别类型" },
     { step: "standardize_data", label: "标准化数据" },
-    { step: "validate_output", label: "校验数据" },
+    { step: "validate_output", label: "验证输出" },
   ];
   const activeIndex = steps.findIndex((item) => item.step === currentStep);
   const completedCount = history.filter((item) => item.status === "completed").length;
@@ -167,7 +177,7 @@ function AgentProgress({ progress, failed, onOpenReport }) {
         <strong key={progress?.label || "Agent 正在运行"}>
           {progress?.label || "Agent 正在运行"}
         </strong>
-        {lastDone && progress?.status !== "completed" ? <small>最近完成：{lastDone.label}</small> : null}
+        {lastDone && progress?.status !== "completed" ? <small>上一步：{lastDone.label}</small> : null}
       </div>
       <span className="agent-step-count">
         {stepCount}/{steps.length}
@@ -180,3 +190,4 @@ function AgentProgress({ progress, failed, onOpenReport }) {
     </div>
   );
 }
+

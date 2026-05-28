@@ -22,6 +22,10 @@ PLOT_REPORT_GUIDANCE = {
         "focus": "distribution shape, multimodality, group spread, and whether a box overlay clarifies the summary",
         "parameter_hint": "Use violin plots when distribution shape matters; keep a box overlay and points when sample size is modest.",
     },
+    "ridgeline": {
+        "focus": "stacked group distribution shapes, shifts in central tendency, multimodal cohorts, and groups with unusually wide spread",
+        "parameter_hint": "Use ridgeline plots when many groups need distribution comparison; tune bandwidth and overlap before interpreting fine-grained peaks.",
+    },
     "bar": {
         "focus": "aggregated group summaries, error bar meaning, and whether raw values should be overlaid",
         "parameter_hint": "Make the aggregation explicit, choose SD/SEM/CI deliberately, and prefer raw-point overlays for small sample sizes.",
@@ -33,6 +37,10 @@ PLOT_REPORT_GUIDANCE = {
     "histogram": {
         "focus": "single-variable distribution shape, skewness, tails, bin sensitivity, and group shifts",
         "parameter_hint": "Start with 30 bins, keep grouped histograms semi-transparent, and switch to density scaling when group sizes differ.",
+    },
+    "calendar_heatmap": {
+        "focus": "daily temporal intensity, sampling gaps, seasonal blocks, weekday patterns, and outlier dates",
+        "parameter_hint": "Use calendar heatmaps for date-indexed tables; confirm date parsing, aggregation, week start, and color scale before interpreting temporal patterns.",
     },
     "density_contour": {
         "focus": "two-variable density structure, crowded point regions, outliers, and whether groups occupy distinct regions",
@@ -57,6 +65,10 @@ PLOT_REPORT_GUIDANCE = {
     "waterfall": {
         "focus": "ranked signed effects, strongest positive and negative changes, threshold-sensitive hits, and whether a few features dominate the result",
         "parameter_hint": "Use abs-value sorting for first review, keep the zero line visible, and color by significance when p-values are available.",
+    },
+    "lollipop": {
+        "focus": "ranked feature magnitude, long-tail effects, sign around the baseline, and whether point size or color adds interpretable context",
+        "parameter_hint": "Use Lollipop when ranked values need exact point emphasis; keep top_n readable, set the baseline deliberately, and use size/color encodings only when meaningful.",
     },
     "ma_plot": {
         "focus": "mean-dependent fold-change patterns, low-abundance noise, high-abundance shifts, and asymmetry around the zero line",
@@ -93,6 +105,10 @@ PLOT_REPORT_GUIDANCE = {
     "paired_dot": {
         "focus": "within-subject direction of change, consistency of paired responses, outlier pairs, and whether the summary hides individual trajectories",
         "parameter_hint": "Use paired dot plots for matched designs; keep connecting lines visible and choose mean or median summary according to distribution shape.",
+    },
+    "dumbbell": {
+        "focus": "two-condition changes, features with the largest shifts, direction consistency, and whether the display ranking emphasizes absolute or signed effects",
+        "parameter_hint": "Use Dumbbell when each row already has start and end values; sort by absolute delta for screening, then switch to signed delta when direction is the key message.",
     },
     "heatmap": {
         "focus": "row/column clustering, scaled expression blocks, annotation consistency, and candidate feature groups",
@@ -141,6 +157,14 @@ PLOT_REPORT_GUIDANCE = {
     "sankey": {
         "focus": "dominant source-target flows, bottleneck nodes, category allocation, and whether link values represent counts, abundance, or scores",
         "parameter_hint": "Use Sankey only when rows truly describe source-target relationships; filter weak links first, then tune node padding and link opacity for readability.",
+    },
+    "composition_bar": {
+        "focus": "dominant categories per sample, between-sample composition shifts, low-abundance categories collapsed into Other, and whether values are normalized or absolute",
+        "parameter_hint": "Use relative percent composition for sample comparison, keep top categories readable, and check whether Other hides biologically important rare taxa or pathways.",
+    },
+    "donut": {
+        "focus": "single-group composition, dominant slices, percent balance, low-abundance categories collapsed into Other, and whether the selected group filter is appropriate",
+        "parameter_hint": "Use Donut for a compact one-group composition summary; switch to composition bars when comparing many samples or groups.",
     },
 }
 
@@ -526,6 +550,40 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append("median reference shown")
         if params.get("show_rug"):
             summary["display"].append("rug marks shown")
+    if plot_id == "ridgeline":
+        if params.get("x"):
+            summary["statistics"].append(f"value={params.get('x')}")
+        if params.get("group"):
+            summary["statistics"].append(f"group={params.get('group')}")
+        if params.get("max_groups"):
+            summary["display"].append(f"max groups={params.get('max_groups')}")
+        if params.get("bandwidth"):
+            summary["statistics"].append(f"bandwidth={params.get('bandwidth')}")
+        if params.get("density_points"):
+            summary["display"].append(f"density resolution={params.get('density_points')}")
+        if params.get("ridge_height") is not None:
+            summary["display"].append(f"ridge height={params.get('ridge_height')}")
+        if params.get("overlap") is not None:
+            summary["display"].append(f"overlap={params.get('overlap')}")
+        if params.get("sort_groups"):
+            summary["display"].append(f"group sorting={params.get('sort_groups')}")
+        if "show_points" in params:
+            summary["display"].append(f"rug points shown={bool(params.get('show_points'))}")
+    if plot_id == "calendar_heatmap":
+        if params.get("date_column"):
+            summary["statistics"].append(f"date={params.get('date_column')}")
+        if params.get("value_column"):
+            summary["statistics"].append(f"value={params.get('value_column')}")
+        if params.get("aggregation"):
+            summary["statistics"].append(f"aggregation={params.get('aggregation')}")
+        if params.get("week_start"):
+            summary["display"].append(f"week starts={params.get('week_start')}")
+        if params.get("color_scale"):
+            summary["display"].append(f"color scale={params.get('color_scale')}")
+        if "show_values" in params:
+            summary["display"].append(f"cell values shown={bool(params.get('show_values'))}")
+        if params.get("missing_color"):
+            summary["display"].append(f"missing color={params.get('missing_color')}")
     if plot_id == "radar":
         if params.get("max_series"):
             summary["display"].append(f"max series={params.get('max_series')}")
@@ -643,6 +701,27 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"value labels={bool(params.get('show_value_labels'))}")
         if params.get("bar_opacity") is not None:
             summary["display"].append(f"bar opacity={params.get('bar_opacity')}")
+    if plot_id == "lollipop":
+        if params.get("value_column"):
+            summary["statistics"].append(f"value={params.get('value_column')}")
+        if params.get("sort_by"):
+            summary["display"].append(f"sort by={params.get('sort_by')}")
+        if params.get("top_n"):
+            summary["display"].append(f"top points={params.get('top_n')}")
+        if params.get("orientation"):
+            summary["display"].append(f"orientation={params.get('orientation')}")
+        if params.get("baseline") is not None:
+            summary["statistics"].append(f"baseline={params.get('baseline')}")
+        if params.get("stem_width") is not None:
+            summary["display"].append(f"stem width={params.get('stem_width')}")
+        if params.get("stem_color"):
+            summary["display"].append(f"stem color={params.get('stem_color')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
+        if "show_value_labels" in params:
+            summary["display"].append(f"value labels shown={bool(params.get('show_value_labels'))}")
     if plot_id == "ma_plot":
         if params.get("mean_column"):
             summary["statistics"].append(f"mean abundance={params.get('mean_column')}")
@@ -808,6 +887,31 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"summary={params.get('summary_stat')}")
         if params.get("max_subjects"):
             summary["display"].append(f"max subjects={params.get('max_subjects')}")
+    if plot_id == "dumbbell":
+        if params.get("start_column"):
+            summary["statistics"].append(f"start={params.get('start_column')}")
+        if params.get("end_column"):
+            summary["statistics"].append(f"end={params.get('end_column')}")
+        if params.get("label_column"):
+            summary["display"].append(f"label={params.get('label_column')}")
+        if params.get("group"):
+            summary["display"].append(f"group={params.get('group')}")
+        if params.get("sort_by"):
+            summary["display"].append(f"sort by={params.get('sort_by')}")
+        if params.get("top_n"):
+            summary["display"].append(f"top pairs={params.get('top_n')}")
+        if params.get("orientation"):
+            summary["display"].append(f"orientation={params.get('orientation')}")
+        if params.get("line_width") is not None:
+            summary["display"].append(f"connector width={params.get('line_width')}")
+        if "color_by_group" in params:
+            summary["display"].append(f"group-colored connectors={bool(params.get('color_by_group'))}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
+        if "show_delta_labels" in params:
+            summary["display"].append(f"delta labels shown={bool(params.get('show_delta_labels'))}")
     if plot_id in {"heatmap", "correlation"}:
         if plot_id == "correlation" and params.get("method"):
             summary["statistics"].append(f"method={params.get('method')}")
@@ -973,6 +1077,48 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"link opacity={params.get('link_opacity')}")
         if params.get("label_font_size"):
             summary["display"].append(f"label font size={params.get('label_font_size')}")
+    if plot_id == "composition_bar":
+        if params.get("top_n"):
+            summary["display"].append(f"top categories={params.get('top_n')}")
+        if params.get("normalize"):
+            summary["statistics"].append(f"normalize={params.get('normalize')}")
+        if params.get("other_label"):
+            summary["display"].append(f"other label={params.get('other_label')}")
+        if params.get("sort_samples"):
+            summary["display"].append(f"sample order={params.get('sort_samples')}")
+        if params.get("sort_categories"):
+            summary["display"].append(f"category order={params.get('sort_categories')}")
+        if params.get("orientation"):
+            summary["display"].append(f"orientation={params.get('orientation')}")
+        if params.get("bar_mode"):
+            summary["display"].append(f"bar mode={params.get('bar_mode')}")
+        if params.get("bar_opacity") is not None:
+            summary["display"].append(f"bar opacity={params.get('bar_opacity')}")
+        if params.get("show_percent_axis") is not None:
+            summary["display"].append(f"percent axis={bool(params.get('show_percent_axis'))}")
+        if params.get("show_legend") is not None:
+            summary["display"].append(f"legend shown={bool(params.get('show_legend'))}")
+    if plot_id == "donut":
+        if params.get("top_n"):
+            summary["display"].append(f"top slices={params.get('top_n')}")
+        if params.get("group_column"):
+            summary["statistics"].append(f"group column={params.get('group_column')}")
+        if params.get("selected_group"):
+            summary["statistics"].append(f"selected group={params.get('selected_group')}")
+        if params.get("other_label"):
+            summary["display"].append(f"other label={params.get('other_label')}")
+        if params.get("sort_by"):
+            summary["display"].append(f"sort by={params.get('sort_by')}")
+        if params.get("hole") is not None:
+            summary["display"].append(f"donut hole={params.get('hole')}")
+        if params.get("textinfo"):
+            summary["display"].append(f"text={params.get('textinfo')}")
+        if params.get("textposition"):
+            summary["display"].append(f"text position={params.get('textposition')}")
+        if params.get("pull_largest") is not None:
+            summary["display"].append(f"pull largest={bool(params.get('pull_largest'))}")
+        if params.get("rotation") is not None:
+            summary["display"].append(f"rotation={params.get('rotation')}")
     if params.get("width") or params.get("height"):
         summary["export"].append(f"canvas={params.get('width', 'auto')}x{params.get('height', 'auto')}")
     if params.get("format") or params.get("dpi"):

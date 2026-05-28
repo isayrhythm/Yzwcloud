@@ -223,7 +223,23 @@ def save_task_input(
     if input_kind == "sample_metadata" and suffix != ".csv":
         raise ValueError("Sample metadata must be .csv")
 
-    target = inputs_dir / f"{input_kind}__{normalized_name}"
+    existing_path: Path | None = None
+    if input_kind == "sample_metadata":
+        metadata_rows = _parse_metadata_bytes(content)
+        existing_manifest = _read_manifest(inputs_dir / "manifest.json").get("sample_metadata")
+        existing_path = (
+            Path(str(existing_manifest.get("path"))) if isinstance(existing_manifest, dict) and existing_manifest.get("path") else None
+        )
+        if existing_path and existing_path.exists():
+            existing_rows = _read_metadata_rows(existing_path)
+        else:
+            existing_path = None
+            existing_rows = []
+        merged_rows = _merge_metadata_rows(existing_rows=existing_rows, incoming_rows=metadata_rows)
+        canonical = _serialize_metadata_rows(merged_rows)
+        content = canonical.encode("utf-8-sig")
+
+    target = existing_path or (inputs_dir / f"{input_kind}__{normalized_name}")
     target.write_bytes(content)
     manifest_path = inputs_dir / "manifest.json"
     manifest = _read_manifest(manifest_path)
@@ -280,6 +296,41 @@ def save_task_input_text(
     if not safe_name.lower().endswith(".csv"):
         safe_name = f"{safe_name}.csv"
     return save_task_input(task_id, input_kind, safe_name, canonical.encode("utf-8-sig"))
+
+
+def _parse_metadata_bytes(content: bytes) -> list[dict[str, str]]:
+    try:
+        decoded = content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Sample metadata file must be UTF-8 encoded text") from exc
+    rows = _parse_metadata_text(decoded)
+    return rows
+
+
+def _read_metadata_rows(path: Path) -> list[dict[str, str]]:
+    return _parse_metadata_text(path.read_text(encoding="utf-8-sig"))
+
+
+def _merge_metadata_rows(
+    *,
+    existing_rows: list[dict[str, str]],
+    incoming_rows: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    merged: dict[str, dict[str, str]] = {}
+    order: list[str] = []
+    for row in existing_rows:
+        sample = row["sample"]
+        if sample not in merged:
+            order.append(sample)
+        merged[sample] = dict(row)
+    for row in incoming_rows:
+        sample = row["sample"]
+        if sample in merged:
+            merged[sample] = {**merged[sample], **row}
+            continue
+        order.append(sample)
+        merged[sample] = dict(row)
+    return [merged[sample] for sample in order]
 
 
 def create_diff_analysis_branch(

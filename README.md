@@ -175,7 +175,8 @@ Current positioning:
 - Prism-like parameter depth: each plot type should expose controls for axis mapping, grouping, color palette, jitter, summary statistics, error bars, labels, themes, export size, and output format.
 - Searchable plot toolbox: Plot Studio presents plot types as clickable thumbnails, with search and recommended-only filtering so users can quickly find the right chart.
 - Style recipes: `Publication`, `Presentation`, and `Exploration` presets provide reusable visual defaults for common output contexts.
-- Plot library presets: scatter, boxplot, violin, bar, line, histogram, heatmap, correlation heatmap, bubble, volcano, UpSet, Venn, enrichment dot plot, enrichment bar plot, Sankey, treemap, sunburst, and word cloud are included in the current preset family.
+- Plot library presets: scatter, boxplot, violin, Ridgeline, bar, line, histogram, calendar heatmap, heatmap, correlation heatmap, bubble, volcano, UpSet, Venn, lollipop, Dumbbell, enrichment dot plot, enrichment bar plot, composition bar, Donut/Pie, Sankey, treemap, sunburst, and word cloud are included in the current preset family.
+- DataColor-inspired workbench layout: the studio keeps a stable left toolbox, central method/preview area, and right inspector. Each selected plot exposes a compact Application/Input/Output overview before rendering, so users understand what the chart expects and what it will produce.
 - Hierarchy plots: Treemap and Sunburst are intended for enrichment categories, pathway hierarchies, taxonomic composition, and other parent-child summaries.
 - Term overview plots: Word cloud provides a quick interactive overview for enriched terms, genes, taxa, and keyword-frequency tables, with hover details and adjustable font/layout controls.
 - Workflow integration: analysis nodes keep their default diagnostic plots, while polished custom figures can be sent to Plot Studio for deeper editing and report reuse.

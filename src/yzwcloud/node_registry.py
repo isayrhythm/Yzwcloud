@@ -9,6 +9,7 @@ from yzwcloud.analysis_outputs import (
     create_expression_heatmap_result,
     create_gene_expression_result,
     create_heatmap_result,
+    create_metabolomics_statistics_result,
     create_pca_result,
     create_qc_result,
     create_sample_correlation_result,
@@ -129,6 +130,14 @@ def execute_demo_node(
 
     if node_id.startswith("wgcna__"):
         return create_wgcna_result(
+            source=_expression_source(inputs),
+            output_dir=output_dir,
+            node_id=node_id,
+            params=params,
+        )
+
+    if node_id.startswith("metabolomics_statistics__"):
+        return create_metabolomics_statistics_result(
             source=_expression_source(inputs),
             output_dir=output_dir,
             node_id=node_id,

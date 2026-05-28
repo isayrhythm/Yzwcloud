@@ -39,6 +39,9 @@ export function nextAnalysisOptions(node, detail) {
       target.startsWith("multigroup_differential__"),
     );
     const hasWgcna = createdFromQc("wgcna", (target) => target.startsWith("wgcna__"));
+    const hasMetabolomicsStats = createdFromQc("metabolomics_statistics", (target) =>
+      target.startsWith("metabolomics_statistics__"),
+    );
     const options = [];
     if (!hasPca) options.push({ type: "pca", label: "PCA sample map" });
     if (!hasCorrelation) options.push({ type: "sample_correlation", label: "Sample correlation" });
@@ -47,6 +50,7 @@ export function nextAnalysisOptions(node, detail) {
     if (!hasSelector) options.push({ type: "diff_analysis", label: "Pairwise differential analysis" });
     if (!hasMultigroup) options.push({ type: "multigroup_differential", label: "Multi-group differential plan" });
     if (!hasWgcna) options.push({ type: "wgcna", label: "WGCNA modules" });
+    if (!hasMetabolomicsStats) options.push({ type: "metabolomics_statistics", label: "Metabolomics statistics" });
     return options;
   }
   if (node.id.startsWith("diff_analysis__")) {
@@ -89,6 +93,9 @@ export function summarizeOutput(output) {
   }
   if (output.type === "wgcna_result" && meta.module_count) {
     return `${meta.module_count} modules / ${meta.gene_count || 0} genes`;
+  }
+  if (output.type === "metabolomics_statistics_result" && meta.metabolite_count) {
+    return `${meta.metabolite_count} metabolites / ${meta.sample_count || 0} samples`;
   }
   if (output.type === "diff_export" && meta.row_count) {
     return `${meta.row_count} result rows`;

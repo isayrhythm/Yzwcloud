@@ -18,6 +18,14 @@ DATA_TYPE_CAPABILITY_MAP = {
         "multigroup_differential",
         "wgcna",
     },
+    "metabolomics_matrix": {
+        "qc",
+        "sample_correlation",
+        "expression_heatmap",
+        "gene_expression",
+        "pca",
+        "metabolomics_statistics",
+    },
     "single_cell_matrix": set(),
     "feature_table": set(),
     "diff_result": {"heatmap", "volcano", "enrichment"},
@@ -37,6 +45,8 @@ def build_processing_plan(
     file_type = str(inspection.get("file_type") or "unknown")
     has_metadata = bool(metadata_path and metadata_path.exists()) or inspection.get("metadata_rows", 0) > 0
     routed_type = detected_type
+    if inspection.get("likely_metabolomics_columns"):
+        routed_type = "metabolomics_matrix"
     if routed_type != "expression_matrix" and inspection.get("likely_gene_columns"):
         routed_type = "expression_matrix"
     strategies = _strategies_for_data_type(routed_type, file_type, has_metadata)[:max_iterations]
@@ -112,6 +122,8 @@ def _strategies_for_data_type(
 ) -> list[dict[str, Any]]:
     if data_type == "expression_matrix":
         return _expression_matrix_strategies(file_type, has_metadata)
+    if data_type == "metabolomics_matrix":
+        return _metabolomics_matrix_strategies(file_type, has_metadata)
     return []
 
 
@@ -145,4 +157,26 @@ def _expression_matrix_strategies(file_type: str, has_metadata: bool) -> list[di
             "duplicate_policy": "first",
         }
     )
+    return strategies
+
+
+def _metabolomics_matrix_strategies(file_type: str, has_metadata: bool) -> list[dict[str, Any]]:
+    strategies: list[dict[str, Any]] = []
+    strategies.append(
+        {
+            "id": f"{file_type}_metabolights_maf",
+            "label": "按 MetaboLights MAF/代谢物峰表读取",
+            "data_type": "metabolomics_matrix",
+            "metadata_mode": "auto",
+        }
+    )
+    if has_metadata:
+        strategies.append(
+            {
+                "id": f"{file_type}_metabolomics_metadata",
+                "label": "按上传 metadata 匹配代谢组样本列",
+                "data_type": "metabolomics_matrix",
+                "metadata_mode": "uploaded",
+            }
+        )
     return strategies

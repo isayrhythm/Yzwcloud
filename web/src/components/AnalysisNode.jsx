@@ -43,7 +43,7 @@ export function AnalysisNode({ data }) {
               </small>
               <input
                 type="file"
-                accept=".csv,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
+                accept=".csv,.tsv,.txt,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
                 onChange={(event) => {
                   data.onUploadInput("expression_matrix", event.target.files?.[0]);
                   event.target.value = "";
@@ -55,7 +55,7 @@ export function AnalysisNode({ data }) {
               上传数据
               <input
                 type="file"
-                accept=".csv,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
+                accept=".csv,.tsv,.txt,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
                 onChange={(event) => {
                   data.onUploadInput("expression_matrix", event.target.files?.[0]);
                   event.target.value = "";
@@ -71,7 +71,7 @@ export function AnalysisNode({ data }) {
               上传 metadata
               <input
                 type="file"
-                accept=".csv"
+                accept=".csv,.tsv,.txt"
                 onChange={(event) => {
                   data.onUploadInput("sample_metadata", event.target.files?.[0]);
                   event.target.value = "";

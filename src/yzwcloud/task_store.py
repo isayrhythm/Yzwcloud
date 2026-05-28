@@ -176,12 +176,15 @@ def update_sample_groups(
 
     conditions = _count_values(row["condition"] for row in rows)
     groups = _count_values(row["group"] for row in rows)
+    is_metabolomics = upload_node.output.meta.get("data_type") == "metabolomics_matrix"
     capabilities = ["qc", "sample_correlation", "expression_heatmap", "gene_expression", "pca"]
-    if sum(conditions.values()) > 20:
+    if is_metabolomics:
+        capabilities.append("metabolomics_statistics")
+    if sum(conditions.values()) > 20 and not is_metabolomics:
         capabilities.append("wgcna")
-    if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()):
+    if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()) and not is_metabolomics:
         capabilities.append("diff_analysis")
-    if len(conditions) >= 3:
+    if len(conditions) >= 3 and not is_metabolomics:
         capabilities.append("multigroup_differential")
     upload_node.output.meta["conditions"] = conditions
     upload_node.output.meta["condition_options"] = sorted(conditions)
@@ -219,9 +222,9 @@ def save_task_input(
     lowered_name = normalized_name.lower()
     suffix = Path(lowered_name).suffix
     if input_kind == "expression_matrix" and not _is_supported_expression_upload(lowered_name):
-        raise ValueError("Expression input must be .csv, .xlsx, .xlsm, .zip, .tar, .tar.gz, .tgz or .gz")
-    if input_kind == "sample_metadata" and suffix != ".csv":
-        raise ValueError("Sample metadata must be .csv")
+        raise ValueError("Expression input must be .csv, .tsv, .txt, .xlsx, .xlsm, .zip, .tar, .tar.gz, .tgz or .gz")
+    if input_kind == "sample_metadata" and suffix not in {".csv", ".tsv", ".txt"}:
+        raise ValueError("Sample metadata must be .csv, .tsv, or .txt")
 
     existing_path: Path | None = None
     if input_kind == "sample_metadata":
@@ -414,6 +417,7 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
         "gene_expression",
         "multigroup_differential",
         "wgcna",
+        "metabolomics_statistics",
     }:
         if analysis_type in {
             "pca",
@@ -422,6 +426,7 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
             "gene_expression",
             "multigroup_differential",
             "wgcna",
+            "metabolomics_statistics",
         }:
             if analysis_type == "wgcna":
                 sample_count = int(
@@ -624,6 +629,13 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
                     "merge_cut_height": 0.25,
                     "network_type": "signed",
                 },
+            ),
+            "metabolomics_statistics": (
+                "metabolomics_statistics__matrix",
+                "Metabolomics statistics",
+                "Run R-based metabolomics preprocessing, QC, PCA, correlation, and univariate differential statistics.",
+                "metabolomics_statistics_result",
+                {"p_value": 0.05, "log2fc": 1.0},
             ),
         }
     )
@@ -845,21 +857,39 @@ def _parse_metadata_text_as_csv(content: str, delimiter: str) -> list[dict[str, 
     fieldnames = [_metadata_header(name) for name in reader.fieldnames]
     field_lookup = {name.lower(): name for name in fieldnames if name.strip()}
     if not set(("sample", "group", "condition")).issubset(field_lookup.keys()):
-        # Allow aliased input from quick manual copy/paste.
-        aliases = {
-            "sample": {"sample", "sample_id", "sample name", "sample_name"},
-            "group": {"group", "group_id", "group name", "group_name"},
-            "condition": {"condition", "condition_id", "condition name", "condition_name"},
-        }
-        normalized_lookup = {}
-        for required, candidates in aliases.items():
-            match = next(
-                (field_lookup.get(key) for key in map(str.lower, candidates) if key in field_lookup),
-                None,
-            )
-            if match is None:
-                return []
-            normalized_lookup[required] = match
+        sample_match = _metadata_alias_match(field_lookup, {"sample name", "sample_name", "sample"})
+        metabolomics_condition = _metadata_alias_match(
+            field_lookup,
+            {
+                "factor value[metabolic syndrome]",
+                "factor_value[metabolic syndrome]",
+                "factor value metabolic syndrome",
+                "factor_value_metabolic_syndrome",
+            },
+        )
+        if sample_match and metabolomics_condition:
+            normalized_lookup = {
+                "sample": sample_match,
+                "group": _metadata_alias_match(
+                    field_lookup,
+                    {"factor value[gender]", "factor_value[gender]", "source name", "source_name"},
+                )
+                or metabolomics_condition,
+                "condition": metabolomics_condition,
+            }
+        else:
+            # Allow aliased input from quick manual copy/paste.
+            aliases = {
+                "sample": {"sample", "sample_id", "sample name", "sample_name"},
+                "group": {"group", "group_id", "group name", "group_name"},
+                "condition": {"condition", "condition_id", "condition name", "condition_name"},
+            }
+            normalized_lookup = {}
+            for required, candidates in aliases.items():
+                match = _metadata_alias_match(field_lookup, candidates)
+                if match is None:
+                    return []
+                normalized_lookup[required] = match
     else:
         normalized_lookup = {key: key for key in ("sample", "group", "condition")}
 
@@ -874,6 +904,21 @@ def _parse_metadata_text_as_csv(content: str, delimiter: str) -> list[dict[str, 
     if not _is_valid_metadata_rows(rows):
         raise ValueError("Metadata text must include sample, group, and condition for each row")
     return rows
+
+
+def _metadata_alias_match(field_lookup: dict[str, str], candidates: set[str]) -> str | None:
+    normalized_lookup = {
+        _metadata_header(key).replace("[", "").replace("]", "").replace(" ", "_"): value
+        for key, value in field_lookup.items()
+    }
+    for candidate in candidates:
+        direct = field_lookup.get(candidate.lower())
+        if direct is not None:
+            return direct
+        normalized = _metadata_header(candidate).replace("[", "").replace("]", "").replace(" ", "_")
+        if normalized in normalized_lookup:
+            return normalized_lookup[normalized]
+    return None
 
 
 def _is_valid_metadata_rows(rows: list[dict[str, str]]) -> bool:
@@ -896,7 +941,7 @@ def _serialize_metadata_rows(rows: list[dict[str, str]]) -> str:
 
 
 def _is_supported_expression_upload(filename: str) -> bool:
-    return filename.endswith((".csv", ".xlsx", ".xlsm", ".zip", ".tar", ".tar.gz", ".tgz", ".gz"))
+    return filename.endswith((".csv", ".tsv", ".txt", ".xlsx", ".xlsm", ".zip", ".tar", ".tar.gz", ".tgz", ".gz"))
 
 
 def _count_values(values) -> dict[str, int]:
@@ -951,6 +996,11 @@ def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, s
             "type": "diff_export",
             "label": "结果导出",
             "description": "导出差异分析结果表并查看预览。",
+        },
+        "metabolomics_statistics": {
+            "type": "metabolomics_statistics",
+            "label": "Metabolomics statistics",
+            "description": "Run R preprocessing, QC, PCA, correlation, and differential metabolite statistics.",
         },
     }
     return [specs[item] for item in capabilities if item in specs]

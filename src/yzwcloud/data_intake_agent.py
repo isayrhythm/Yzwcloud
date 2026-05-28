@@ -108,7 +108,10 @@ def run_data_intake_agent(
                     inspection=inspection,
                     llm_plan=llm_plan,
                     strategy=strategy,
-                    standardizers={"expression_matrix": _standardize_expression_like_table},
+                    standardizers={
+                        "expression_matrix": _standardize_expression_like_table,
+                        "metabolomics_matrix": _standardize_metabolomics_table,
+                    },
                 )
                 _emit_progress(progress_callback, "standardize_data", "completed", f"{attempt_label} 已规整")
 
@@ -147,17 +150,22 @@ def run_data_intake_agent(
         _emit_progress(progress_callback, "failed", "failed", "处理失败，等待重试")
         raise
 
+    standardized_data_type = str(success_strategy.get("data_type", "expression_matrix"))
+    validated_capabilities = _capabilities_for_validation(validation)
+    if standardized_data_type == "metabolomics_matrix" and validation["valid"]:
+        validated_capabilities.append("metabolomics_statistics")
     capabilities = direct_capabilities_for_data_type(
-        data_type=str(success_strategy.get("data_type", "expression_matrix")),
-        capabilities=_capabilities_for_validation(validation),
+        data_type=standardized_data_type,
+        capabilities=validated_capabilities,
     )
     next_analyses = _next_analyses_for_capabilities(capabilities)
     metadata = {
-        "data_type": str(success_strategy.get("data_type", "expression_matrix")),
+        "data_type": standardized_data_type,
         "source_file": str(source_path),
         "resolved_source_file": str(prepared_source_path),
         "sample_metadata_source": str(metadata_path) if metadata_path else "",
         "gene_count": validation["gene_count"],
+        "metabolite_count": validation["gene_count"] if standardized_data_type == "metabolomics_matrix" else 0,
         "sample_count": validation["sample_count"],
         "sample_groups": validation["sample_groups"],
         "conditions": validation["conditions"],
@@ -200,7 +208,7 @@ def run_data_intake_agent(
 
 def _prepare_source_input(source_path: Path, output_dir: Path) -> dict[str, Any]:
     lower_name = source_path.name.lower()
-    if lower_name.endswith((".csv", ".xlsx", ".xlsm")):
+    if lower_name.endswith((".csv", ".tsv", ".txt", ".xlsx", ".xlsm")):
         return {
             "kind": "direct_file",
             "original_source_path": str(source_path),
@@ -244,7 +252,7 @@ def _prepare_source_input(source_path: Path, output_dir: Path) -> dict[str, Any]
 
 
 def _select_prepared_candidate(entries: list[Path]) -> Path | None:
-    supported = [path for path in entries if path.suffix.lower() in {".csv", ".xlsx", ".xlsm"}]
+    supported = [path for path in entries if path.suffix.lower() in {".csv", ".tsv", ".txt", ".xlsx", ".xlsm"}]
     if not supported:
         return None
     ranked = sorted(supported, key=_candidate_priority)
@@ -253,7 +261,7 @@ def _select_prepared_candidate(entries: list[Path]) -> Path | None:
 
 def _candidate_priority(path: Path) -> tuple[int, int, str]:
     name = path.name.lower()
-    preferred_tokens = ("matrix", "expression", "count", "counts", "mrna", "gene")
+    preferred_tokens = ("maf", "metabolite", "metabolomics", "matrix", "expression", "count", "counts", "mrna", "gene")
     score = 0 if any(token in name for token in preferred_tokens) else 1
     suffix_score = 0 if path.suffix.lower() == ".csv" else 1
     return (score, suffix_score, name)
@@ -321,8 +329,9 @@ def _inspect_source(source_path: Path, metadata_path: Path | None) -> dict[str, 
 
 
 def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any]:
+    delimiter = _infer_delimiter(source_path)
     with source_path.open(encoding="utf-8-sig", newline="") as file:
-        reader = csv.reader(file)
+        reader = csv.reader(file, delimiter=delimiter)
         header = next(reader)
         preview = [row for _, row in zip(range(8), reader)]
 
@@ -335,6 +344,7 @@ def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any
 
     return {
         "file_type": "csv",
+        "delimiter": delimiter,
         "path": str(source_path),
         "column_count": len(header),
         "row_count": _count_csv_rows(source_path),
@@ -349,7 +359,32 @@ def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any
         "numeric_column_ratio": _safe_ratio(sum(ratio > 0.8 for ratio in numeric_ratios), len(numeric_ratios)),
         "numeric_sample_column_ratio": _numeric_sample_ratio(preview, sample_column_indices),
         "likely_gene_columns": [name for name in GENE_COLUMNS if name in header],
+        "likely_metabolomics_columns": _likely_metabolomics_columns(header),
     }
+
+
+def _infer_delimiter(path: Path) -> str:
+    if path.suffix.lower() in {".tsv", ".txt"}:
+        return "\t"
+    try:
+        sample = path.read_text(encoding="utf-8-sig", errors="ignore")[:4096]
+        dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
+    except (OSError, csv.Error):
+        return ","
+    return str(dialect.delimiter)
+
+
+def _likely_metabolomics_columns(header: list[str]) -> list[str]:
+    normalized = {name.strip().lower(): name for name in header}
+    markers = {
+        "metabolite_identification",
+        "chemical_formula",
+        "chemical_shift",
+        "smiles",
+        "inchi",
+        "smallmolecule_abundance_sub",
+    }
+    return [normalized[item] for item in markers if item in normalized]
 
 
 def _inspect_workbook(source_path: Path, metadata_path: Path | None) -> dict[str, Any]:
@@ -663,6 +698,215 @@ def _standardize_workbook_expression_table(
     }
 
 
+def _standardize_metabolomics_table(
+    source_path: Path,
+    metadata_path: Path | None,
+    output_dir: Path,
+    inspection: dict[str, Any],
+    llm_plan: dict[str, Any],
+    strategy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    matrix_path = output_dir / "metabolomics_matrix.csv"
+    sample_meta_path = output_dir / "sample_metadata.csv"
+    annotation_path = output_dir / "metabolite_annotations.csv"
+    delimiter = str(inspection.get("delimiter") or _infer_delimiter(source_path))
+    metadata_rows = _read_metabolomics_metadata(metadata_path) or _read_metabolomics_metadata(
+        _find_sibling_metabolights_sample_file(source_path)
+    )
+
+    with source_path.open(encoding="utf-8-sig", newline="") as source_file:
+        reader = csv.reader(source_file, delimiter=delimiter)
+        header = next(reader, [])
+        preview = [row for _, row in zip(range(24), reader)]
+        source_file.seek(0)
+        reader = csv.reader(source_file, delimiter=delimiter)
+        next(reader, None)
+
+        sample_names = [row["sample"] for row in metadata_rows]
+        selected_samples = _metabolomics_sample_columns(header, preview, sample_names)
+        if not selected_samples:
+            raise ValueError("No usable metabolomics sample columns were detected")
+
+        header_lookup = {name.strip().lower(): index for index, name in enumerate(header)}
+        annotation_fields = [
+            "database_identifier",
+            "chemical_formula",
+            "smiles",
+            "inchi",
+            "metabolite_identification",
+            "chemical_shift",
+            "taxid",
+            "species",
+            "database",
+            "reliability",
+            "uri",
+        ]
+
+        with (
+            matrix_path.open("w", encoding="utf-8-sig", newline="") as matrix_file,
+            annotation_path.open("w", encoding="utf-8-sig", newline="") as annotation_file,
+        ):
+            matrix_writer = csv.writer(matrix_file)
+            annotation_writer = csv.writer(annotation_file)
+            matrix_writer.writerow(GENE_COLUMNS + [name for name, _ in selected_samples])
+            annotation_writer.writerow(["feature_id", "feature_name", *annotation_fields])
+
+            metabolite_count = 0
+            for index, row in enumerate(reader, start=1):
+                if not row:
+                    continue
+                values = [_value_at(row, column_index) for _, column_index in selected_samples]
+                if not any(_is_number(value) for value in values):
+                    continue
+                feature_name = _first_text(
+                    _value_by_header(row, header_lookup, "metabolite_identification"),
+                    _value_by_header(row, header_lookup, "chemical_shift"),
+                    f"metabolite_{index}",
+                )
+                feature_id = _first_text(
+                    _value_by_header(row, header_lookup, "database_identifier"),
+                    feature_name,
+                    f"metabolite_{index}",
+                )
+                formula = _value_by_header(row, header_lookup, "chemical_formula")
+                locus = _first_text(
+                    _value_by_header(row, header_lookup, "uri"),
+                    _value_by_header(row, header_lookup, "smiles"),
+                    formula,
+                )
+                matrix_writer.writerow([feature_name, feature_id, "metabolite", "", locus, "1", *values])
+                annotation_writer.writerow(
+                    [
+                        feature_id,
+                        feature_name,
+                        *[_value_by_header(row, header_lookup, field) for field in annotation_fields],
+                    ]
+                )
+                metabolite_count += 1
+
+    metadata_by_sample = {row["sample"]: row for row in metadata_rows}
+    with sample_meta_path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["sample", "group", "condition"])
+        for sample, _ in selected_samples:
+            row = metadata_by_sample.get(sample, {})
+            condition = row.get("condition") or _infer_group_from_sample_name(sample)
+            group = row.get("group") or condition
+            writer.writerow([sample, group, condition])
+
+    return {
+        "matrix_file": str(matrix_path),
+        "sample_metadata_file": str(sample_meta_path),
+        "gene_annotation_file": str(annotation_path),
+        "standardization": {
+            "mode": "metabolomics_matrix_from_maf",
+            "selected_sample_count": len(selected_samples),
+            "metabolite_count": metabolite_count,
+            "metadata_rows": len(metadata_rows),
+            "llm_strategy": llm_plan.get("sample_columns_strategy", ""),
+            "strategy_id": (strategy or {}).get("id", ""),
+        },
+    }
+
+
+def _metabolomics_sample_columns(
+    header: list[str],
+    preview: list[list[str]],
+    sample_names: list[str],
+) -> list[tuple[str, int]]:
+    if sample_names:
+        sample_indices = _sample_column_indices(header, sample_names)
+        selected = [(sample, indices[0]) for sample, indices in sample_indices.items() if indices]
+        if selected:
+            return selected
+
+    annotation_names = {
+        "database_identifier",
+        "chemical_formula",
+        "smiles",
+        "inchi",
+        "metabolite_identification",
+        "chemical_shift",
+        "multiplicity",
+        "taxid",
+        "species",
+        "database",
+        "database_version",
+        "reliability",
+        "uri",
+        "search_engine",
+        "search_engine_score",
+        "smallmolecule_abundance_sub",
+        "smallmolecule_abundance_stdev_sub",
+        "smallmolecule_abundance_std_error_sub",
+    }
+    selected = []
+    for index, name in enumerate(header):
+        if name.strip().lower() in annotation_names:
+            continue
+        values = [_value_at(row, index) for row in preview if index < len(row)]
+        if values and _safe_ratio(sum(_is_number(value) for value in values), len(values)) >= 0.7:
+            selected.append((name or f"sample_{index + 1}", index))
+    return selected
+
+
+def _read_metabolomics_metadata(path: Path | None) -> list[dict[str, str]]:
+    rows = _read_sample_metadata(path)
+    if rows:
+        return rows
+    if path is None or not path.exists():
+        return []
+    delimiter = _infer_delimiter(path)
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file, delimiter=delimiter)
+        if not reader.fieldnames:
+            return []
+        field_lookup = {_metadata_key(name): name for name in reader.fieldnames}
+        sample_key = field_lookup.get("sample_name") or field_lookup.get("sample")
+        condition_key = (
+            field_lookup.get("factor_value_metabolic_syndrome")
+            or field_lookup.get("factor_value_condition")
+            or field_lookup.get("condition")
+            or field_lookup.get("characteristics_sample_type")
+        )
+        group_key = field_lookup.get("factor_value_gender") or field_lookup.get("source_name")
+        if sample_key is None:
+            return []
+        parsed = []
+        for raw in reader:
+            sample = str(raw.get(sample_key) or "").strip()
+            if not sample:
+                continue
+            condition = str(raw.get(condition_key) or "unknown").strip() if condition_key else "unknown"
+            group = str(raw.get(group_key) or condition).strip() if group_key else condition
+            parsed.append({"sample": sample, "group": group or condition, "condition": condition or "unknown"})
+        return parsed
+
+
+def _find_sibling_metabolights_sample_file(source_path: Path) -> Path | None:
+    candidates = sorted(source_path.parent.glob("s_*.txt"))
+    return candidates[0] if candidates else None
+
+
+def _metadata_key(value: str | None) -> str:
+    return "".join(char.lower() if char.isalnum() else "_" for char in str(value or "").strip()).strip("_")
+
+
+def _value_by_header(row: list[str], header_lookup: dict[str, int], name: str) -> str:
+    index = header_lookup.get(name)
+    if index is None:
+        return ""
+    return str(_value_at(row, index)).strip()
+
+
+def _first_text(*values: str) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
 def _validate_expression_matrix(matrix_path: Path, metadata_path: Path) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -771,17 +1015,26 @@ def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, s
             "label": "差异分析",
             "description": "选择两个样本分组进行差异表达分析。",
         },
+        "metabolomics_statistics": {
+            "type": "metabolomics_statistics",
+            "label": "Metabolomics statistics",
+            "description": "Run R preprocessing, QC, PCA, correlation, and differential metabolite statistics.",
+        },
     }
     return [specs[item] for item in capabilities if item in specs]
 
 
 def _heuristic_plan(inspection: dict[str, Any]) -> dict[str, Any]:
+    likely_metabolomics = bool(inspection.get("likely_metabolomics_columns"))
     likely_expression = bool(inspection.get("likely_gene_columns")) and (
         inspection.get("metadata_rows", 0) > 0 or inspection.get("numeric_column_ratio", 0) > 0.5
     )
     likely_single_cell = bool(inspection.get("likely_gene_columns")) and inspection.get("column_count", 0) > 1000
     likely_feature_table = not inspection.get("likely_gene_columns") and inspection.get("numeric_column_ratio", 0) > 0.6
-    if likely_single_cell:
+    if likely_metabolomics:
+        data_type = "metabolomics_matrix"
+        capabilities = ["pca", "metabolomics_statistics"]
+    elif likely_single_cell:
         data_type = "single_cell_matrix"
         capabilities: list[str] = []
     elif likely_expression:

@@ -15,7 +15,16 @@ def _select_source_table(source: dict[str, Any]) -> tuple[Path | None, str]:
     if data_path and data_path.suffix.lower() in {".csv", ".tsv", ".txt", ".xlsx", ".xlsm"}:
         return data_path, "source.data_path"
 
-    for key in ("diff_result_file", "matrix_file", "module_file", "sample_metadata_file"):
+    for key in (
+        "metabolomics_result_file",
+        "pca_scores_file",
+        "sample_correlation_file",
+        "qc_file",
+        "diff_result_file",
+        "matrix_file",
+        "module_file",
+        "sample_metadata_file",
+    ):
         candidate = _resolve_allowed_path(str(meta.get(key) or ""))
         if candidate and candidate.suffix.lower() in {".csv", ".tsv", ".txt", ".xlsx", ".xlsm"}:
             return candidate, f"source.meta.{key}"

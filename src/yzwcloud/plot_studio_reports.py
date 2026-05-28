@@ -322,6 +322,10 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"raw points shown={bool(params.get('show_points'))}")
         if params.get("point_jitter") is not None:
             summary["display"].append(f"point jitter={params.get('point_jitter')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
         if "show_mean" in params:
             summary["display"].append(f"mean marker={bool(params.get('show_mean'))}")
         if params.get("notched"):
@@ -339,6 +343,8 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"bandwidth={params.get('bandwidth')}")
         if params.get("side"):
             summary["display"].append(f"side={params.get('side')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
         if params.get("point_alpha"):
             summary["display"].append(f"point opacity={params.get('point_alpha')}")
     if plot_id == "scatter":
@@ -357,6 +363,10 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"point size={params.get('point_size')}")
         if params.get("point_alpha"):
             summary["display"].append(f"point opacity={params.get('point_alpha')}")
+        if params.get("marker_line_width") is not None:
+            summary["display"].append(f"marker line width={params.get('marker_line_width')}")
+        if params.get("marker_line_color"):
+            summary["display"].append(f"marker line color={params.get('marker_line_color')}")
         if params.get("x_log"):
             summary["display"].append("log x-axis")
         if params.get("y_log"):
@@ -391,6 +401,8 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"line shape={params.get('line_shape')}")
         if params.get("line_width"):
             summary["display"].append(f"line width={params.get('line_width')}")
+        if params.get("line_dash"):
+            summary["display"].append(f"line dash={params.get('line_dash')}")
         if params.get("smooth"):
             summary["display"].append("spline smoothing enabled")
         if "show_points" in params:
@@ -414,6 +426,12 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"bar line width={params.get('bar_line_width')}")
         if params.get("bar_line_color"):
             summary["display"].append(f"bar line color={params.get('bar_line_color')}")
+        if params.get("reference_line_width") is not None:
+            summary["display"].append(f"reference line width={params.get('reference_line_width')}")
+        if params.get("reference_line_color_mode"):
+            summary["display"].append(f"reference line color mode={params.get('reference_line_color_mode')}")
+        if params.get("reference_line_color_mode") == "custom" and params.get("reference_line_color"):
+            summary["display"].append(f"reference line color={params.get('reference_line_color')}")
         if params.get("cumulative"):
             summary["statistics"].append("cumulative histogram")
         if params.get("show_mean"):
@@ -433,6 +451,10 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"continuous color scale={params.get('color_scale')}")
         if params.get("point_alpha"):
             summary["display"].append(f"point opacity={params.get('point_alpha')}")
+        if params.get("marker_line_width") is not None:
+            summary["display"].append(f"marker line width={params.get('marker_line_width')}")
+        if params.get("marker_line_color"):
+            summary["display"].append(f"marker line color={params.get('marker_line_color')}")
     if plot_id == "density_contour":
         if params.get("contours_coloring"):
             summary["display"].append(f"contour fill={params.get('contours_coloring')}")
@@ -472,6 +494,12 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"p-value threshold={params.get('p_value_threshold')}")
         if "show_threshold_lines" in params:
             summary["display"].append(f"threshold lines={bool(params.get('show_threshold_lines'))}")
+        if params.get("threshold_line_width") is not None:
+            summary["display"].append(f"threshold line width={params.get('threshold_line_width')}")
+        if params.get("threshold_line_dash"):
+            summary["display"].append(f"threshold line dash={params.get('threshold_line_dash')}")
+        if params.get("threshold_line_color"):
+            summary["display"].append(f"threshold line color={params.get('threshold_line_color')}")
         if params.get("label_top_n") is not None:
             summary["display"].append(f"top labels={params.get('label_top_n')}")
         if params.get("label_mode"):
@@ -550,6 +578,22 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
         summary["export"].append(f"canvas={params.get('width', 'auto')}x{params.get('height', 'auto')}")
     if params.get("format") or params.get("dpi"):
         summary["export"].append(f"export={params.get('format', 'svg')}@{params.get('dpi', '300')}dpi")
+    if "show_grid" in params:
+        summary["display"].append(f"grid shown={bool(params.get('show_grid'))}")
+    if params.get("grid_color"):
+        summary["display"].append(f"grid color={params.get('grid_color')}")
+    if params.get("grid_width") is not None:
+        summary["display"].append(f"grid width={params.get('grid_width')}")
+    if "axis_line" in params:
+        summary["display"].append(f"axis line shown={bool(params.get('axis_line'))}")
+    if params.get("axis_line_color"):
+        summary["display"].append(f"axis line color={params.get('axis_line_color')}")
+    if params.get("axis_line_width") is not None:
+        summary["display"].append(f"axis line width={params.get('axis_line_width')}")
+    if params.get("legend_title"):
+        summary["display"].append(f"legend title='{params.get('legend_title')}'")
+    if params.get("legend_font_size") is not None:
+        summary["display"].append(f"legend font size={params.get('legend_font_size')}")
     return {key: value for key, value in summary.items() if value}
 
 

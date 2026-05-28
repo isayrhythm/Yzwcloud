@@ -115,6 +115,8 @@ def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
         mode="markers",
         marker_size=_bounded_float(params.get("point_size"), 8, 1, 40),
         marker_opacity=_bounded_float(params.get("point_alpha"), 0.85, 0.05, 1),
+        marker_line_width=_bounded_float(params.get("marker_line_width"), 0.5, 0, 5),
+        marker_line_color=str(params.get("marker_line_color") or "#ffffff"),
     )
     warnings = []
     overlays, overlay_warnings = _scatter_statistical_overlays(traces, params)
@@ -183,7 +185,10 @@ def _build_bubble_spec(context: dict[str, Any]) -> dict[str, Any]:
             "size": marker_sizes,
             "sizemode": "diameter",
             "opacity": _bounded_float(params.get("point_alpha"), 0.72, 0.05, 1),
-            "line": {"color": "#ffffff", "width": 0.7},
+            "line": {
+                "color": str(params.get("marker_line_color") or "#ffffff"),
+                "width": _bounded_float(params.get("marker_line_width"), 0.7, 0, 5),
+            },
         }
         if color_is_numeric and requested_color:
             marker["color"] = [value if value is not None else 0.0 for value in color_values]
@@ -485,6 +490,9 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
     opacity = _bounded_float(params.get("opacity"), 0.68, 0.1, 1)
     bar_line_width = _bounded_float(params.get("bar_line_width"), 0.5, 0, 4)
     bar_line_color = str(params.get("bar_line_color") or "#ffffff")
+    reference_line_width = _bounded_float(params.get("reference_line_width"), 1.7, 0.5, 6)
+    reference_line_color_mode = str(params.get("reference_line_color_mode") or "group")
+    reference_line_color = str(params.get("reference_line_color") or "#324657")
     traces = []
     reference_shapes = []
     reference_annotations = []
@@ -526,8 +534,9 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
         if _truthy(params.get("show_median"), False):
             reference_specs.append(("median", float(median(values)), "dot"))
         for label, x_value, dash in reference_specs:
-            reference_shapes.append(_x_reference_line(x_value, color, dash=dash))
-            reference_annotations.append(_x_reference_annotation(x_value, f"{group_name} {label}", color))
+            line_color = color if reference_line_color_mode == "group" else reference_line_color
+            reference_shapes.append(_x_reference_line(x_value, line_color, dash=dash, width=reference_line_width))
+            reference_annotations.append(_x_reference_annotation(x_value, f"{group_name} {label}", line_color))
     if not traces:
         return _empty_plot_spec("histogram", "No numeric values were available for histogram rendering.", context["table_summary"])
 
@@ -818,10 +827,18 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
         params=params,
     )
     if _truthy(params.get("show_threshold_lines"), True):
+        threshold_line_dash = str(params.get("threshold_line_dash") or "dash")
+        if threshold_line_dash not in {"solid", "dash", "dot", "dashdot"}:
+            threshold_line_dash = "dash"
+        threshold_line = {
+            "color": str(params.get("threshold_line_color") or "#8799aa"),
+            "width": _bounded_float(params.get("threshold_line_width"), 1.0, 0.5, 6),
+            "dash": threshold_line_dash,
+        }
         layout["shapes"] = [
-            _vertical_line(log2fc_threshold),
-            _vertical_line(-log2fc_threshold),
-            _horizontal_line(-math.log10(p_value_threshold)),
+            _vertical_line(log2fc_threshold, line=threshold_line),
+            _vertical_line(-log2fc_threshold, line=threshold_line),
+            _horizontal_line(-math.log10(p_value_threshold), line=threshold_line),
         ]
         layout["annotations"] = [
             {
@@ -1367,8 +1384,14 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
     show_grid = bool(params.get("show_grid", True))
     background = "rgba(0,0,0,0)" if params.get("background") == "transparent" else "#ffffff"
     legend_position = str(params.get("legend_position") or "right")
+    legend_font_size = _bounded_int(params.get("legend_font_size"), 12, 8, 24)
+    legend_title = str(params.get("legend_title") or "").strip()
     font_size = _bounded_int(params.get("font_size"), 13, 8, 28)
     axis_line = bool(params.get("axis_line", True))
+    axis_line_color = str(params.get("axis_line_color") or "#425466")
+    axis_line_width = _bounded_float(params.get("axis_line_width"), 1.0, 0.5, 6)
+    grid_color = str(params.get("grid_color") or "#e7eef4")
+    grid_width = _bounded_float(params.get("grid_width"), 1.0, 0.2, 4)
     resolved_title = _text_or_default(params.get("title"), title)
     subtitle = str(params.get("subtitle") or "").strip()
     title_position = str(params.get("title_position") or "left")
@@ -1397,20 +1420,24 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
         "xaxis": {
             "title": _text_or_default(params.get("x_title"), x_title),
             "showgrid": show_grid,
-            "gridcolor": "#e7eef4",
+            "gridcolor": grid_color,
+            "gridwidth": grid_width,
             "zerolinecolor": "#b8c7d4",
             "showline": axis_line,
-            "linecolor": "#425466",
+            "linecolor": axis_line_color,
+            "linewidth": axis_line_width,
             "ticks": "outside",
             "tickangle": x_tick_angle,
         },
         "yaxis": {
             "title": _text_or_default(params.get("y_title"), y_title),
             "showgrid": show_grid,
-            "gridcolor": "#e7eef4",
+            "gridcolor": grid_color,
+            "gridwidth": grid_width,
             "zerolinecolor": "#b8c7d4",
             "showline": axis_line,
-            "linecolor": "#425466",
+            "linecolor": axis_line_color,
+            "linewidth": axis_line_width,
             "ticks": "outside",
             "tickangle": y_tick_angle,
         },
@@ -1433,11 +1460,13 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
     if legend_position == "none":
         layout["showlegend"] = False
     elif legend_position == "top":
-        layout["legend"] = {"orientation": "h", "x": 0, "y": 1.14}
+        layout["legend"] = {"orientation": "h", "x": 0, "y": 1.14, "font": {"size": legend_font_size}}
     elif legend_position == "bottom":
-        layout["legend"] = {"orientation": "h", "x": 0, "y": -0.22}
+        layout["legend"] = {"orientation": "h", "x": 0, "y": -0.22, "font": {"size": legend_font_size}}
     else:
-        layout["legend"] = {"orientation": "v", "x": 1.02, "y": 1}
+        layout["legend"] = {"orientation": "v", "x": 1.02, "y": 1, "font": {"size": legend_font_size}}
+    if legend_title and layout.get("legend"):
+        layout["legend"]["title"] = {"text": legend_title, "font": {"size": legend_font_size}}
     return layout
 
 
@@ -1872,6 +1901,8 @@ def _grouped_marker_traces(
     mode: str,
     marker_size: float,
     marker_opacity: float,
+    marker_line_width: float = 0.5,
+    marker_line_color: str = "#ffffff",
 ) -> list[dict[str, Any]]:
     grouped = _records_by_category(records, color_column) if color_column else {"All": records}
     finite_sizes = [_number_or_none(row.get(size_column)) for row in records] if size_column else []
@@ -1907,7 +1938,7 @@ def _grouped_marker_traces(
             "size": marker_sizes if size_column else marker_size,
             "opacity": marker_opacity,
             "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
-            "line": {"color": "#ffffff", "width": 0.5},
+            "line": {"color": marker_line_color, "width": marker_line_width},
         }
         hovertemplate = "%{text}<br>x=%{x:.4g}<br>y=%{y:.4g}<extra>%{fullData.name}</extra>"
         if size_column:
@@ -2139,7 +2170,11 @@ def _distribution_trace(
             "box": {"visible": bool(params.get("show_box", True))},
             "meanline": {"visible": bool(params.get("show_mean", True))},
             "points": False if point_mode == "none" else point_mode,
-            "marker": {"color": color, "opacity": _bounded_float(params.get("point_alpha"), 0.62, 0.05, 1)},
+            "marker": {
+                "color": color,
+                "opacity": _bounded_float(params.get("point_alpha"), 0.62, 0.05, 1),
+                "size": _bounded_float(params.get("point_size"), 5, 1, 24),
+            },
             "line": {"color": color},
             "side": str(params.get("side") or "both"),
             "spanmode": str(params.get("span_mode") or "soft"),
@@ -2157,7 +2192,11 @@ def _distribution_trace(
         "jitter": _bounded_float(params.get("point_jitter"), 0.35, 0, 1),
         "notched": bool(params.get("notched", False)),
         "width": _bounded_float(params.get("box_width"), 0.62, 0.1, 1.0),
-        "marker": {"color": color, "opacity": 0.72, "size": 5},
+        "marker": {
+            "color": color,
+            "opacity": _bounded_float(params.get("point_alpha"), 0.72, 0.05, 1),
+            "size": _bounded_float(params.get("point_size"), 5, 1, 24),
+        },
         "line": {"color": color},
         "boxmean": bool(params.get("show_mean", True)),
         "hovertemplate": f"{name}<br>value=%{{y:.4g}}<extra></extra>",
@@ -2281,7 +2320,7 @@ def _paper_x_line(x0: float, x1: float, y_value: float) -> dict[str, Any]:
     }
 
 
-def _x_reference_line(x_value: float, color: str, *, dash: str) -> dict[str, Any]:
+def _x_reference_line(x_value: float, color: str, *, dash: str, width: float = 1.7) -> dict[str, Any]:
     return {
         "type": "line",
         "xref": "x",
@@ -2290,7 +2329,7 @@ def _x_reference_line(x_value: float, color: str, *, dash: str) -> dict[str, Any
         "x1": x_value,
         "y0": 0,
         "y1": 1,
-        "line": {"color": color, "width": 1.7, "dash": dash},
+        "line": {"color": color, "width": width, "dash": dash},
     }
 
 
@@ -2489,6 +2528,9 @@ def _line_trace(
         line_shape = "spline"
     if line_shape not in {"linear", "spline", "hv", "vh"}:
         line_shape = "linear"
+    line_dash = str(params.get("line_dash") or "solid")
+    if line_dash not in {"solid", "dash", "dot", "dashdot"}:
+        line_dash = "solid"
     show_points = bool(params.get("show_points", True))
     return {
         "type": "scatter",
@@ -2499,6 +2541,7 @@ def _line_trace(
         "line": {
             "color": color,
             "shape": line_shape,
+            "dash": line_dash,
             "width": _bounded_float(params.get("line_width"), 2.4, 0.5, 10),
         },
         "marker": {
@@ -2511,7 +2554,7 @@ def _line_trace(
     }
 
 
-def _vertical_line(x_value: float) -> dict[str, Any]:
+def _vertical_line(x_value: float, *, line: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "type": "line",
         "xref": "x",
@@ -2520,11 +2563,11 @@ def _vertical_line(x_value: float) -> dict[str, Any]:
         "x1": x_value,
         "y0": 0,
         "y1": 1,
-        "line": {"color": "#8799aa", "width": 1, "dash": "dash"},
+        "line": line or {"color": "#8799aa", "width": 1, "dash": "dash"},
     }
 
 
-def _horizontal_line(y_value: float) -> dict[str, Any]:
+def _horizontal_line(y_value: float, *, line: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "type": "line",
         "xref": "paper",
@@ -2533,7 +2576,7 @@ def _horizontal_line(y_value: float) -> dict[str, Any]:
         "x1": 1,
         "y0": y_value,
         "y1": y_value,
-        "line": {"color": "#8799aa", "width": 1, "dash": "dash"},
+        "line": line or {"color": "#8799aa", "width": 1, "dash": "dash"},
     }
 
 

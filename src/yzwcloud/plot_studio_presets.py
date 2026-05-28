@@ -34,7 +34,7 @@ SUPPORTED_PLOTLY_SPEC_TYPES = {
     "enrichment_dot",
 }
 
-ADVANCED_PARAMETER_GROUP_IDS = {"theme", "labels", "export", "style"}
+ADVANCED_PARAMETER_GROUP_IDS = {"theme", "labels", "export", "style", "reference"}
 
 PLOT_UI_METADATA: dict[str, dict[str, str]] = {
     "scatter": {
@@ -179,8 +179,14 @@ COMMON_THEME_GROUPS = [
             ),
             _param("font_size", "Font size", "number", 13, min_value=8, max_value=28, step=1),
             _param("show_grid", "Show grid", "boolean", True),
+            _param("grid_color", "Grid color", "color", "#e7eef4"),
+            _param("grid_width", "Grid width", "number", 1.0, min_value=0.2, max_value=4, step=0.1),
             _param("axis_line", "Axis line", "boolean", True),
+            _param("axis_line_color", "Axis line color", "color", "#425466"),
+            _param("axis_line_width", "Axis line width", "number", 1.0, min_value=0.5, max_value=6, step=0.1),
             _param("legend_position", "Legend", "select", "right", options=["right", "top", "bottom", "none"]),
+            _param("legend_title", "Legend title", "text", ""),
+            _param("legend_font_size", "Legend font size", "number", 12, min_value=8, max_value=24, step=1),
         ],
     ),
     _group(
@@ -222,6 +228,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         "default_params": {
             "point_size": 8,
             "point_alpha": 0.85,
+            "marker_line_width": 0.5,
+            "marker_line_color": "#ffffff",
             "trendline": "none",
             "confidence_ellipse": False,
             "x_log": False,
@@ -247,6 +255,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("loess_fraction", "LOESS span", "number", 0.35, min_value=0.15, max_value=0.9, step=0.05),
                     _param("confidence_ellipse", "Confidence ellipse", "boolean", False),
                     _param("ellipse_level", "Ellipse level", "number", 0.95, min_value=0.5, max_value=0.99, step=0.01),
+                    _param("marker_line_width", "Marker line width", "number", 0.5, min_value=0, max_value=5, step=0.1),
+                    _param("marker_line_color", "Marker line color", "color", "#ffffff"),
                     _param("x_log", "Log X axis", "boolean", False),
                     _param("y_log", "Log Y axis", "boolean", False),
                 ],
@@ -262,6 +272,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         "default_params": {
             "show_points": True,
             "point_jitter": 0.35,
+            "point_size": 5,
+            "point_alpha": 0.72,
             "show_mean": True,
             "notched": False,
             "pairwise_test": "none",
@@ -283,6 +295,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                 [
                     _param("show_points", "Show individual points", "boolean", True),
                     _param("point_jitter", "Point jitter", "number", 0.35, min_value=0, max_value=1, step=0.05),
+                    _param("point_size", "Point size", "number", 5, min_value=1, max_value=24, step=1),
+                    _param("point_alpha", "Point opacity", "number", 0.72, min_value=0.05, max_value=1, step=0.05),
                     _param("show_mean", "Show mean", "boolean", True),
                     _param("notched", "Notched boxes", "boolean", False),
                     _param("box_width", "Box width", "number", 0.62, min_value=0.2, max_value=1.0, step=0.02),
@@ -317,6 +331,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "show_points": "outliers",
             "span_mode": "soft",
             "side": "both",
+            "point_size": 5,
+            "point_alpha": 0.62,
         },
         "parameter_groups": [
             _group(
@@ -337,6 +353,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("show_points", "Points", "select", "outliers", options=["none", "outliers", "all"]),
                     _param("bandwidth", "Bandwidth", "number_or_auto", "auto", min_value=0.01, max_value=2.0, step=0.01),
                     _param("side", "Side", "select", "both", options=["both", "positive", "negative"]),
+                    _param("point_size", "Point size", "number", 5, min_value=1, max_value=24, step=1),
                     _param("point_alpha", "Point opacity", "number", 0.62, min_value=0.05, max_value=1, step=0.05),
                 ],
             ),
@@ -406,6 +423,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         "default_params": {
             "line_shape": "linear",
             "line_width": 2.4,
+            "line_dash": "solid",
             "show_points": True,
             "marker_size": 6,
             "marker_symbol": "circle",
@@ -427,6 +445,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                 [
                     _param("line_shape", "Line shape", "select", "linear", options=["linear", "spline", "hv", "vh"]),
                     _param("line_width", "Line width", "number", 2.4, min_value=0.5, max_value=10, step=0.1),
+                    _param("line_dash", "Line dash", "select", "solid", options=["solid", "dash", "dot", "dashdot"]),
                     _param("show_points", "Show points", "boolean", True),
                     _param("marker_size", "Marker size", "number", 6, min_value=0, max_value=30, step=1),
                     _param("marker_symbol", "Marker symbol", "select", "circle", options=["circle", "square", "diamond", "cross", "x"]),
@@ -453,6 +472,9 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "show_mean": True,
             "show_median": False,
             "show_rug": False,
+            "reference_line_width": 1.7,
+            "reference_line_color_mode": "group",
+            "reference_line_color": "#324657",
         },
         "parameter_groups": [
             _group(
@@ -477,6 +499,21 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("show_mean", "Mean reference", "boolean", True),
                     _param("show_median", "Median reference", "boolean", False),
                     _param("show_rug", "Rug marks", "boolean", False),
+                ],
+            ),
+            _group(
+                "reference",
+                "Reference line style",
+                [
+                    _param("reference_line_width", "Line width", "number", 1.7, min_value=0.5, max_value=6, step=0.1),
+                    _param(
+                        "reference_line_color_mode",
+                        "Color mode",
+                        "select",
+                        "group",
+                        options=["group", "custom"],
+                    ),
+                    _param("reference_line_color", "Custom line color", "color", "#324657"),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -655,6 +692,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "max_bubble_size": 48,
             "color_scale": "viridis",
             "point_alpha": 0.72,
+            "marker_line_width": 0.7,
+            "marker_line_color": "#ffffff",
         },
         "parameter_groups": [
             _group(
@@ -683,6 +722,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                         options=["viridis", "magma", "plasma", "cividis", "blue_white_red", "green_white_purple"],
                     ),
                     _param("point_alpha", "Point opacity", "number", 0.72, min_value=0.05, max_value=1, step=0.02),
+                    _param("marker_line_width", "Marker line width", "number", 0.7, min_value=0, max_value=5, step=0.1),
+                    _param("marker_line_color", "Marker line color", "color", "#ffffff"),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -699,6 +740,9 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "log2fc_threshold": 1.0,
             "p_value_threshold": 0.05,
             "show_threshold_lines": True,
+            "threshold_line_width": 1.0,
+            "threshold_line_dash": "dash",
+            "threshold_line_color": "#8799aa",
             "label_top_n": 20,
             "label_font_size": 12,
             "point_size": 7,
@@ -726,6 +770,21 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("label_font_size", "Label font size", "number", 12, min_value=6, max_value=24, step=1),
                     _param("point_size", "Point size", "number", 7, min_value=1, max_value=24, step=1),
                     _param("point_alpha", "Point opacity", "number", 0.78, min_value=0.05, max_value=1, step=0.02),
+                ],
+            ),
+            _group(
+                "style",
+                "Threshold line style",
+                [
+                    _param("threshold_line_width", "Line width", "number", 1.0, min_value=0.5, max_value=6, step=0.1),
+                    _param(
+                        "threshold_line_dash",
+                        "Line dash",
+                        "select",
+                        "dash",
+                        options=["solid", "dash", "dot", "dashdot"],
+                    ),
+                    _param("threshold_line_color", "Line color", "color", "#8799aa"),
                 ],
             ),
             *COMMON_THEME_GROUPS,

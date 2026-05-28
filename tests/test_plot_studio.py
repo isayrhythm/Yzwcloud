@@ -54,6 +54,10 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert boxplot["thumbnail"] == "boxplot"
     assert "Group comparison" in boxplot["use_case"]
     assert boxplot["default_params"]["show_points"] is True
+    assert boxplot["default_params"]["point_size"] == 5
+    assert boxplot["default_params"]["point_alpha"] == 0.72
+    violin_distribution = next(group for group in presets["violin"]["parameter_groups"] if group["id"] == "distribution")
+    assert {param["id"] for param in violin_distribution["parameters"]} >= {"point_size", "point_alpha"}
     assert any(group["id"] == "statistics" for group in boxplot["parameter_groups"])
     assert any(group["id"] == "export" for group in boxplot["parameter_groups"])
     assert any(group["id"] == "labels" for group in boxplot["parameter_groups"])
@@ -66,12 +70,24 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "margin_top",
         "margin_bottom",
     }
+    theme_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "theme")
+    assert theme_group["advanced"] is True
+    assert {param["id"] for param in theme_group["parameters"]} >= {
+        "grid_color",
+        "grid_width",
+        "axis_line_color",
+        "axis_line_width",
+        "legend_title",
+        "legend_font_size",
+    }
     scatter_statistics = next(group for group in presets["scatter"]["parameter_groups"] if group["id"] == "statistics")
     assert {param["id"] for param in scatter_statistics["parameters"]} >= {
         "trendline",
         "loess_fraction",
         "confidence_ellipse",
         "ellipse_level",
+        "marker_line_width",
+        "marker_line_color",
         "x_log",
         "y_log",
     }
@@ -79,6 +95,7 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert {param["id"] for param in line_series["parameters"]} >= {
         "line_shape",
         "line_width",
+        "line_dash",
         "marker_size",
         "marker_symbol",
     }
@@ -105,6 +122,13 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "point_size",
         "point_alpha",
     }
+    volcano_style = next(group for group in volcano["parameter_groups"] if group["id"] == "style")
+    assert volcano_style["advanced"] is True
+    assert {param["id"] for param in volcano_style["parameters"]} >= {
+        "threshold_line_width",
+        "threshold_line_dash",
+        "threshold_line_color",
+    }
 
     heatmap = presets["heatmap"]
     assert heatmap["default_params"]["show_dendrogram"] is True
@@ -121,6 +145,13 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "show_rug",
         "bar_line_width",
         "bar_line_color",
+    }
+    histogram_reference = next(group for group in presets["histogram"]["parameter_groups"] if group["id"] == "reference")
+    assert histogram_reference["advanced"] is True
+    assert {param["id"] for param in histogram_reference["parameters"]} >= {
+        "reference_line_width",
+        "reference_line_color_mode",
+        "reference_line_color",
     }
 
     upset = presets["upset"]
@@ -139,7 +170,13 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "point_alpha",
     }
     bubble_style = next(group for group in presets["bubble"]["parameter_groups"] if group["id"] == "bubble")
-    assert {param["id"] for param in bubble_style["parameters"]} >= {"color_scale", "point_alpha", "size_scale"}
+    assert {param["id"] for param in bubble_style["parameters"]} >= {
+        "color_scale",
+        "point_alpha",
+        "size_scale",
+        "marker_line_width",
+        "marker_line_color",
+    }
     density_group = next(group for group in presets["density_contour"]["parameter_groups"] if group["id"] == "density")
     assert {param["id"] for param in density_group["parameters"]} >= {
         "contour_line_width",
@@ -187,6 +224,14 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
                 "show_values": True,
                 "value_precision": 1,
                 "cell_gap": 2,
+                "show_grid": False,
+                "grid_color": "#dbeafe",
+                "grid_width": 1.8,
+                "axis_line": True,
+                "axis_line_color": "#0f172a",
+                "axis_line_width": 2.2,
+                "legend_title": "Sample group",
+                "legend_font_size": 15,
             },
         },
     )
@@ -213,6 +258,14 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
     assert report["agent_context"]["table"]["filename"] == DATA_FILE.name
     assert report["agent_context"]["params"]["title"] == "QC heatmap"
     assert "dendrogram guides shown" in report["agent_context"]["parameter_summary"]["display"]
+    assert "grid shown=False" in report["agent_context"]["parameter_summary"]["display"]
+    assert "grid color=#dbeafe" in report["agent_context"]["parameter_summary"]["display"]
+    assert "grid width=1.8" in report["agent_context"]["parameter_summary"]["display"]
+    assert "axis line shown=True" in report["agent_context"]["parameter_summary"]["display"]
+    assert "axis line color=#0f172a" in report["agent_context"]["parameter_summary"]["display"]
+    assert "axis line width=2.2" in report["agent_context"]["parameter_summary"]["display"]
+    assert "legend title='Sample group'" in report["agent_context"]["parameter_summary"]["display"]
+    assert "legend font size=15" in report["agent_context"]["parameter_summary"]["display"]
     assert "linkage=average" in report["agent_context"]["parameter_summary"]["statistics"]
     assert any("Do not infer visual details" in item for item in report["agent_context"]["interpretation_rules"])
 
@@ -274,6 +327,8 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
             "params": {
                 "group": "condition",
                 "y": "value",
+                "point_size": 9,
+                "point_alpha": 0.44,
                 "pairwise_test": "t_test",
                 "multiple_testing": "BH",
                 "show_p_values": True,
@@ -372,6 +427,9 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
                 "opacity": 0.41,
                 "bar_line_width": 1.7,
                 "bar_line_color": "#111827",
+                "reference_line_width": 2.4,
+                "reference_line_color_mode": "custom",
+                "reference_line_color": "#334155",
                 "cumulative": True,
                 "show_mean": True,
                 "show_median": True,
@@ -388,6 +446,9 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
     assert "opacity=0.41" in histogram_display_summary
     assert "bar line width=1.7" in histogram_display_summary
     assert "bar line color=#111827" in histogram_display_summary
+    assert "reference line width=2.4" in histogram_display_summary
+    assert "reference line color mode=custom" in histogram_display_summary
+    assert "reference line color=#334155" in histogram_display_summary
     assert "rug marks shown" in histogram_display_summary
 
 
@@ -504,6 +565,9 @@ def test_plot_studio_report_summarizes_volcano_label_parameters(tmp_path: Path) 
                 "log2fc_threshold": 1.2,
                 "p_value_threshold": 0.01,
                 "show_threshold_lines": False,
+                "threshold_line_width": 2.2,
+                "threshold_line_dash": "dot",
+                "threshold_line_color": "#475569",
                 "label_top_n": 5,
                 "label_mode": "top_p",
                 "label_font_size": 14,
@@ -516,6 +580,9 @@ def test_plot_studio_report_summarizes_volcano_label_parameters(tmp_path: Path) 
     sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
     assert "abs log2FC threshold=1.2" in sections["Parameter notes"]
     assert "threshold lines=False" in report["agent_context"]["parameter_summary"]["display"]
+    assert "threshold line width=2.2" in report["agent_context"]["parameter_summary"]["display"]
+    assert "threshold line dash=dot" in report["agent_context"]["parameter_summary"]["display"]
+    assert "threshold line color=#475569" in report["agent_context"]["parameter_summary"]["display"]
     assert "top labels=5" in report["agent_context"]["parameter_summary"]["display"]
     assert "label mode=top_p" in report["agent_context"]["parameter_summary"]["display"]
     assert "label font size=14" in report["agent_context"]["parameter_summary"]["display"]
@@ -637,6 +704,8 @@ def test_plot_studio_report_summarizes_bubble_parameters(tmp_path: Path) -> None
                 "max_bubble_size": 30,
                 "color_scale": "plasma",
                 "point_alpha": 0.55,
+                "marker_line_width": 1.6,
+                "marker_line_color": "#111827",
             },
         },
     )
@@ -646,6 +715,8 @@ def test_plot_studio_report_summarizes_bubble_parameters(tmp_path: Path) -> None
     assert "bubble size range=6-30" in sections["Parameter notes"]
     assert "continuous color scale=plasma" in report["agent_context"]["parameter_summary"]["display"]
     assert "point opacity=0.55" in report["agent_context"]["parameter_summary"]["display"]
+    assert "marker line width=1.6" in report["agent_context"]["parameter_summary"]["display"]
+    assert "marker line color=#111827" in report["agent_context"]["parameter_summary"]["display"]
 
 
 def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path: Path) -> None:
@@ -676,6 +747,8 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
                 "y": "value",
                 "show_points": True,
                 "point_jitter": 0.45,
+                "point_size": 8,
+                "point_alpha": 0.48,
                 "show_mean": False,
                 "notched": True,
                 "box_width": 0.5,
@@ -685,6 +758,8 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
     boxplot_summary = boxplot_report["agent_context"]["parameter_summary"]["display"]
     assert "raw points shown=True" in boxplot_summary
     assert "point jitter=0.45" in boxplot_summary
+    assert "point size=8" in boxplot_summary
+    assert "point opacity=0.48" in boxplot_summary
     assert "mean marker=False" in boxplot_summary
     assert "notched boxes enabled" in boxplot_summary
     assert "box width=0.5" in boxplot_summary
@@ -704,6 +779,7 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
                 "show_points": "all",
                 "bandwidth": 0.35,
                 "side": "positive",
+                "point_size": 7,
                 "point_alpha": 0.62,
             },
         },
@@ -714,6 +790,7 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
     assert "mean line=True" in violin_summary["display"]
     assert "points=all" in violin_summary["display"]
     assert "side=positive" in violin_summary["display"]
+    assert "point size=7" in violin_summary["display"]
     assert "point opacity=0.62" in violin_summary["display"]
 
 
@@ -744,6 +821,8 @@ def test_plot_studio_report_summarizes_scatter_axis_transforms(tmp_path: Path) -
                 "label": "label",
                 "point_size": 11,
                 "point_alpha": 0.53,
+                "marker_line_width": 1.4,
+                "marker_line_color": "#111827",
                 "x_log": True,
                 "y_log": True,
             },
@@ -756,6 +835,8 @@ def test_plot_studio_report_summarizes_scatter_axis_transforms(tmp_path: Path) -
     assert "point labels=label" in sections["Parameter notes"]
     assert "point size=11" in sections["Parameter notes"]
     assert "point opacity=0.53" in sections["Parameter notes"]
+    assert "marker line width=1.4" in sections["Parameter notes"]
+    assert "marker line color=#111827" in sections["Parameter notes"]
     assert "log x-axis" in sections["Parameter notes"]
     assert "log y-axis" in report["agent_context"]["parameter_summary"]["display"]
 
@@ -785,6 +866,7 @@ def test_plot_studio_report_summarizes_line_display_parameters(tmp_path: Path) -
                 "series": "series",
                 "line_shape": "linear",
                 "line_width": 3.2,
+                "line_dash": "dashdot",
                 "smooth": True,
                 "show_points": False,
                 "marker_size": 9,
@@ -796,6 +878,7 @@ def test_plot_studio_report_summarizes_line_display_parameters(tmp_path: Path) -
 
     sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
     assert "line width=3.2" in sections["Parameter notes"]
+    assert "line dash=dashdot" in sections["Parameter notes"]
     assert "spline smoothing enabled" in sections["Parameter notes"]
     assert "markers shown=False" in report["agent_context"]["parameter_summary"]["display"]
     assert "marker symbol=diamond" in report["agent_context"]["parameter_summary"]["display"]
@@ -977,6 +1060,13 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
                 "font_family": "georgia",
                 "font_size": 16,
                 "axis_line": False,
+                "axis_line_color": "#111827",
+                "axis_line_width": 2.5,
+                "show_grid": True,
+                "grid_color": "#cbd5e1",
+                "grid_width": 1.6,
+                "legend_title": "Condition",
+                "legend_font_size": 14,
                 "x_tick_angle": -35,
                 "width": 900,
                 "height": 520,
@@ -1002,6 +1092,16 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
     assert spec["layout"]["yaxis"]["title"] == "Normalized expression"
     assert spec["layout"]["xaxis"]["tickangle"] == -35
     assert spec["layout"]["xaxis"]["showline"] is False
+    assert spec["layout"]["xaxis"]["linecolor"] == "#111827"
+    assert spec["layout"]["xaxis"]["linewidth"] == 2.5
+    assert spec["layout"]["xaxis"]["gridcolor"] == "#cbd5e1"
+    assert spec["layout"]["xaxis"]["gridwidth"] == 1.6
+    assert spec["layout"]["yaxis"]["linecolor"] == "#111827"
+    assert spec["layout"]["yaxis"]["linewidth"] == 2.5
+    assert spec["layout"]["yaxis"]["gridcolor"] == "#cbd5e1"
+    assert spec["layout"]["yaxis"]["gridwidth"] == 1.6
+    assert spec["layout"]["legend"]["title"]["text"] == "Condition"
+    assert spec["layout"]["legend"]["font"]["size"] == 14
     assert spec["layout"]["font"]["family"].startswith("Georgia")
     assert spec["layout"]["font"]["size"] == 16
     assert spec["layout"]["width"] == 900
@@ -1055,6 +1155,8 @@ def test_plot_studio_scatter_statistics_controls_render_overlays(tmp_path: Path)
                 "label": "label",
                 "point_size": 10,
                 "point_alpha": 0.5,
+                "marker_line_width": 1.2,
+                "marker_line_color": "#111827",
                 "trendline": "linear",
                 "confidence_ellipse": True,
                 "ellipse_level": 0.9,
@@ -1067,6 +1169,7 @@ def test_plot_studio_scatter_statistics_controls_render_overlays(tmp_path: Path)
     assert isinstance(group_trace["marker"]["size"], list)
     assert max(group_trace["marker"]["size"]) > min(group_trace["marker"]["size"])
     assert group_trace["marker"]["opacity"] == 0.5
+    assert group_trace["marker"]["line"] == {"color": "#111827", "width": 1.2}
     assert "size=%{customdata[0]}" in group_trace["hovertemplate"]
     assert [trace for trace in linear["data"] if trace["name"] == "A linear fit"][0]["line"]["dash"] == "dash"
     assert [trace for trace in linear["data"] if trace["name"] == "A 90% ellipse"][0]["line"]["dash"] == "dot"
@@ -1135,6 +1238,7 @@ def test_plot_studio_line_style_controls_are_rendered(tmp_path: Path) -> None:
                 "series": "series",
                 "line_shape": "hv",
                 "line_width": 4.5,
+                "line_dash": "dash",
                 "marker_size": 11,
                 "marker_symbol": "diamond",
                 "connect_gaps": True,
@@ -1145,6 +1249,7 @@ def test_plot_studio_line_style_controls_are_rendered(tmp_path: Path) -> None:
     assert spec["plot_type"] == "line"
     assert {trace["name"] for trace in spec["data"]} == {"A", "B"}
     assert all(trace["line"]["shape"] == "hv" for trace in spec["data"])
+    assert all(trace["line"]["dash"] == "dash" for trace in spec["data"])
     assert all(trace["line"]["width"] == 4.5 for trace in spec["data"])
     assert all(trace["marker"]["size"] == 11 for trace in spec["data"])
     assert all(trace["marker"]["symbol"] == "diamond" for trace in spec["data"])
@@ -1184,7 +1289,15 @@ def test_plot_studio_spec_builds_prism_style_violin_and_bar(tmp_path: Path) -> N
         json={
             "source": source,
             "plotType": "violin",
-            "params": {"group": "condition", "y": "value", "show_points": "all", "side": "positive", "bandwidth": 0.4},
+            "params": {
+                "group": "condition",
+                "y": "value",
+                "show_points": "all",
+                "side": "positive",
+                "bandwidth": 0.4,
+                "point_size": 8,
+                "point_alpha": 0.51,
+            },
         },
     )
     assert violin["plot_type"] == "violin"
@@ -1192,6 +1305,8 @@ def test_plot_studio_spec_builds_prism_style_violin_and_bar(tmp_path: Path) -> N
     assert violin["data"][0]["points"] == "all"
     assert violin["data"][0]["side"] == "positive"
     assert violin["data"][0]["bandwidth"] == 0.4
+    assert violin["data"][0]["marker"]["size"] == 8
+    assert violin["data"][0]["marker"]["opacity"] == 0.51
 
     bar = _request(
         client,
@@ -1271,6 +1386,8 @@ def test_plot_studio_boxplot_pairwise_p_values_render_brackets(tmp_path: Path) -
             "params": {
                 "group": "condition",
                 "y": "value",
+                "point_size": 9,
+                "point_alpha": 0.44,
                 "pairwise_test": "t_test",
                 "multiple_testing": "bonferroni",
                 "show_p_values": True,
@@ -1279,6 +1396,8 @@ def test_plot_studio_boxplot_pairwise_p_values_render_brackets(tmp_path: Path) -
     )
 
     assert spec["plot_type"] == "boxplot"
+    assert all(trace["marker"]["size"] == 9 for trace in spec["data"])
+    assert all(trace["marker"]["opacity"] == 0.44 for trace in spec["data"])
     assert len(spec["layout"]["annotations"]) == 3
     assert all(annotation["text"].startswith("p") for annotation in spec["layout"]["annotations"])
     assert len(spec["layout"]["shapes"]) == 9
@@ -1397,6 +1516,9 @@ def test_plot_studio_spec_builds_volcano_from_diff_table(tmp_path: Path) -> None
                 "label_font_size": 15,
                 "point_size": 10,
                 "point_alpha": 0.55,
+                "threshold_line_width": 2.5,
+                "threshold_line_dash": "dashdot",
+                "threshold_line_color": "#334155",
             },
         },
     )
@@ -1404,6 +1526,7 @@ def test_plot_studio_spec_builds_volcano_from_diff_table(tmp_path: Path) -> None
     assert spec["plot_type"] == "volcano"
     assert {trace["name"] for trace in spec["data"]} == {"Up", "Down", "Not significant", "Gene labels"}
     assert len(spec["layout"]["shapes"]) == 3
+    assert all(shape["line"] == {"color": "#334155", "width": 2.5, "dash": "dashdot"} for shape in spec["layout"]["shapes"])
     up_trace = next(trace for trace in spec["data"] if trace["name"] == "Up")
     assert up_trace["marker"]["size"] == 10
     assert up_trace["marker"]["opacity"] == 0.55
@@ -1522,6 +1645,9 @@ def test_plot_studio_spec_builds_added_interactive_plot_types() -> None:
                 "bins": 24,
                 "bar_line_width": 2,
                 "bar_line_color": "#111827",
+                "reference_line_width": 2.4,
+                "reference_line_color_mode": "custom",
+                "reference_line_color": "#334155",
                 "show_mean": True,
                 "show_median": True,
                 "show_rug": True,
@@ -1534,6 +1660,7 @@ def test_plot_studio_spec_builds_added_interactive_plot_types() -> None:
     assert histogram["data"][0]["marker"]["line"] == {"color": "#111827", "width": 2}
     assert any(trace["name"].endswith("rug") for trace in histogram["data"])
     assert len(histogram["layout"]["shapes"]) >= 2
+    assert any(shape["line"]["width"] == 2.4 and shape["line"]["color"] == "#334155" for shape in histogram["layout"]["shapes"])
     assert {annotation["text"].split()[-1] for annotation in histogram["layout"]["annotations"]} >= {"mean", "median"}
 
     contour = _request(
@@ -1633,6 +1760,8 @@ def test_plot_studio_spec_builds_numeric_color_bubble_plot(tmp_path: Path) -> No
                 "max_bubble_size": 30,
                 "color_scale": "plasma",
                 "point_alpha": 0.55,
+                "marker_line_width": 1.4,
+                "marker_line_color": "#111827",
             },
         },
     )
@@ -1645,6 +1774,7 @@ def test_plot_studio_spec_builds_numeric_color_bubble_plot(tmp_path: Path) -> No
     assert trace["marker"]["colorscale"] == "Plasma"
     assert trace["marker"]["colorbar"]["title"] == "score"
     assert trace["marker"]["opacity"] == 0.55
+    assert trace["marker"]["line"] == {"color": "#111827", "width": 1.4}
     assert min(trace["marker"]["size"]) == 6
     assert max(trace["marker"]["size"]) == 60
 

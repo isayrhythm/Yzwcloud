@@ -835,12 +835,14 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
             "width": _bounded_float(params.get("threshold_line_width"), 1.0, 0.5, 6),
             "dash": threshold_line_dash,
         }
-        layout["shapes"] = [
-            _vertical_line(log2fc_threshold, line=threshold_line),
-            _vertical_line(-log2fc_threshold, line=threshold_line),
-            _horizontal_line(-math.log10(p_value_threshold), line=threshold_line),
-        ]
-        layout["annotations"] = [
+        layout.setdefault("shapes", []).extend(
+            [
+                _vertical_line(log2fc_threshold, line=threshold_line),
+                _vertical_line(-log2fc_threshold, line=threshold_line),
+                _horizontal_line(-math.log10(p_value_threshold), line=threshold_line),
+            ]
+        )
+        layout.setdefault("annotations", []).append(
             {
                 "x": 0,
                 "y": -math.log10(p_value_threshold),
@@ -849,7 +851,7 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
                 "yshift": 10,
                 "font": {"size": 11, "color": "#52616b"},
             }
-        ]
+        )
     warnings = []
     if not traces:
         warnings.append("No valid p-value/log2FC rows were available.")
@@ -1427,6 +1429,10 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
     tick_width = _bounded_float(params.get("tick_width"), 1, 0, 6)
     tick_line_color = str(params.get("tick_line_color") or axis_line_color)
     font_family = _font_family(str(params.get("font_family") or "inter"))
+    show_spikes = _truthy(params.get("show_spikes"), False)
+    spike_color = str(params.get("spike_color") or "#64748b")
+    spike_width = _bounded_float(params.get("spike_width"), 1.0, 0.2, 6)
+    spike_dash = _dash_style(params.get("spike_dash"), default="dot")
     layout: dict[str, Any] = {
         "title": {
             "text": resolved_title,
@@ -1440,7 +1446,15 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
         "width": width,
         "height": height,
         "margin": margin,
-        "hovermode": "closest",
+        "hovermode": _hover_mode(params.get("hover_mode")),
+        "dragmode": _drag_mode(params.get("drag_mode")),
+        "hoverlabel": {
+            "bgcolor": str(params.get("hover_label_background") or "#111827"),
+            "font": {
+                "color": str(params.get("hover_label_color") or "#ffffff"),
+                "size": _bounded_int(params.get("hover_label_font_size"), 12, 8, 24),
+            },
+        },
         "xaxis": {
             "title": {
                 "text": _text_or_default(params.get("x_title"), x_title),
@@ -1462,6 +1476,12 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
             "tickcolor": tick_line_color,
             "tickangle": x_tick_angle,
             "tickfont": {"size": tick_font_size, "color": tick_color},
+            "showspikes": show_spikes,
+            "spikecolor": spike_color,
+            "spikethickness": spike_width,
+            "spikedash": spike_dash,
+            "spikemode": "across",
+            "spikesnap": "cursor",
         },
         "yaxis": {
             "title": {
@@ -1484,6 +1504,12 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
             "tickcolor": tick_line_color,
             "tickangle": y_tick_angle,
             "tickfont": {"size": tick_font_size, "color": tick_color},
+            "showspikes": show_spikes,
+            "spikecolor": spike_color,
+            "spikethickness": spike_width,
+            "spikedash": spike_dash,
+            "spikemode": "across",
+            "spikesnap": "cursor",
         },
     }
     x_range = _axis_range(params.get("x_range_mode"), params.get("x_min"), params.get("x_max"))
@@ -1516,8 +1542,9 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
     y_tick_suffix = str(params.get("y_tick_suffix") or "")
     if y_tick_suffix:
         layout["yaxis"]["ticksuffix"] = y_tick_suffix
+    _attach_common_guide_lines(layout, params)
     if subtitle:
-        layout["annotations"] = [
+        layout.setdefault("annotations", []).append(
             {
                 "text": subtitle,
                 "xref": "paper",
@@ -1529,7 +1556,7 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
                 "showarrow": False,
                 "font": {"size": subtitle_font_size, "color": subtitle_color},
             }
-        ]
+        )
         layout["margin"]["t"] = max(layout["margin"]["t"], 92)
     legend_style = {
         "font": {"size": legend_font_size},
@@ -1557,11 +1584,15 @@ def _plotly_config(params: dict[str, Any]) -> dict[str, Any]:
     dpi = str(params.get("dpi") or "300")
     scale = {"150": 1, "300": 2, "600": 4}.get(dpi, 2)
     filename = _plot_filename(params.get("export_filename"))
+    modebar = _display_modebar(params.get("display_modebar"))
+    buttons_to_remove = [] if _truthy(params.get("selection_tools"), False) else ["lasso2d", "select2d"]
     return {
         "displaylogo": False,
+        "displayModeBar": modebar,
         "responsive": True,
+        "scrollZoom": _truthy(params.get("scroll_zoom"), False),
         "toImageButtonOptions": {"format": export_format, "filename": filename, "scale": scale},
-        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+        "modeBarButtonsToRemove": buttons_to_remove,
     }
 
 
@@ -1578,6 +1609,15 @@ def _plot_filename(value: Any) -> str:
         filename = filename.replace("__", "_")
     filename = filename.strip("_")
     return filename[:80] or "yzw_biocloud_plot"
+
+
+def _display_modebar(value: Any) -> bool | str:
+    mode = str(value or "hover")
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+    return "hover"
 
 
 def _axis_range(mode: Any, minimum: Any, maximum: Any) -> list[float] | None:
@@ -1597,6 +1637,92 @@ def _axis_mirror(value: Any) -> bool | str:
     if mode == "ticks":
         return "ticks"
     return False
+
+
+def _hover_mode(value: Any) -> bool | str:
+    mode = str(value or "closest")
+    if mode == "none":
+        return False
+    return mode if mode in {"closest", "x", "x unified", "y", "y unified"} else "closest"
+
+
+def _drag_mode(value: Any) -> bool | str:
+    mode = str(value or "zoom")
+    if mode == "none":
+        return False
+    return mode if mode in {"zoom", "pan", "select", "lasso", "orbit", "turntable"} else "zoom"
+
+
+def _dash_style(value: Any, default: str = "dash") -> str:
+    dash = str(value or default)
+    return dash if dash in {"solid", "dash", "dot", "dashdot"} else default
+
+
+def _attach_common_guide_lines(layout: dict[str, Any], params: dict[str, Any]) -> None:
+    if _truthy(params.get("show_v_reference"), False):
+        x_value = _number_or_none(params.get("v_reference_value"))
+        if x_value is not None:
+            color = str(params.get("v_reference_color") or "#475569")
+            width = _bounded_float(params.get("v_reference_width"), 1.4, 0.2, 8)
+            layout.setdefault("shapes", []).append(
+                {
+                    "type": "line",
+                    "xref": "x",
+                    "yref": "paper",
+                    "x0": x_value,
+                    "x1": x_value,
+                    "y0": 0,
+                    "y1": 1,
+                    "line": {"color": color, "width": width, "dash": _dash_style(params.get("v_reference_dash"))},
+                }
+            )
+            label = str(params.get("v_reference_label") or "").strip()
+            if label:
+                layout.setdefault("annotations", []).append(
+                    {
+                        "xref": "x",
+                        "yref": "paper",
+                        "x": x_value,
+                        "y": 1.01,
+                        "text": label,
+                        "showarrow": False,
+                        "font": {"size": 11, "color": color},
+                        "xanchor": "left",
+                        "yanchor": "bottom",
+                    }
+                )
+    if _truthy(params.get("show_h_reference"), False):
+        y_value = _number_or_none(params.get("h_reference_value"))
+        if y_value is not None:
+            color = str(params.get("h_reference_color") or "#475569")
+            width = _bounded_float(params.get("h_reference_width"), 1.4, 0.2, 8)
+            layout.setdefault("shapes", []).append(
+                {
+                    "type": "line",
+                    "xref": "paper",
+                    "yref": "y",
+                    "x0": 0,
+                    "x1": 1,
+                    "y0": y_value,
+                    "y1": y_value,
+                    "line": {"color": color, "width": width, "dash": _dash_style(params.get("h_reference_dash"))},
+                }
+            )
+            label = str(params.get("h_reference_label") or "").strip()
+            if label:
+                layout.setdefault("annotations", []).append(
+                    {
+                        "xref": "paper",
+                        "yref": "y",
+                        "x": 1.01,
+                        "y": y_value,
+                        "text": label,
+                        "showarrow": False,
+                        "font": {"size": 11, "color": color},
+                        "xanchor": "left",
+                        "yanchor": "middle",
+                    }
+                )
 
 
 def _tick_direction(value: Any) -> str:

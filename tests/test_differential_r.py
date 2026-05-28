@@ -118,3 +118,35 @@ def test_differential_analysis_calls_protein_r(monkeypatch: Any, tmp_path: Path)
     assert calls[0][1][-1] == "2.0"
     assert result.meta["method"] == "r_protein_ttest"
     assert result.meta["tested_gene_count"] == 1
+
+
+def test_differential_analysis_preserves_zero_values_from_r(monkeypatch: Any, tmp_path: Path) -> None:
+    _, _, source = _write_demo_inputs(tmp_path)
+
+    def fake_run_r_script(script_path: Path, args: list[str], **_: Any) -> None:
+        output_dir = Path(args[3])
+        output_dir.joinpath("case_vs_control_all_genes.csv").write_text(
+            "\n".join(
+                [
+                    "gene_id,feature_name,baseMean,log2FoldChange,pvalue,padj",
+                    "ENSGA,GENE_A,6.75,0,0,0.01",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(differential, "run_r_script", fake_run_r_script)
+
+    result = differential.run_differential_analysis(
+        source=source,
+        params={"case_condition": "case", "control_condition": "control", "method": "r_transcriptomics"},
+        output_dir=tmp_path,
+        node_id="diff_analysis__case_vs_control",
+    )
+
+    with Path(result.meta["diff_result_file"]).open(encoding="utf-8-sig", newline="") as file:
+        rows = list(csv.DictReader(file))
+
+    assert rows[0]["log2fc"] == "0.0"
+    assert rows[0]["p_value"] == "0.0"
+    assert float(rows[0]["neg_log10_p"]) == 300.0

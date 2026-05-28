@@ -209,26 +209,18 @@ def _write_canonical_diff_csv(
                 continue
             stats = matrix_stats.get(gene_id, {})
             gene = (raw.get("gene") or raw.get("feature_name") or raw.get("gene_name") or stats.get("gene") or gene_id).strip()
-            case_mean = _float_or_none(raw.get("mean_numerator")) or _float_or_none(raw.get("case_mean"))
-            control_mean = _float_or_none(raw.get("mean_denominator")) or _float_or_none(raw.get("control_mean"))
+            case_mean = _first_float(raw.get("mean_numerator"), raw.get("case_mean"))
+            control_mean = _first_float(raw.get("mean_denominator"), raw.get("control_mean"))
             if case_mean is None:
                 case_mean = stats.get("case_mean", 0.0)
             if control_mean is None:
                 control_mean = stats.get("control_mean", 0.0)
-            log2fc = (
-                _float_or_none(raw.get("log2FoldChange"))
-                or _float_or_none(raw.get("log2_fc"))
-                or _float_or_none(raw.get("log2fc"))
-            )
+            log2fc = _first_float(raw.get("log2FoldChange"), raw.get("log2_fc"), raw.get("log2fc"))
             if log2fc is None:
                 log2fc = _infer_log2fc(float(case_mean), float(control_mean))
-            p_value = (
-                _float_or_none(raw.get("pvalue"))
-                or _float_or_none(raw.get("p_value"))
-                or _float_or_none(raw.get("p.val"))
-                or _float_or_none(raw.get("padj"))
-                or 1.0
-            )
+            p_value = _first_float(raw.get("pvalue"), raw.get("p_value"), raw.get("p.val"), raw.get("padj"))
+            if p_value is None:
+                p_value = 1.0
             rows.append(
                 {
                     "gene": gene,
@@ -294,6 +286,14 @@ def _float_or_none(value: Any) -> float | None:
     if not math.isfinite(number):
         return None
     return number
+
+
+def _first_float(*values: Any) -> float | None:
+    for value in values:
+        number = _float_or_none(value)
+        if number is not None:
+            return number
+    return None
 
 
 def _infer_log2fc(case_mean: float, control_mean: float) -> float:

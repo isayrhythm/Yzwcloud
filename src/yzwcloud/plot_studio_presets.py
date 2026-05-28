@@ -34,7 +34,7 @@ SUPPORTED_PLOTLY_SPEC_TYPES = {
     "enrichment_dot",
 }
 
-ADVANCED_PARAMETER_GROUP_IDS = {"theme", "labels", "export", "style", "reference"}
+ADVANCED_PARAMETER_GROUP_IDS = {"theme", "labels", "export", "style", "reference", "guides", "interaction"}
 
 PLOT_UI_METADATA: dict[str, dict[str, str]] = {
     "scatter": {
@@ -233,6 +233,75 @@ COMMON_THEME_GROUPS = [
             _param("y_tick_suffix", "Y tick suffix", "text", ""),
             _param("x_tick_angle", "X tick angle", "number", 0, min_value=-90, max_value=90, step=5),
             _param("y_tick_angle", "Y tick angle", "number", 0, min_value=-90, max_value=90, step=5),
+        ],
+    ),
+    _group(
+        "guides",
+        "Guide lines",
+        [
+            _param("show_v_reference", "Vertical guide", "boolean", False),
+            _param("v_reference_value", "Vertical value", "number_or_auto", "auto"),
+            _param("v_reference_label", "Vertical label", "text", ""),
+            _param("v_reference_color", "Vertical color", "color", "#475569"),
+            _param("v_reference_width", "Vertical width", "number", 1.4, min_value=0.2, max_value=8, step=0.1),
+            _param(
+                "v_reference_dash",
+                "Vertical dash",
+                "select",
+                "dash",
+                options=["solid", "dash", "dot", "dashdot"],
+            ),
+            _param("show_h_reference", "Horizontal guide", "boolean", False),
+            _param("h_reference_value", "Horizontal value", "number_or_auto", "auto"),
+            _param("h_reference_label", "Horizontal label", "text", ""),
+            _param("h_reference_color", "Horizontal color", "color", "#475569"),
+            _param("h_reference_width", "Horizontal width", "number", 1.4, min_value=0.2, max_value=8, step=0.1),
+            _param(
+                "h_reference_dash",
+                "Horizontal dash",
+                "select",
+                "dash",
+                options=["solid", "dash", "dot", "dashdot"],
+            ),
+        ],
+    ),
+    _group(
+        "interaction",
+        "Interaction",
+        [
+            _param(
+                "hover_mode",
+                "Hover mode",
+                "select",
+                "closest",
+                options=["closest", "x", "x unified", "y", "y unified", "none"],
+                help_text="Controls whether hover follows points, axes, or a unified comparison label.",
+            ),
+            _param(
+                "drag_mode",
+                "Drag mode",
+                "select",
+                "zoom",
+                options=["zoom", "pan", "select", "lasso", "orbit", "turntable", "none"],
+                help_text="Default mouse drag behavior in the interactive Plotly canvas.",
+            ),
+            _param(
+                "display_modebar",
+                "Toolbar",
+                "select",
+                "hover",
+                options=["hover", "always", "never"],
+                help_text="Controls when Plotly's interactive toolbar is visible.",
+            ),
+            _param("scroll_zoom", "Scroll zoom", "boolean", False),
+            _param("selection_tools", "Selection tools", "boolean", False),
+            _param("show_spikes", "Axis hover guide", "boolean", False),
+            _param("spike_color", "Guide color", "color", "#64748b"),
+            _param("spike_width", "Guide width", "number", 1.0, min_value=0.2, max_value=6, step=0.1),
+            _param("spike_dash", "Guide dash", "select", "dot", options=["solid", "dash", "dot", "dashdot"]),
+            _param("hover_label_background", "Hover background", "color", "#111827"),
+            _param("hover_label_color", "Hover text color", "color", "#ffffff"),
+            _param("hover_label_font_size", "Hover text size", "number", 12, min_value=8, max_value=24, step=1),
         ],
     ),
     _group(

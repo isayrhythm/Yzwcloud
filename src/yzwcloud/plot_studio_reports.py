@@ -303,14 +303,14 @@ def _layout_parameter_summary(params: dict[str, Any]) -> str:
 
 def _analysis_parameter_text(plot_id: str, params: dict[str, Any]) -> str:
     summary = _parameter_summary(plot_id, params)
-    notes = summary.get("statistics", []) + summary.get("display", [])
+    notes = summary.get("statistics", []) + summary.get("display", []) + summary.get("interaction", [])
     if not notes:
         return "No analysis-specific parameter override is currently applied."
     return "Analysis/display overrides: " + "; ".join(notes) + "."
 
 
 def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[str]]:
-    summary: dict[str, list[str]] = {"statistics": [], "display": [], "export": []}
+    summary: dict[str, list[str]] = {"statistics": [], "display": [], "interaction": [], "export": []}
     if plot_id == "boxplot":
         pairwise_test = str(params.get("pairwise_test") or "none")
         if pairwise_test != "none":
@@ -654,6 +654,50 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
         summary["display"].append(f"y tick prefix={params.get('y_tick_prefix')}")
     if params.get("y_tick_suffix"):
         summary["display"].append(f"y tick suffix={params.get('y_tick_suffix')}")
+    if params.get("show_v_reference"):
+        summary["display"].append(f"vertical guide={params.get('v_reference_value', 'auto')}")
+        if params.get("v_reference_label"):
+            summary["display"].append(f"vertical guide label='{params.get('v_reference_label')}'")
+        if params.get("v_reference_color"):
+            summary["display"].append(f"vertical guide color={params.get('v_reference_color')}")
+        if params.get("v_reference_width") is not None:
+            summary["display"].append(f"vertical guide width={params.get('v_reference_width')}")
+        if params.get("v_reference_dash"):
+            summary["display"].append(f"vertical guide dash={params.get('v_reference_dash')}")
+    if params.get("show_h_reference"):
+        summary["display"].append(f"horizontal guide={params.get('h_reference_value', 'auto')}")
+        if params.get("h_reference_label"):
+            summary["display"].append(f"horizontal guide label='{params.get('h_reference_label')}'")
+        if params.get("h_reference_color"):
+            summary["display"].append(f"horizontal guide color={params.get('h_reference_color')}")
+        if params.get("h_reference_width") is not None:
+            summary["display"].append(f"horizontal guide width={params.get('h_reference_width')}")
+        if params.get("h_reference_dash"):
+            summary["display"].append(f"horizontal guide dash={params.get('h_reference_dash')}")
+    if params.get("hover_mode"):
+        summary["interaction"].append(f"hover mode={params.get('hover_mode')}")
+    if params.get("drag_mode"):
+        summary["interaction"].append(f"drag mode={params.get('drag_mode')}")
+    if params.get("display_modebar"):
+        summary["interaction"].append(f"toolbar={params.get('display_modebar')}")
+    if "scroll_zoom" in params:
+        summary["interaction"].append(f"scroll zoom={bool(params.get('scroll_zoom'))}")
+    if "selection_tools" in params:
+        summary["interaction"].append(f"selection tools={bool(params.get('selection_tools'))}")
+    if "show_spikes" in params:
+        summary["interaction"].append(f"axis hover guide={bool(params.get('show_spikes'))}")
+    if params.get("spike_color"):
+        summary["interaction"].append(f"hover guide color={params.get('spike_color')}")
+    if params.get("spike_width") is not None:
+        summary["interaction"].append(f"hover guide width={params.get('spike_width')}")
+    if params.get("spike_dash"):
+        summary["interaction"].append(f"hover guide dash={params.get('spike_dash')}")
+    if params.get("hover_label_background"):
+        summary["interaction"].append(f"hover label background={params.get('hover_label_background')}")
+    if params.get("hover_label_color"):
+        summary["interaction"].append(f"hover label color={params.get('hover_label_color')}")
+    if params.get("hover_label_font_size") is not None:
+        summary["interaction"].append(f"hover label size={params.get('hover_label_font_size')}")
     return {key: value for key, value in summary.items() if value}
 
 

@@ -92,6 +92,38 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "y_tick_prefix",
         "y_tick_suffix",
     }
+    guides_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "guides")
+    assert guides_group["advanced"] is True
+    assert {param["id"] for param in guides_group["parameters"]} >= {
+        "show_v_reference",
+        "v_reference_value",
+        "v_reference_label",
+        "v_reference_color",
+        "v_reference_width",
+        "v_reference_dash",
+        "show_h_reference",
+        "h_reference_value",
+        "h_reference_label",
+        "h_reference_color",
+        "h_reference_width",
+        "h_reference_dash",
+    }
+    interaction_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "interaction")
+    assert interaction_group["advanced"] is True
+    assert {param["id"] for param in interaction_group["parameters"]} >= {
+        "hover_mode",
+        "drag_mode",
+        "display_modebar",
+        "scroll_zoom",
+        "selection_tools",
+        "show_spikes",
+        "spike_color",
+        "spike_width",
+        "spike_dash",
+        "hover_label_background",
+        "hover_label_color",
+        "hover_label_font_size",
+    }
     export_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "export")
     assert export_group["advanced"] is True
     assert {param["id"] for param in export_group["parameters"]} >= {
@@ -303,6 +335,30 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
                 "x_tick_suffix": "",
                 "y_tick_prefix": "",
                 "y_tick_suffix": "%",
+                "show_v_reference": True,
+                "v_reference_value": 1.5,
+                "v_reference_label": "cutoff",
+                "v_reference_color": "#7c3aed",
+                "v_reference_width": 2.1,
+                "v_reference_dash": "dot",
+                "show_h_reference": True,
+                "h_reference_value": 6,
+                "h_reference_label": "target",
+                "h_reference_color": "#be123c",
+                "h_reference_width": 1.8,
+                "h_reference_dash": "dashdot",
+                "hover_mode": "x unified",
+                "drag_mode": "pan",
+                "display_modebar": "always",
+                "scroll_zoom": True,
+                "selection_tools": True,
+                "show_spikes": True,
+                "spike_color": "#334155",
+                "spike_width": 2.4,
+                "spike_dash": "dash",
+                "hover_label_background": "#020617",
+                "hover_label_color": "#f8fafc",
+                "hover_label_font_size": 15,
                 "export_filename": "QC heatmap v1",
             },
         },
@@ -366,6 +422,28 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
     assert "y tick format=.2f" in report["agent_context"]["parameter_summary"]["display"]
     assert "x tick prefix=PC" in report["agent_context"]["parameter_summary"]["display"]
     assert "y tick suffix=%" in report["agent_context"]["parameter_summary"]["display"]
+    assert "vertical guide=1.5" in report["agent_context"]["parameter_summary"]["display"]
+    assert "vertical guide label='cutoff'" in report["agent_context"]["parameter_summary"]["display"]
+    assert "vertical guide color=#7c3aed" in report["agent_context"]["parameter_summary"]["display"]
+    assert "vertical guide width=2.1" in report["agent_context"]["parameter_summary"]["display"]
+    assert "vertical guide dash=dot" in report["agent_context"]["parameter_summary"]["display"]
+    assert "horizontal guide=6" in report["agent_context"]["parameter_summary"]["display"]
+    assert "horizontal guide label='target'" in report["agent_context"]["parameter_summary"]["display"]
+    assert "horizontal guide color=#be123c" in report["agent_context"]["parameter_summary"]["display"]
+    assert "horizontal guide width=1.8" in report["agent_context"]["parameter_summary"]["display"]
+    assert "horizontal guide dash=dashdot" in report["agent_context"]["parameter_summary"]["display"]
+    assert "hover mode=x unified" in sections["Parameter notes"]["text"]
+    assert "drag mode=pan" in sections["Parameter notes"]["text"]
+    assert "toolbar=always" in sections["Parameter notes"]["text"]
+    assert "scroll zoom=True" in report["agent_context"]["parameter_summary"]["interaction"]
+    assert "selection tools=True" in report["agent_context"]["parameter_summary"]["interaction"]
+    assert "axis hover guide=True" in report["agent_context"]["parameter_summary"]["interaction"]
+    assert "hover guide color=#334155" in report["agent_context"]["parameter_summary"]["interaction"]
+    assert "hover guide width=2.4" in report["agent_context"]["parameter_summary"]["interaction"]
+    assert "hover guide dash=dash" in report["agent_context"]["parameter_summary"]["interaction"]
+    assert "hover label background=#020617" in report["agent_context"]["parameter_summary"]["interaction"]
+    assert "hover label color=#f8fafc" in report["agent_context"]["parameter_summary"]["interaction"]
+    assert "hover label size=15" in report["agent_context"]["parameter_summary"]["interaction"]
     assert "linkage=average" in report["agent_context"]["parameter_summary"]["statistics"]
     assert any("Do not infer visual details" in item for item in report["agent_context"]["interpretation_rules"])
 
@@ -1193,6 +1271,28 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
                 "y_tick_format": ".2f",
                 "y_tick_prefix": "",
                 "y_tick_suffix": " TPM",
+                "show_v_reference": True,
+                "v_reference_value": 1.5,
+                "v_reference_color": "#7c3aed",
+                "v_reference_width": 2.1,
+                "v_reference_dash": "dot",
+                "show_h_reference": True,
+                "h_reference_value": 6,
+                "h_reference_color": "#be123c",
+                "h_reference_width": 1.8,
+                "h_reference_dash": "dashdot",
+                "hover_mode": "x unified",
+                "drag_mode": "pan",
+                "display_modebar": "always",
+                "scroll_zoom": True,
+                "selection_tools": True,
+                "show_spikes": True,
+                "spike_color": "#334155",
+                "spike_width": 2.4,
+                "spike_dash": "dash",
+                "hover_label_background": "#020617",
+                "hover_label_color": "#f8fafc",
+                "hover_label_font_size": 15,
                 "x_tick_angle": -35,
                 "width": 900,
                 "height": 520,
@@ -1241,6 +1341,35 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
     assert spec["layout"]["xaxis"]["zeroline"] is False
     assert spec["layout"]["xaxis"]["zerolinecolor"] == "#94a3b8"
     assert spec["layout"]["xaxis"]["zerolinewidth"] == 2
+    assert spec["layout"]["hovermode"] == "x unified"
+    assert spec["layout"]["dragmode"] == "pan"
+    assert spec["config"]["displayModeBar"] is True
+    assert spec["config"]["scrollZoom"] is True
+    assert spec["config"]["modeBarButtonsToRemove"] == []
+    assert spec["layout"]["hoverlabel"] == {
+        "bgcolor": "#020617",
+        "font": {"color": "#f8fafc", "size": 15},
+    }
+    assert spec["layout"]["xaxis"]["showspikes"] is True
+    assert spec["layout"]["xaxis"]["spikecolor"] == "#334155"
+    assert spec["layout"]["xaxis"]["spikethickness"] == 2.4
+    assert spec["layout"]["xaxis"]["spikedash"] == "dash"
+    assert spec["layout"]["yaxis"]["showspikes"] is True
+    assert spec["layout"]["yaxis"]["spikecolor"] == "#334155"
+    assert spec["layout"]["yaxis"]["spikethickness"] == 2.4
+    assert spec["layout"]["yaxis"]["spikedash"] == "dash"
+    assert any(
+        shape["xref"] == "x"
+        and shape["x0"] == 1.5
+        and shape["line"] == {"color": "#7c3aed", "width": 2.1, "dash": "dot"}
+        for shape in spec["layout"]["shapes"]
+    )
+    assert any(
+        shape["yref"] == "y"
+        and shape["y0"] == 6.0
+        and shape["line"] == {"color": "#be123c", "width": 1.8, "dash": "dashdot"}
+        for shape in spec["layout"]["shapes"]
+    )
     assert spec["layout"]["yaxis"]["linecolor"] == "#111827"
     assert spec["layout"]["yaxis"]["linewidth"] == 2.5
     assert spec["layout"]["yaxis"]["mirror"] is True
@@ -1267,6 +1396,31 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
     assert spec["config"]["toImageButtonOptions"]["filename"] == "Figure_1_boxplot"
     assert spec["config"]["toImageButtonOptions"]["scale"] == 4
     assert spec["config"]["displaylogo"] is False
+
+
+def test_plot_studio_default_toolbar_stays_unobtrusive() -> None:
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Expression matrix",
+                "type": "expression_matrix",
+                "dataPath": str(DATA_FILE),
+            },
+            "plotType": "boxplot",
+            "params": {"max_groups": 3},
+        },
+    )
+
+    assert spec["config"]["displaylogo"] is False
+    assert spec["config"]["displayModeBar"] == "hover"
+    assert spec["config"]["scrollZoom"] is False
+    assert spec["config"]["modeBarButtonsToRemove"] == ["lasso2d", "select2d"]
 
 
 def test_plot_studio_scatter_statistics_controls_render_overlays(tmp_path: Path) -> None:

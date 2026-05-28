@@ -422,6 +422,12 @@ button {
   align-content: space-between;
   gap: 18px;
   padding: 20px;
+  transition: border-color 0.24s ease, box-shadow 0.24s ease, transform 0.24s ease;
+}
+
+.workflow-inspector.chart-expanded {
+  border-color: rgba(121, 243, 242, 0.48);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(121, 243, 242, 0.14) inset;
 }
 
 .workflow-inspector h2 {
@@ -436,6 +442,47 @@ button {
   line-height: 1.65;
 }
 
+.agent-trace {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-trace span {
+  position: relative;
+  overflow: hidden;
+  padding: 8px 10px 8px 24px;
+  border: 1px solid rgba(217, 255, 247, 0.16);
+  border-radius: 10px;
+  color: rgba(238, 252, 255, 0.58);
+  background: rgba(238, 252, 255, 0.06);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.agent-trace span::before {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  content: "";
+  border-radius: 50%;
+  background: rgba(238, 252, 255, 0.3);
+  transform: translateY(-50%);
+}
+
+.agent-trace span.done {
+  border-color: rgba(121, 243, 242, 0.42);
+  color: #eaffff;
+  background: rgba(121, 243, 242, 0.1);
+}
+
+.agent-trace span.done::before {
+  background: #79f3f2;
+  box-shadow: 0 0 16px rgba(121, 243, 242, 0.65);
+}
+
 .plot-card-preview {
   display: grid;
   gap: 12px;
@@ -445,6 +492,14 @@ button {
   border-radius: 16px;
   background: rgba(245, 251, 252, 0.96);
   color: #07131f;
+  transform-origin: center bottom;
+  transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
+}
+
+.workflow-inspector.chart-expanded .plot-card-preview {
+  border-color: rgba(121, 243, 242, 0.78);
+  box-shadow: 0 24px 62px rgba(0, 0, 0, 0.26);
+  transform: scale(1.025);
 }
 
 .plot-card-top {
@@ -474,6 +529,21 @@ button {
   border: 1px solid rgba(15, 107, 87, 0.18);
   color: #0f6b57;
   background: #e7f3ef;
+}
+
+.plot-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plot-preview-meta span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #0f4c55;
+  background: #e6f4f3;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .demo-chart {
@@ -3730,6 +3800,25 @@ h2 {
 .plot-type-card {
   text-align: left;
   cursor: pointer;
+}
+
+.plot-type-card.unsupported,
+.plot-type-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  background: #f7fafc;
+  box-shadow: none;
+}
+
+.plot-type-card.unsupported .mini-plot,
+.plot-type-card:disabled .mini-plot {
+  filter: grayscale(0.75);
+}
+
+.unsupported-badge {
+  border-color: rgba(148, 163, 184, 0.34) !important;
+  background: rgba(148, 163, 184, 0.12) !important;
+  color: #64748b !important;
 }
 
 .plot-type-card.active {

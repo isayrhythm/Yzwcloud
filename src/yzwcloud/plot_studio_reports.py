@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -352,10 +353,18 @@ def _signal_text(
             low = data_profile["lowest_values"][0]
             skipped = data_profile.get("excluded_numeric_columns") or []
             suffix = f"; skipped numeric metadata: {', '.join(skipped[:4])}" if skipped else ""
+            group_summary = data_profile.get("inferred_groups") or []
+            group_suffix = (
+                "; inferred groups: "
+                + ", ".join(f"{item['group']} n={item['count']}" for item in group_summary[:5])
+                if len(group_summary) > 1
+                else ""
+            )
             return (
                 f"Single-row expression profile for {data_profile['identifier']} contains "
                 f"{data_profile['value_count']} sample-like value(s). Highest value is "
-                f"{top['column']}={top['value']}; lowest value is {low['column']}={low['value']}{suffix}."
+                f"{top['column']}={top['value']}; lowest value is {low['column']}={low['value']}"
+                f"{group_suffix}{suffix}."
             )
         matrix_profile = table_summary.get("signals", {}).get("matrix_profile")
         if matrix_profile:
@@ -427,10 +436,18 @@ def _figure_interpretation(
     if data_profile and plot_id in {"bar", "histogram", "density_curve", "ecdf"}:
         high = ", ".join(f"{item['column']}={item['value']}" for item in data_profile["highest_values"][:3])
         low = ", ".join(f"{item['column']}={item['value']}" for item in data_profile["lowest_values"][:3])
+        group_summary = data_profile.get("inferred_groups") or []
+        group_text = (
+            " Inferred column groups are "
+            + ", ".join(f"{item['group']} (n={item['count']})" for item in group_summary[:5])
+            + "."
+            if len(group_summary) > 1
+            else ""
+        )
         return (
             f"For this single-row expression profile, the report agent should compare "
             f"{data_profile['value_count']} sample-like values for {data_profile['identifier']}. "
-            f"Highest values: {high}. Lowest values: {low}. "
+            f"Highest values: {high}. Lowest values: {low}.{group_text} "
             "This describes the attached table values only and should not be treated as a statistical group comparison."
         )
     if not guidance:
@@ -1538,10 +1555,13 @@ def _single_row_profile_context(
         return None
     row = records[0]
     values = []
+    group_counts: dict[str, int] = {}
     for column in value_columns:
         value = _parse_float(row.get(column))
         if value is None or not math.isfinite(value):
             continue
+        group = _profile_group_from_column(column)
+        group_counts[group] = group_counts.get(group, 0) + 1
         values.append({"column": column, "value": _round_number(value)})
     if not values:
         return None
@@ -1554,6 +1574,8 @@ def _single_row_profile_context(
     sorted_high = sorted(values, key=lambda item: float(item["value"]), reverse=True)
     sorted_low = sorted(values, key=lambda item: float(item["value"]))
     numeric_values = [float(item["value"]) for item in values]
+    if len(group_counts) < 2:
+        group_counts = {"Profile": len(values)}
     return {
         "kind": "single_row_expression_profile",
         "identifier": identifier,
@@ -1563,8 +1585,20 @@ def _single_row_profile_context(
         "maximum": sorted_high[0],
         "highest_values": sorted_high[:5],
         "lowest_values": sorted_low[:5],
+        "inferred_groups": [
+            {"group": group, "count": count}
+            for group, count in group_counts.items()
+        ],
         "value_columns_preview": [item["column"] for item in values[:12]],
         "excluded_numeric_columns": matrix_profile.get("excluded_numeric_columns") or [],
     }
+
+
+def _profile_group_from_column(column: str) -> str:
+    text = str(column).strip()
+    if not text:
+        return "Profile"
+    cleaned = re.sub(r"[-_.\s]+(?:rep(?:licate)?|r)?\d+$", "", text, flags=re.IGNORECASE).strip()
+    return cleaned or "Profile"
 
 

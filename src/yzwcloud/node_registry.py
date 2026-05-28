@@ -205,41 +205,6 @@ def _as_expression_matrix(data_object: DataObject) -> DataObject:
     )
 
 
-def _execute_diff_node(
-    node_id: str,
-    inputs: dict[str, DataObject],
-    params: dict[str, Any],
-    output_dir: Path,
-) -> DataObject:
-    source = inputs["upload_expression"]
-    case_condition = str(params["case_condition"])
-    control_condition = str(params["control_condition"])
-    output_file = output_dir / f"{node_id}_output.json"
-
-    payload = {
-        "message": "MVP 示例差异分析结果",
-        "comparison": {
-            "case": case_condition,
-            "control": control_condition,
-        },
-        "method": params.get("method", "r_transcriptomics"),
-        "threshold": {
-            "p_value": params.get("p_value", 0.05),
-            "log2fc": params.get("log2fc", 1.0),
-        },
-        "input": source.model_dump(),
-        "generated_at": datetime.now().isoformat(),
-    }
-    meta = {
-        "diff_gene_count": 128,
-        "method": payload["method"],
-        "case_condition": case_condition,
-        "control_condition": control_condition,
-        "comparison_label": f"{case_condition} vs {control_condition}",
-    }
-    return _write_output(output_file, output_type="diff_result", meta=meta, payload=payload)
-
-
 def _execute_plot_node(
     node_id: str,
     output_type: str,

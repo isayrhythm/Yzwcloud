@@ -43,9 +43,15 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     ]
     assert "report agent" in manifest["workflow_stages"][-1]["description"]
     recipes = {item["id"]: item for item in manifest["style_recipes"]}
-    assert {"publication", "presentation", "exploration"} <= set(recipes)
+    assert {"publication", "prism_clean", "data_review", "presentation", "exploration"} <= set(recipes)
     assert recipes["publication"]["params"]["format"] == "svg"
     assert recipes["publication"]["params"]["show_grid"] is False
+    assert recipes["prism_clean"]["params"]["show_grid"] is False
+    assert recipes["prism_clean"]["params"]["axis_line_width"] >= 1.8
+    assert recipes["prism_clean"]["params"]["tick_direction"] == "outside"
+    assert recipes["data_review"]["params"]["display_modebar"] == "always"
+    assert recipes["data_review"]["params"]["selection_tools"] is True
+    assert recipes["data_review"]["params"]["show_spikes"] is True
     assert recipes["presentation"]["params"]["title_font_size"] > recipes["publication"]["params"]["title_font_size"]
     assert recipes["exploration"]["params"]["display_modebar"] == "always"
     assert recipes["exploration"]["params"]["selection_tools"] is True
@@ -5067,6 +5073,23 @@ def test_plot_studio_rejects_multisample_plots_for_single_row_tables(tmp_path: P
     assert radar["data"] == []
     assert any("at least two sample or group profiles" in warning for warning in radar["warnings"])
 
+    for plot_type, expected in [
+        ("bubble", "x/y/size"),
+        ("density_contour", "x/y"),
+        ("scatter_3d", "x/y/z"),
+        ("parallel_coordinates", "sample or group profiles"),
+        ("correlation", "at least two observation rows"),
+    ]:
+        blocked = _request(
+            client,
+            "POST",
+            "/api/plot-studio/spec",
+            json={"source": source, "plotType": plot_type},
+        )
+        assert blocked["plot_type"] == plot_type
+        assert blocked["data"] == []
+        assert any(expected in warning for warning in blocked["warnings"])
+
 
 def test_plot_studio_recommends_profile_charts_for_single_gene_matrices(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
@@ -5131,6 +5154,17 @@ def test_plot_studio_single_gene_matrix_bar_and_histogram_use_sample_columns(tmp
         "Group C-2",
     ]
     assert bar["data"][0]["y"] == [8.2, 8.6, 3.1, 3.5, 6.7, 6.4]
+    assert bar["data"][0]["customdata"] == [
+        ["Group A"],
+        ["Group A"],
+        ["Group B"],
+        ["Group B"],
+        ["Group C"],
+        ["Group C"],
+    ]
+    assert len(bar["data"][0]["marker"]["color"]) == 6
+    assert [trace["name"] for trace in bar["data"][1:]] == ["Group A", "Group B", "Group C"]
+    assert bar["layout"]["legend"]["title"]["text"] == "Inferred group"
     assert any(
         "Skipped numeric metadata columns" in warning and "Length" in warning
         for warning in bar["warnings"]
@@ -5139,15 +5173,13 @@ def test_plot_studio_single_gene_matrix_bar_and_histogram_use_sample_columns(tmp
     assert histogram["plot_type"] == "histogram"
     assert histogram["layout"]["title"]["text"] == "Histogram profile: AL590714.1"
     assert histogram["layout"]["xaxis"]["title"]["text"] == "sample-like value"
-    assert histogram["data"][0]["x"] == [8.2, 8.6, 3.1, 3.5, 6.7, 6.4]
-    assert histogram["data"][0]["customdata"] == [
-        "Group A-1",
-        "Group A-2",
-        "Group B-1",
-        "Group B-2",
-        "Group C-1",
-        "Group C-2",
-    ]
+    assert [trace["name"] for trace in histogram["data"]] == ["Group A", "Group B", "Group C"]
+    assert histogram["data"][0]["x"] == [8.2, 8.6]
+    assert histogram["data"][0]["customdata"] == ["Group A-1", "Group A-2"]
+    assert histogram["data"][1]["x"] == [3.1, 3.5]
+    assert histogram["data"][1]["customdata"] == ["Group B-1", "Group B-2"]
+    assert histogram["layout"]["legend"]["title"]["text"] == "Inferred group"
+    assert len(histogram["layout"]["shapes"]) == 3
     assert any(
         "Skipped numeric metadata columns" in warning and "Length" in warning
         for warning in histogram["warnings"]
@@ -5188,6 +5220,11 @@ def test_plot_studio_report_summarizes_single_gene_profile_values(tmp_path: Path
     assert profile["value_count"] == 6
     assert profile["maximum"] == {"column": "Group A-2", "value": 8.6}
     assert profile["minimum"] == {"column": "Group B-1", "value": 3.1}
+    assert profile["inferred_groups"] == [
+        {"group": "Group A", "count": 2},
+        {"group": "Group B", "count": 2},
+        {"group": "Group C", "count": 2},
+    ]
     assert profile["highest_values"][:3] == [
         {"column": "Group A-2", "value": 8.6},
         {"column": "Group A-1", "value": 8.2},
@@ -5201,6 +5238,7 @@ def test_plot_studio_report_summarizes_single_gene_profile_values(tmp_path: Path
         "Highest values: Group A-2=8.6, Group A-1=8.2, Group C-1=6.7"
         in sections["Figure interpretation"]
     )
+    assert "Inferred column groups are Group A (n=2), Group B (n=2), Group C (n=2)" in sections["Figure interpretation"]
     assert suitability["recommended_plot_ids"][:2] == ["bar", "histogram"]
     assert suitability["selected_is_recommended"] is True
     assert {"scatter", "radar", "correlation"}.issubset(set(suitability["not_recommended_plot_ids"]))

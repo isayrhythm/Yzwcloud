@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import math
+import re
 from datetime import date, datetime
 from statistics import fmean, median, pstdev
 from typing import Any
@@ -32,6 +33,9 @@ def create_plot_studio_spec(
 
     table_summary = inspect_table(data_path)
     selected_plot_id = _select_plot_id(plot_type, recommend_plot_types(source_type, table_summary))
+    single_row_warning = _single_row_plot_warning(selected_plot_id, table_summary)
+    if single_row_warning:
+        return _empty_plot_spec(selected_plot_id, single_row_warning, table_summary)
     columns, records = _load_table_records(
         data_path,
         max_rows=_bounded_int(resolved_params.get("max_rows"), 800, 50, 5000),
@@ -121,6 +125,23 @@ def create_plot_studio_spec(
         }
     )
     return spec
+
+
+def _single_row_plot_warning(plot_id: str, table_summary: dict[str, Any]) -> str:
+    row_count = int(table_summary.get("scanned_rows") or table_summary.get("row_count") or 0)
+    if row_count > 1:
+        return ""
+    if plot_id in {"scatter", "density_contour"}:
+        return "Scatter-style plots require at least two complete x/y numeric rows; choose Bar or Histogram for a single-row profile."
+    if plot_id == "scatter_3d":
+        return "3D scatter requires at least two complete x/y/z numeric rows; choose Bar or Histogram for a single-row profile."
+    if plot_id == "bubble":
+        return "Bubble plots require at least two complete x/y/size rows; choose Bar or Histogram for a single-row profile."
+    if plot_id in {"radar", "parallel_coordinates"}:
+        return "Radar and parallel-coordinate plots require at least two sample or group profiles; choose Bar or Histogram for a single-row profile."
+    if plot_id == "correlation":
+        return "Correlation heatmaps require at least two observation rows; choose Bar or Histogram for a single-row profile."
+    return ""
 
 
 def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -805,6 +826,8 @@ def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dic
 def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
     params = context["params"]
     profile = _single_row_matrix_profile(context, max_columns=_bounded_int(params.get("max_groups"), 20, 2, 80))
+    profile_group_lookup: dict[str, str] = {}
+    profile_group_colors: dict[str, str] = {}
     requested_category = _requested_column(params.get("category"), context["categorical_columns"])
     requested_value = _requested_column(params.get("value"), context["numeric_columns"])
     if profile and not (requested_category and requested_value):
@@ -880,17 +903,29 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
             x_title = "sample-like columns"
             y_title = "value"
             title = f"Bar profile: {profile['label']}"
+            profile_group_lookup = _profile_group_lookup(labels)
+            profile_group_colors = {
+                group: PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+                for index, group in enumerate(dict.fromkeys(profile_group_lookup.values()))
+            }
         else:
             x_title = "numeric columns"
             y_title = aggregation
             title = "Bar summary by numeric column"
+
+    marker_color: str | list[str] = PLOTLY_PALETTE[0]
+    customdata = None
+    if profile_group_lookup:
+        groups = [profile_group_lookup.get(label, "Profile") for label in labels]
+        marker_color = [profile_group_colors[group] for group in groups]
+        customdata = [[group] for group in groups]
 
     trace = {
         "type": "bar",
         "x": labels,
         "y": values,
         "width": _bounded_float(params.get("bar_width"), 0.72, 0.1, 1.0),
-        "marker": {"color": PLOTLY_PALETTE[0], "line": {"color": "#0a4f52", "width": 1}},
+        "marker": {"color": marker_color, "line": {"color": "#0a4f52", "width": 1}},
         "error_y": {
             "type": "data",
             "array": errors,
@@ -900,6 +935,9 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
         },
         "hovertemplate": "%{x}<br>value=%{y:.4g}<extra></extra>",
     }
+    if customdata:
+        trace["customdata"] = customdata
+        trace["hovertemplate"] = "%{x}<br>group=%{customdata[0]}<br>value=%{y:.4g}<extra></extra>"
     if _truthy(params.get("show_values"), False):
         precision = _bounded_int(params.get("value_precision"), 2, 0, 6)
         trace["text"] = [f"{value:.{precision}f}" for value in values]
@@ -937,6 +975,23 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
 
     layout = _base_layout(title=title, x_title=x_title, y_title=y_title, params=params)
     layout["bargap"] = 0.28
+    if profile_group_colors and len(profile_group_colors) > 1:
+        for group, color in profile_group_colors.items():
+            data.append(
+                {
+                    "type": "scatter",
+                    "mode": "markers",
+                    "name": group,
+                    "x": [None],
+                    "y": [None],
+                    "marker": {"color": color, "size": 9},
+                    "hoverinfo": "skip",
+                    "showlegend": True,
+                }
+            )
+        layout.setdefault("legend", {})["title"] = {"text": "Inferred group"}
+        if len(labels) > 8:
+            layout["xaxis"]["tickangle"] = -35
     if _truthy(params.get("show_p_values"), False):
         if str(params.get("orientation") or "vertical") == "horizontal":
             warnings.append("Pairwise p-value brackets are currently available for vertical bar charts.")
@@ -1017,35 +1072,51 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
             )
         bins = _bounded_int(params.get("bins"), min(20, max(5, len(values))), 5, 200)
         histnorm = str(params.get("histnorm") or "count")
-        color = PLOTLY_PALETTE[0]
-        trace = {
-            "type": "histogram",
-            "name": profile["label"],
-            "x": values,
-            "customdata": labels,
-            "nbinsx": bins,
-            "histnorm": "" if histnorm == "count" else histnorm,
-            "opacity": _bounded_float(params.get("opacity"), 0.72, 0.1, 1),
-            "marker": {
-                "color": color,
-                "line": {
-                    "color": str(params.get("bar_line_color") or "#ffffff"),
-                    "width": _bounded_float(params.get("bar_line_width"), 0.5, 0, 4),
-                },
-            },
-            "hovertemplate": "value=%{x:.4g}<br>sample=%{customdata}<extra></extra>",
-        }
+        opacity = _bounded_float(params.get("opacity"), 0.72, 0.1, 1)
+        bar_line_color = str(params.get("bar_line_color") or "#ffffff")
+        bar_line_width = _bounded_float(params.get("bar_line_width"), 0.5, 0, 4)
+        group_lookup = _profile_group_lookup(labels)
+        grouped_profile_values: dict[str, dict[str, list[Any]]] = {}
+        for label, value in zip(labels, values, strict=False):
+            group = group_lookup.get(label, "Profile")
+            group_bucket = grouped_profile_values.setdefault(group, {"values": [], "labels": []})
+            group_bucket["values"].append(value)
+            group_bucket["labels"].append(label)
+        multiple_groups = len(grouped_profile_values) > 1
+        traces = []
         shapes = []
         annotations = []
         reference_line_width = _bounded_float(params.get("reference_line_width"), 1.7, 0.5, 6)
-        if _truthy(params.get("show_mean"), True):
-            mean_value = fmean(values)
-            shapes.append(_x_reference_line(mean_value, color, dash="dash", width=reference_line_width))
-            annotations.append(_x_reference_annotation(mean_value, "mean", color))
-        if _truthy(params.get("show_median"), False):
-            median_value = float(median(values))
-            shapes.append(_x_reference_line(median_value, color, dash="dot", width=reference_line_width))
-            annotations.append(_x_reference_annotation(median_value, "median", color))
+        for index, (group, bucket) in enumerate(grouped_profile_values.items()):
+            color = PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+            group_values = [float(value) for value in bucket["values"]]
+            traces.append(
+                {
+                    "type": "histogram",
+                    "name": group if multiple_groups else profile["label"],
+                    "x": group_values,
+                    "customdata": bucket["labels"],
+                    "nbinsx": bins,
+                    "histnorm": "" if histnorm == "count" else histnorm,
+                    "opacity": opacity if not multiple_groups else min(opacity, 0.64),
+                    "marker": {
+                        "color": color,
+                        "line": {"color": bar_line_color, "width": bar_line_width},
+                    },
+                    "hovertemplate": (
+                        "value=%{x:.4g}<br>sample=%{customdata}"
+                        + ("<extra>%{fullData.name}</extra>" if multiple_groups else "<extra></extra>")
+                    ),
+                }
+            )
+            if _truthy(params.get("show_mean"), True):
+                mean_value = fmean(group_values)
+                shapes.append(_x_reference_line(mean_value, color, dash="dash", width=reference_line_width))
+                annotations.append(_x_reference_annotation(mean_value, f"{group} mean" if multiple_groups else "mean", color))
+            if _truthy(params.get("show_median"), False):
+                median_value = float(median(group_values))
+                shapes.append(_x_reference_line(median_value, color, dash="dot", width=reference_line_width))
+                annotations.append(_x_reference_annotation(median_value, f"{group} median" if multiple_groups else "median", color))
         layout = _base_layout(
             title=f"Histogram profile: {profile['label']}",
             x_title="sample-like value",
@@ -1053,6 +1124,8 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
             params=params,
         )
         layout["barmode"] = str(params.get("barmode") or "overlay")
+        if multiple_groups:
+            layout.setdefault("legend", {})["title"] = {"text": "Inferred group"}
         if shapes:
             layout.setdefault("shapes", []).extend(shapes)
             layout.setdefault("annotations", []).extend(annotations)
@@ -1062,7 +1135,7 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
                 "Skipped numeric metadata columns for this single-row profile: "
                 + ", ".join(profile["excluded_columns"][:6])
             )
-        return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+        return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
     x_column = _choose_column(params.get("x"), context["numeric_columns"])
     if not x_column:
@@ -5440,6 +5513,21 @@ def _single_row_matrix_profile(context: dict[str, Any], *, max_columns: int) -> 
             if column in available_numeric
         ],
     }
+
+
+def _profile_group_lookup(columns: list[str]) -> dict[str, str]:
+    inferred = {column: _profile_group_from_column(column) for column in columns}
+    if len(set(inferred.values())) < 2:
+        return {column: "Profile" for column in columns}
+    return inferred
+
+
+def _profile_group_from_column(column: str) -> str:
+    text = str(column).strip()
+    if not text:
+        return "Profile"
+    cleaned = re.sub(r"[-_.\s]+(?:rep(?:licate)?|r)?\d+$", "", text, flags=re.IGNORECASE).strip()
+    return cleaned or "Profile"
 
 
 def _requested_column(requested: Any, columns: list[str]) -> str | None:

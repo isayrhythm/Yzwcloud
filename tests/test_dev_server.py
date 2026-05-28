@@ -185,7 +185,7 @@ def test_restart_server_cleans_legacy_logs_before_start(
     pid_path = tmp_path / "server-8123.pid"
     pid_path.write_text("12345", encoding="utf-8")
     current_log = tmp_path / "server-8123-old.log"
-    legacy_log = tmp_path / "server-5174-old.log"
+    legacy_log = tmp_path / "server-9000-old.log"
     _touch(current_log, 1)
     _touch(legacy_log, 2)
     port_checks = iter([True, False, False, True])
@@ -243,8 +243,8 @@ def test_clean_logs_cli_prints_skipped_locked_files(
 
 def test_clean_logs_cli_can_clean_all_server_ports(tmp_path: Path) -> None:
     current_port = tmp_path / "server-8010-current.out.log"
-    legacy_port = tmp_path / "server-5174-legacy.out.log"
-    worker = tmp_path / "worker-5174.log"
+    legacy_port = tmp_path / "server-9000-legacy.out.log"
+    worker = tmp_path / "worker-9000.log"
     for index, path in enumerate([current_port, legacy_port, worker], start=1):
         _touch(path, index)
 

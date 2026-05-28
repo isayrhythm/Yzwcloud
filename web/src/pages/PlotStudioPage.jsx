@@ -229,8 +229,8 @@ function compactValueList(value, fallback = "-") {
   return `${visible.join(", ")}${suffix}`;
 }
 
-function renderabilityWarning(preset, spec, tableSummary) {
-  if (!preset || !spec?.data?.length) return "";
+function tableSuitabilityWarning(preset, tableSummary) {
+  if (!preset || !tableSummary) return "";
   const rowCount = Number(tableSummary?.scanned_rows ?? tableSummary?.row_count ?? 0);
   if (rowCount > 1) return "";
   if (["scatter", "density_contour", "scatter_3d", "bubble"].includes(preset.id)) {
@@ -239,16 +239,26 @@ function renderabilityWarning(preset, spec, tableSummary) {
   if (["radar", "parallel_coordinates"].includes(preset.id)) {
     return "This plot needs at least two sample or group profiles. A single-row table is better shown as Bar or Histogram.";
   }
+  if (preset.id === "correlation") {
+    return "Correlation needs at least two observation rows. A single-row profile is better shown as Bar or Histogram.";
+  }
   return "";
 }
 
+function plotSupportedForTable(preset, tableSummary) {
+  return !tableSuitabilityWarning(preset, tableSummary);
+}
+
 function previewSpecForRenderability(preset, spec, tableSummary) {
-  const warning = renderabilityWarning(preset, spec, tableSummary);
+  const warning = tableSuitabilityWarning(preset, tableSummary);
   if (!warning) return spec;
   return {
-    ...spec,
+    ...(spec || {}),
+    plot_type: spec?.plot_type || preset?.id,
     data: [],
-    warnings: [warning, ...(spec.warnings || [])],
+    layout: spec?.layout || {},
+    config: spec?.config || {},
+    warnings: [warning, ...(spec?.warnings || [])],
   };
 }
 
@@ -535,7 +545,10 @@ function InteractivePlot({ spec }) {
     let resizeObserver = null;
     loadPlotly().then((Plotly) => {
       if (cancelled) return;
-      Plotly.react(plotElement, spec.data || [], spec.layout || {}, spec.config || {});
+      const previewLayout = { ...(spec.layout || {}), autosize: true };
+      delete previewLayout.width;
+      delete previewLayout.height;
+      Plotly.react(plotElement, spec.data || [], previewLayout, spec.config || {});
       resizeObserver = new ResizeObserver(() => {
         Plotly.Plots.resize(plotElement);
       });
@@ -1102,11 +1115,25 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
       .filter(Boolean),
     [plotPresets, recommendedPlotIds],
   );
+  const selectedPresetIsSupported = plotSupportedForTable(selectedPreset, tableSummary);
 
   useEffect(() => {
     if (!selectedPreset) return;
     setParams((current) => ({ ...defaultParamsFromPreset(selectedPreset), ...current }));
   }, [selectedPreset?.id]);
+
+  useEffect(() => {
+    if (!selectedPreset || selectedPresetIsSupported || !recommendedPlotIds.length) return;
+    const fallbackId = recommendedPlotIds.find((plotId) => {
+      const fallbackPreset = plotPresets.find((preset) => preset.id === plotId);
+      return plotSupportedForTable(fallbackPreset, tableSummary);
+    });
+    if (!fallbackId || fallbackId === selectedPreset.id) return;
+    const fallbackPreset = plotPresets.find((preset) => preset.id === fallbackId);
+    setSelectedPlotId(fallbackId);
+    setParams(defaultParamsFromPreset(fallbackPreset));
+    setSelectedRecipeId("");
+  }, [plotPresets, recommendedPlotIds, selectedPreset?.id, selectedPresetIsSupported, tableSummary]);
 
   useEffect(() => {
     if (!selectedPreset || !tableSummary) return;
@@ -1212,6 +1239,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   };
 
   const selectPlotPreset = (plot) => {
+    if (!plotSupportedForTable(plot, tableSummary)) return;
     setSelectedPlotId(plot.id);
     setParams(defaultParamsFromPreset(plot));
     setSelectedRecipeId("");
@@ -1281,11 +1309,14 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                   {group.items.map((plot) => {
                     const recommended = recommendedPlotIds.includes(plot.id);
                     const active = selectedPreset?.id === plot.id;
+                    const supported = plotSupportedForTable(plot, tableSummary);
                     return (
                       <button
-                        className={`plot-type-card ${recommended ? "recommended" : ""} ${active ? "active" : ""}`}
+                        className={`plot-type-card ${recommended ? "recommended" : ""} ${active ? "active" : ""} ${supported ? "" : "unsupported"}`}
                         key={plot.id}
                         type="button"
+                        disabled={!supported}
+                        title={supported ? plot.label : t("chartNotSuitable")}
                         onClick={() => selectPlotPreset(plot)}
                       >
                         <MiniPlotThumbnail plotId={plot.id} thumbnail={plot.thumbnail} />
@@ -1295,6 +1326,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                           <span className="plot-type-meta">
                             <em>{plot.engine}</em>
                             {recommended ? <em className="recommended-badge">{t("recommendedForSource")}</em> : null}
+                            {!supported ? <em className="unsupported-badge">{t("chartNotSuitable")}</em> : null}
                           </span>
                         </span>
                       </button>

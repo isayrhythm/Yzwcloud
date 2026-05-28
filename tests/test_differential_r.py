@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
 
 from yzwcloud.analyses import differential  # noqa: E402
 from yzwcloud.models import CreateDiffAnalysisRequest, DataObject  # noqa: E402
+from yzwcloud import node_registry  # noqa: E402
 
 
 def _write_demo_inputs(tmp_path: Path) -> tuple[Path, Path, DataObject]:
@@ -54,6 +55,11 @@ def test_create_diff_analysis_request_defaults_to_r_transcriptomics() -> None:
     assert request.method == "r_transcriptomics"
     assert request.p_value == 0.05
     assert request.log2fc == 1.0
+
+
+def test_node_registry_no_longer_exposes_python_diff_executor() -> None:
+    assert not hasattr(node_registry, "_execute_diff_node")
+    assert node_registry.NODE_DEFINITIONS["diff_analysis"].default_params["method"] == "r_transcriptomics"
 
 
 def test_differential_analysis_calls_transcriptomics_r(monkeypatch: Any, tmp_path: Path) -> None:

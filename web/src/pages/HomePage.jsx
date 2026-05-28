@@ -105,6 +105,14 @@ const CHARTS = {
   boxplot: { titleKey: "homeBoxplotChart", subtitle: "Single gene expression by condition" },
 };
 
+const CHART_META = {
+  pca: { metric: "52 samples", engine: "Plotly scatter" },
+  heatmap: { metric: "40 genes", engine: "Clustered heatmap" },
+  volcano: { metric: "128 hits", engine: "R differential" },
+  corr: { metric: "52 x 52", engine: "Correlation heatmap" },
+  boxplot: { metric: "3 groups", engine: "Interactive boxplot" },
+};
+
 const DEMO_SEQUENCE = ["intake", "qc", "heatmap", "pca", "cluster", "diff", "volcano", "boxplot", "corr"];
 
 export function HomePage({ onStart, onOpenPlot }) {
@@ -125,6 +133,9 @@ export function HomePage({ onStart, onOpenPlot }) {
   );
   const selectedNode = NODE_GROUPS.find((node) => node.id === selectedNodeId) || NODE_GROUPS[0];
   const chart = CHARTS[selectedChart] || CHARTS.pca;
+  const chartMeta = CHART_META[selectedChart] || CHART_META.pca;
+  const unlockedChartCount = visibleNodes.filter((node) => node.chart).length;
+  const selectedNodeHasChart = Boolean(selectedNode.chart);
 
   useEffect(() => {
     if (!autoPlay) return undefined;
@@ -238,11 +249,17 @@ export function HomePage({ onStart, onOpenPlot }) {
             ))}
           </div>
 
-          <div className="workflow-inspector">
+          <div className={`workflow-inspector ${selectedNodeHasChart ? "chart-expanded" : ""}`}>
             <div>
               <p className="eyebrow">{t("homeSelectedNode")}</p>
               <h2>{t(selectedNode.labelKey)}</h2>
               <p>{t(selectedNode.detailKey)}</p>
+            </div>
+            <div className="agent-trace" aria-label="Agent workflow trace">
+              <span className={visibleNodeIds.has("intake") ? "done" : ""}>1 Data intake</span>
+              <span className={visibleNodeIds.has("qc") ? "done" : ""}>2 QC gate</span>
+              <span className={unlockedChartCount ? "done" : ""}>3 Plot candidates</span>
+              <span className={selectedNodeHasChart ? "done" : ""}>4 Report context</span>
             </div>
             <div className="plot-card-preview">
               <div className="plot-card-top">
@@ -253,6 +270,11 @@ export function HomePage({ onStart, onOpenPlot }) {
                 <button type="button" onClick={onOpenPlot}>
                   Plot Studio
                 </button>
+              </div>
+              <div className="plot-preview-meta" aria-label="Plot preview metrics">
+                <span>{chartMeta.metric}</span>
+                <span>{chartMeta.engine}</span>
+                <span>{selectedNodeHasChart ? "expanded preview" : "waiting for chart node"}</span>
               </div>
               <DemoChart chart={selectedChart} />
             </div>

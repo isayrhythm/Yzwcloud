@@ -58,6 +58,14 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "parallel_coordinates",
         "waterfall",
         "ma_plot",
+        "qq_plot",
+        "forest_plot",
+        "roc_curve",
+        "pr_curve",
+        "kaplan_meier",
+        "bland_altman",
+        "dose_response",
+        "paired_dot",
     } <= set(presets)
 
     boxplot = presets["boxplot"]
@@ -231,6 +239,69 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "p_value_threshold",
         "show_threshold_lines",
         "label_top_n",
+    }
+    qq_diagnostics = next(group for group in presets["qq_plot"]["parameter_groups"] if group["id"] == "diagnostics")
+    assert {param["id"] for param in qq_diagnostics["parameters"]} >= {
+        "max_points",
+        "confidence_band",
+        "confidence_level",
+        "show_diagonal",
+        "label_top_n",
+    }
+    forest_statistics = next(group for group in presets["forest_plot"]["parameter_groups"] if group["id"] == "statistics")
+    assert {param["id"] for param in forest_statistics["parameters"]} >= {
+        "sort_by",
+        "top_n",
+        "reference_value",
+        "show_reference_line",
+    }
+    roc_diagnostics = next(group for group in presets["roc_curve"]["parameter_groups"] if group["id"] == "diagnostics")
+    assert {param["id"] for param in roc_diagnostics["parameters"]} >= {
+        "direction",
+        "show_diagonal",
+        "show_auc",
+        "show_threshold_points",
+        "threshold_count",
+    }
+    pr_diagnostics = next(group for group in presets["pr_curve"]["parameter_groups"] if group["id"] == "diagnostics")
+    assert {param["id"] for param in pr_diagnostics["parameters"]} >= {
+        "direction",
+        "show_baseline",
+        "show_average_precision",
+        "show_threshold_points",
+        "threshold_count",
+    }
+    km_survival = next(group for group in presets["kaplan_meier"]["parameter_groups"] if group["id"] == "survival")
+    assert {param["id"] for param in km_survival["parameters"]} >= {
+        "curve_mode",
+        "show_censor_marks",
+        "show_logrank",
+        "show_risk_table",
+        "time_unit",
+    }
+    bland_agreement = next(group for group in presets["bland_altman"]["parameter_groups"] if group["id"] == "agreement")
+    assert {param["id"] for param in bland_agreement["parameters"]} >= {
+        "difference_mode",
+        "show_bias_line",
+        "show_limits",
+        "limits_sd",
+        "show_zero_line",
+    }
+    dose_curve = next(group for group in presets["dose_response"]["parameter_groups"] if group["id"] == "curve")
+    assert {param["id"] for param in dose_curve["parameters"]} >= {
+        "response_mode",
+        "log_x",
+        "normalize_response",
+        "show_curve",
+        "show_half_max",
+        "line_shape",
+    }
+    paired_display = next(group for group in presets["paired_dot"]["parameter_groups"] if group["id"] == "paired")
+    assert {param["id"] for param in paired_display["parameters"]} >= {
+        "connect_pairs",
+        "show_summary",
+        "summary_stat",
+        "max_subjects",
     }
 
     heatmap = presets["heatmap"]
@@ -921,6 +992,361 @@ def test_plot_studio_report_summarizes_ma_plot_parameters(tmp_path: Path) -> Non
     assert "point opacity=0.5" in summary["display"]
 
 
+def test_plot_studio_report_summarizes_qq_plot_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_qq.csv"
+    table_file.write_text(
+        "gene,p_value,comparison\nA,0.001,B_vs_A\nB,0.002,B_vs_A\nC,0.9,B_vs_A\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Diff result",
+                "type": "diff_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "qq_plot",
+            "params": {
+                "p_value_column": "p_value",
+                "group": "comparison",
+                "max_points": 1000,
+                "confidence_band": True,
+                "confidence_level": "0.99",
+                "show_diagonal": True,
+                "label_top_n": 6,
+                "point_size": 7,
+                "point_alpha": 0.55,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "p-value calibration" in sections["Figure interpretation"]
+    assert "p-value column=p_value" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "confidence band=True" in summary["display"]
+    assert "confidence level=0.99" in summary["statistics"]
+    assert "point opacity=0.55" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_forest_plot_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_forest.csv"
+    table_file.write_text(
+        "term,effect,ci_low,ci_high,p_value,group\nPathway A,1.2,0.4,2.0,0.01,A\nPathway B,-0.8,-1.4,-0.2,0.03,B\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Effect result",
+                "type": "diff_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "forest_plot",
+            "params": {
+                "effect_column": "effect",
+                "ci_low_column": "ci_low",
+                "ci_high_column": "ci_high",
+                "sort_by": "abs_effect",
+                "top_n": 12,
+                "reference_value": 0,
+                "show_reference_line": True,
+                "color_mode": "group",
+                "point_size": 10,
+                "line_width": 2.4,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "effect-size direction" in sections["Figure interpretation"]
+    assert "effect=effect" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "sort by=abs_effect" in summary["display"]
+    assert "reference=0" in summary["statistics"]
+    assert "interval line width=2.4" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_roc_curve_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_roc.csv"
+    table_file.write_text(
+        "sample,score,label,model\nS1,0.95,case,A\nS2,0.82,case,A\nS3,0.44,control,A\nS4,0.12,control,A\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Biomarker score",
+                "type": "biomarker_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "roc_curve",
+            "params": {
+                "score_column": "score",
+                "label_column": "label",
+                "positive_label": "case",
+                "direction": "higher_positive",
+                "show_diagonal": True,
+                "show_auc": True,
+                "show_threshold_points": True,
+                "threshold_count": 6,
+                "line_width": 3.1,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "classifier discrimination" in sections["Figure interpretation"]
+    assert "score=score" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "positive label=case" in summary["statistics"]
+    assert "threshold points=True" in summary["display"]
+    assert "line width=3.1" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_pr_curve_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_pr.csv"
+    table_file.write_text(
+        "sample,score,label,model\nS1,0.95,case,A\nS2,0.82,case,A\nS3,0.44,control,A\nS4,0.12,control,A\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Biomarker score",
+                "type": "biomarker_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "pr_curve",
+            "params": {
+                "score_column": "score",
+                "label_column": "label",
+                "positive_label": "case",
+                "direction": "higher_positive",
+                "show_baseline": True,
+                "show_average_precision": True,
+                "show_threshold_points": True,
+                "threshold_count": 6,
+                "line_width": 3.1,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "precision-recall tradeoffs" in sections["Figure interpretation"]
+    assert "score=score" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "positive label=case" in summary["statistics"]
+    assert "prevalence baseline=True" in summary["display"]
+    assert "average precision annotation=True" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_kaplan_meier_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_km.csv"
+    table_file.write_text(
+        "sample,time,event,group\nS1,5,1,A\nS2,8,0,A\nS3,12,1,A\nS4,4,1,B\nS5,9,1,B\nS6,13,0,B\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Survival table",
+                "type": "survival_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "kaplan_meier",
+            "params": {
+                "time_column": "time",
+                "event_column": "event",
+                "group": "group",
+                "event_value": "1",
+                "show_censor_marks": True,
+                "show_logrank": True,
+                "show_risk_table": True,
+                "curve_mode": "survival",
+                "line_width": 3.0,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "group survival separation" in sections["Figure interpretation"]
+    assert "time=time" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "event=event" in summary["statistics"]
+    assert "censor marks=True" in summary["display"]
+    assert "log-rank shown=True" in summary["statistics"]
+
+
+def test_plot_studio_report_summarizes_bland_altman_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_bland.csv"
+    table_file.write_text("sample,method_a,method_b\nS1,10,11\nS2,12,11.5\nS3,9,10\n", encoding="utf-8")
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Agreement table",
+                "type": "agreement_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "bland_altman",
+            "params": {
+                "x_method": "method_a",
+                "y_method": "method_b",
+                "difference_mode": "y_minus_x",
+                "show_bias_line": True,
+                "show_limits": True,
+                "limits_sd": 1.96,
+                "point_size": 9,
+                "line_width": 2.0,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "measurement agreement" in sections["Figure interpretation"]
+    assert "method A=method_a" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "method B=method_b" in summary["statistics"]
+    assert "limits shown=True" in summary["display"]
+    assert "reference line width=2.0" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_dose_response_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_dose.csv"
+    table_file.write_text(
+        "compound,concentration,response\nA,0.1,95\nA,1,71\nA,10,32\nA,100,8\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Dose response",
+                "type": "dose_response_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "dose_response",
+            "params": {
+                "dose_column": "concentration",
+                "response_column": "response",
+                "group": "compound",
+                "response_mode": "inhibition",
+                "log_x": True,
+                "normalize_response": False,
+                "show_half_max": True,
+                "line_width": 3.0,
+                "point_size": 9,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "dose-dependent response direction" in sections["Figure interpretation"]
+    assert "dose=concentration" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "response=response" in summary["statistics"]
+    assert "log dose axis=True" in summary["display"]
+    assert "half-max guide=True" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_paired_dot_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_paired.csv"
+    table_file.write_text(
+        "subject,condition,value\nS1,before,10\nS1,after,14\nS2,before,8\nS2,after,9\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Paired table",
+                "type": "paired_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "paired_dot",
+            "params": {
+                "value_column": "value",
+                "condition_column": "condition",
+                "subject_column": "subject",
+                "connect_pairs": True,
+                "show_summary": True,
+                "summary_stat": "median",
+                "max_subjects": 50,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "within-subject direction of change" in sections["Figure interpretation"]
+    assert "value=value" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "subject=subject" in summary["statistics"]
+    assert "paired lines=True" in summary["display"]
+    assert "summary=median" in summary["statistics"]
+
+
 def test_plot_studio_report_summarizes_correlation_parameters() -> None:
     client = TestClient(app)
 
@@ -1401,6 +1827,14 @@ def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> Non
         "parallel_coordinates": "high-dimensional numeric profiles",
         "waterfall": "ranked signed effects",
         "ma_plot": "mean-dependent fold-change patterns",
+        "qq_plot": "p-value calibration",
+        "forest_plot": "effect-size direction",
+        "roc_curve": "classifier discrimination",
+        "pr_curve": "precision-recall tradeoffs",
+        "kaplan_meier": "group survival separation",
+        "bland_altman": "measurement agreement",
+        "dose_response": "dose-dependent response direction",
+        "paired_dot": "within-subject direction of change",
         "heatmap": "row/column clustering",
         "bubble": "size and color encodings",
         "volcano": "up/down significant features",
@@ -2054,7 +2488,7 @@ def test_plot_studio_spec_builds_volcano_from_diff_table(tmp_path: Path) -> None
     allowed_tmp.mkdir(parents=True, exist_ok=True)
     diff_file = allowed_tmp / f"{tmp_path.name}_diff.csv"
     diff_file.write_text(
-        "gene,baseMean,log2fc,p_value\nA,120,2.1,0.001\nB,70,-1.8,0.002\nC,9,0.2,0.9\n",
+        "gene,baseMean,log2fc,ci_low,ci_high,p_value\nA,120,2.1,1.2,3.0,0.001\nB,70,-1.8,-2.4,-1.0,0.002\nC,9,0.2,-0.3,0.7,0.9\n",
         encoding="utf-8",
     )
     client = TestClient(app)
@@ -2170,6 +2604,57 @@ def test_plot_studio_spec_builds_volcano_from_diff_table(tmp_path: Path) -> None
     assert ma_up["y"] == [2.1]
     assert ma_up["marker"]["size"] == 9
 
+    qq_plot = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Diff result",
+                "type": "diff_result",
+                "dataPath": str(diff_file),
+            },
+            "plotType": "qq_plot",
+            "params": {"label_top_n": 2, "point_size": 8, "point_alpha": 0.5, "confidence_band": False},
+        },
+    )
+    assert qq_plot["plot_type"] == "qq_plot"
+    qq_trace = next(trace for trace in qq_plot["data"] if trace["name"] == "All")
+    assert qq_trace["type"] == "scattergl"
+    assert qq_trace["marker"]["size"] == 8
+    assert qq_trace["marker"]["opacity"] == 0.5
+    assert len(qq_trace["x"]) == 3
+    assert qq_trace["y"][0] == 3.0
+    assert len(qq_plot["layout"]["shapes"]) == 1
+    assert next(trace for trace in qq_plot["data"] if trace["name"] == "Feature labels")["text"] == ["A", "B"]
+
+    forest_plot = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Diff result",
+                "type": "diff_result",
+                "dataPath": str(diff_file),
+            },
+            "plotType": "forest_plot",
+            "params": {"sort_by": "p_value", "top_n": 2, "point_size": 11, "line_width": 2.2},
+        },
+    )
+    assert forest_plot["plot_type"] == "forest_plot"
+    forest_trace = forest_plot["data"][0]
+    assert forest_trace["type"] == "scatter"
+    assert forest_trace["mode"] == "markers"
+    assert forest_trace["x"] == [-1.8, 2.1]
+    assert forest_trace["y"] == ["B", "A"]
+    assert forest_trace["error_x"]["array"] == [0.8, 0.8999999999999999]
+    assert forest_trace["error_x"]["thickness"] == 2.2
+    assert forest_trace["marker"]["size"] == 11
+    assert len(forest_plot["layout"]["shapes"]) == 1
+
 
 def test_plot_studio_spec_builds_heatmap_and_correlation() -> None:
     client = TestClient(app)
@@ -2239,6 +2724,295 @@ def test_plot_studio_spec_builds_heatmap_and_correlation() -> None:
     assert labeled_correlation["data"][0]["ygap"] == 2
     assert "meta" not in labeled_correlation["layout"]
     assert "shapes" not in labeled_correlation["layout"]
+
+
+def test_plot_studio_spec_builds_roc_curve(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_roc.csv"
+    table_file.write_text(
+        "sample,score,label,model\n"
+        "S1,0.95,case,A\n"
+        "S2,0.82,case,A\n"
+        "S3,0.62,case,A\n"
+        "S4,0.44,control,A\n"
+        "S5,0.31,control,A\n"
+        "S6,0.12,control,A\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Biomarker score",
+                "type": "biomarker_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "roc_curve",
+            "params": {
+                "score_column": "score",
+                "label_column": "label",
+                "positive_label": "case",
+                "show_threshold_points": True,
+                "threshold_count": 4,
+                "line_width": 3,
+                "point_size": 9,
+                "point_alpha": 0.6,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "roc_curve"
+    assert spec["data"][0]["name"] == "No skill"
+    roc_trace = spec["data"][1]
+    assert roc_trace["name"] == "All AUC=1.000"
+    assert roc_trace["mode"] == "lines+markers"
+    assert roc_trace["line"]["width"] == 3
+    assert roc_trace["marker"]["size"] == 9
+    assert roc_trace["marker"]["opacity"] == 0.6
+    assert roc_trace["x"][0] == 0.0
+    assert roc_trace["y"][-1] == 1.0
+    assert spec["layout"]["meta"]["roc_summary"] == ["All AUC=1.000 (n=6, pos=3, neg=3)"]
+
+    pr_spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Biomarker score",
+                "type": "biomarker_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "pr_curve",
+            "params": {
+                "score_column": "score",
+                "label_column": "label",
+                "positive_label": "case",
+                "show_threshold_points": True,
+                "threshold_count": 4,
+                "line_width": 3,
+                "point_size": 9,
+                "point_alpha": 0.6,
+            },
+        },
+    )
+    assert pr_spec["plot_type"] == "pr_curve"
+    assert pr_spec["data"][0]["name"] == "Prevalence baseline=0.500"
+    pr_trace = pr_spec["data"][1]
+    assert pr_trace["name"] == "All AP=1.000"
+    assert pr_trace["mode"] == "lines+markers"
+    assert pr_trace["line"]["width"] == 3
+    assert pr_trace["marker"]["size"] == 9
+    assert pr_trace["marker"]["opacity"] == 0.6
+    assert pr_trace["x"][-1] == 1.0
+    assert pr_trace["y"][0] == 1.0
+    assert pr_spec["layout"]["meta"]["pr_summary"] == ["All AP=1.000 (n=6, pos=3, prevalence=0.500)"]
+
+
+def test_plot_studio_spec_builds_kaplan_meier(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_km.csv"
+    table_file.write_text(
+        "sample,time,event,group\n"
+        "S1,5,1,A\n"
+        "S2,8,0,A\n"
+        "S3,12,1,A\n"
+        "S4,4,1,B\n"
+        "S5,9,1,B\n"
+        "S6,13,0,B\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Survival table",
+                "type": "survival_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "kaplan_meier",
+            "params": {
+                "time_column": "time",
+                "event_column": "event",
+                "group": "group",
+                "event_value": "1",
+                "show_censor_marks": True,
+                "show_logrank": True,
+                "line_width": 3,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "kaplan_meier"
+    group_a = next(trace for trace in spec["data"] if trace["name"] == "A")
+    assert group_a["line"]["shape"] == "hv"
+    assert group_a["line"]["width"] == 3
+    assert group_a["x"] == [0.0, 5.0, 12.0]
+    assert [round(value, 6) for value in group_a["y"]] == [1.0, round(2 / 3, 6), 0.0]
+    assert any(trace["name"] == "A censored" for trace in spec["data"])
+    assert "risk_table" in spec["layout"]["meta"]
+    assert "logrank" in spec["layout"]["meta"]
+    assert spec["layout"]["meta"]["risk_table"]["A"][0] == {"time": 5.0, "at_risk": 3, "events": 1, "censored": 0}
+
+
+def test_plot_studio_spec_builds_bland_altman(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_bland.csv"
+    table_file.write_text(
+        "sample,method_a,method_b,batch\nS1,10,11,A\nS2,12,11.5,A\nS3,9,10,B\nS4,13,14,B\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Agreement table",
+                "type": "agreement_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "bland_altman",
+            "params": {
+                "x_method": "method_a",
+                "y_method": "method_b",
+                "color": "batch",
+                "point_size": 10,
+                "point_alpha": 0.5,
+                "line_width": 2.0,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "bland_altman"
+    assert {trace["name"] for trace in spec["data"]} == {"A", "B"}
+    first_trace = next(trace for trace in spec["data"] if trace["name"] == "A")
+    assert first_trace["x"] == [10.5, 11.75]
+    assert first_trace["y"] == [1.0, -0.5]
+    assert first_trace["marker"]["size"] == 10
+    assert first_trace["marker"]["opacity"] == 0.5
+    agreement = spec["layout"]["meta"]["agreement"]
+    assert round(agreement["bias"], 3) == 0.625
+    assert agreement["n"] == 4
+    assert len(spec["layout"]["shapes"]) == 4
+
+
+def test_plot_studio_spec_builds_dose_response(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_dose.csv"
+    table_file.write_text(
+        "compound,concentration,response\n"
+        "A,0.1,95\nA,1,70\nA,10,30\nA,100,8\n"
+        "B,0.1,92\nB,1,80\nB,10,55\nB,100,20\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Dose response",
+                "type": "dose_response_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "dose_response",
+            "params": {
+                "dose_column": "concentration",
+                "response_column": "response",
+                "group": "compound",
+                "response_mode": "inhibition",
+                "log_x": True,
+                "show_half_max": True,
+                "line_width": 3,
+                "point_size": 9,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "dose_response"
+    assert spec["layout"]["xaxis"]["type"] == "log"
+    assert {trace["name"] for trace in spec["data"]} >= {"A", "B", "A points", "B points"}
+    curve_a = next(trace for trace in spec["data"] if trace["name"] == "A")
+    assert curve_a["line"]["shape"] == "spline"
+    assert curve_a["line"]["width"] == 3
+    points_a = next(trace for trace in spec["data"] if trace["name"] == "A points")
+    assert points_a["marker"]["size"] == 9
+    estimates = spec["layout"]["meta"]["dose_response"]["estimates"]
+    assert set(estimates) == {"A", "B"}
+    assert estimates["A"]["label"] == "IC50"
+    assert 1 < estimates["A"]["half_max_dose"] < 10
+    assert len(spec["layout"]["shapes"]) >= 4
+
+
+def test_plot_studio_spec_builds_paired_dot(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_paired.csv"
+    table_file.write_text(
+        "subject,condition,value,cohort\n"
+        "S1,before,10,A\nS1,after,14,A\n"
+        "S2,before,8,A\nS2,after,9,A\n"
+        "S3,before,7,B\nS3,after,12,B\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Paired table",
+                "type": "paired_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "paired_dot",
+            "params": {
+                "value_column": "value",
+                "condition_column": "condition",
+                "subject_column": "subject",
+                "group": "cohort",
+                "summary_stat": "mean",
+                "jitter": 0,
+                "point_size": 9,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "paired_dot"
+    assert spec["layout"]["xaxis"]["ticktext"] == ["before", "after"]
+    assert spec["layout"]["meta"]["paired_dot"]["subjects"] == 3
+    subject_trace = next(trace for trace in spec["data"] if trace["name"] == "S1")
+    assert subject_trace["x"] == [0, 1]
+    assert subject_trace["y"] == [10.0, 14.0]
+    group_trace = next(trace for trace in spec["data"] if trace["name"] == "A")
+    assert group_trace["marker"]["size"] == 9
+    summary_trace = next(trace for trace in spec["data"] if trace["name"] == "mean summary")
+    assert summary_trace["y"] == [25 / 3, 35 / 3]
 
 
 def test_plot_studio_spec_builds_added_interactive_plot_types() -> None:

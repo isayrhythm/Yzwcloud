@@ -62,6 +62,38 @@ PLOT_REPORT_GUIDANCE = {
         "focus": "mean-dependent fold-change patterns, low-abundance noise, high-abundance shifts, and asymmetry around the zero line",
         "parameter_hint": "Use a log x-axis for abundance, keep the zero line visible, and label only the strongest significant features.",
     },
+    "qq_plot": {
+        "focus": "p-value calibration, inflation above the null expectation, conservative deflation, and top outlying features",
+        "parameter_hint": "Use QQ plots as a diagnostic companion to volcano plots; keep the null diagonal and confidence band visible for first-pass review.",
+    },
+    "forest_plot": {
+        "focus": "effect-size direction, confidence interval width, intervals crossing the reference line, and rows with precise large effects",
+        "parameter_hint": "Sort by p-value or absolute effect for screening, keep the reference line visible, and use group colors when comparing contrasts.",
+    },
+    "roc_curve": {
+        "focus": "classifier discrimination, AUC magnitude, sensitivity-specificity tradeoffs, and whether threshold choices match the biological question",
+        "parameter_hint": "Confirm the positive label and score direction first, then inspect AUC and threshold points before using the curve for biomarker claims.",
+    },
+    "pr_curve": {
+        "focus": "precision-recall tradeoffs, average precision, positive-class prevalence, and whether performance remains useful under class imbalance",
+        "parameter_hint": "Use precision-recall alongside ROC when positives are rare; confirm positive label and score direction before interpreting average precision.",
+    },
+    "kaplan_meier": {
+        "focus": "group survival separation, censoring pattern, median survival hints, and whether the log-rank result supports the visible difference",
+        "parameter_hint": "Confirm event/censor coding first, keep censor marks visible, and use log-rank only when the grouping design is appropriate.",
+    },
+    "bland_altman": {
+        "focus": "measurement agreement, systematic bias, spread of differences, and points outside the limits of agreement",
+        "parameter_hint": "Use Bland-Altman when comparing two measurement methods; inspect bias and limits before relying on correlation alone.",
+    },
+    "dose_response": {
+        "focus": "dose-dependent response direction, curve separation between groups, IC50/EC50 estimate stability, and incomplete plateau coverage",
+        "parameter_hint": "Use a log dose axis by default, keep raw points visible, and treat IC50/EC50 as approximate unless both response plateaus are sampled.",
+    },
+    "paired_dot": {
+        "focus": "within-subject direction of change, consistency of paired responses, outlier pairs, and whether the summary hides individual trajectories",
+        "parameter_hint": "Use paired dot plots for matched designs; keep connecting lines visible and choose mean or median summary according to distribution shape.",
+    },
     "heatmap": {
         "focus": "row/column clustering, scaled expression blocks, annotation consistency, and candidate feature groups",
         "parameter_hint": "Start with row z-score scaling, keep dendrograms enabled, and tune top_n for readability before exporting.",
@@ -610,6 +642,152 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"point size={params.get('point_size')}")
         if params.get("point_alpha"):
             summary["display"].append(f"point opacity={params.get('point_alpha')}")
+    if plot_id == "qq_plot":
+        if params.get("p_value_column"):
+            summary["statistics"].append(f"p-value column={params.get('p_value_column')}")
+        if params.get("max_points"):
+            summary["display"].append(f"max points={params.get('max_points')}")
+        if "confidence_band" in params:
+            summary["display"].append(f"confidence band={bool(params.get('confidence_band'))}")
+        if params.get("confidence_level"):
+            summary["statistics"].append(f"confidence level={params.get('confidence_level')}")
+        if "show_diagonal" in params:
+            summary["display"].append(f"expected line={bool(params.get('show_diagonal'))}")
+        if params.get("label_top_n") is not None:
+            summary["display"].append(f"top labels={params.get('label_top_n')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
+    if plot_id == "forest_plot":
+        if params.get("effect_column"):
+            summary["statistics"].append(f"effect={params.get('effect_column')}")
+        if params.get("ci_low_column") and params.get("ci_high_column"):
+            summary["statistics"].append(f"CI={params.get('ci_low_column')}..{params.get('ci_high_column')}")
+        if params.get("sort_by"):
+            summary["display"].append(f"sort by={params.get('sort_by')}")
+        if params.get("top_n"):
+            summary["display"].append(f"top rows={params.get('top_n')}")
+        if params.get("reference_value") is not None:
+            summary["statistics"].append(f"reference={params.get('reference_value')}")
+        if "show_reference_line" in params:
+            summary["display"].append(f"reference line={bool(params.get('show_reference_line'))}")
+        if params.get("color_mode"):
+            summary["display"].append(f"color mode={params.get('color_mode')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("line_width"):
+            summary["display"].append(f"interval line width={params.get('line_width')}")
+    if plot_id == "roc_curve":
+        if params.get("score_column"):
+            summary["statistics"].append(f"score={params.get('score_column')}")
+        if params.get("label_column"):
+            summary["statistics"].append(f"label={params.get('label_column')}")
+        if params.get("positive_label"):
+            summary["statistics"].append(f"positive label={params.get('positive_label')}")
+        if params.get("direction"):
+            summary["statistics"].append(f"score direction={params.get('direction')}")
+        if "show_diagonal" in params:
+            summary["display"].append(f"no-skill line={bool(params.get('show_diagonal'))}")
+        if "show_auc" in params:
+            summary["display"].append(f"AUC annotation={bool(params.get('show_auc'))}")
+        if "show_threshold_points" in params:
+            summary["display"].append(f"threshold points={bool(params.get('show_threshold_points'))}")
+        if params.get("threshold_count"):
+            summary["display"].append(f"threshold count={params.get('threshold_count')}")
+        if params.get("line_width"):
+            summary["display"].append(f"line width={params.get('line_width')}")
+    if plot_id == "pr_curve":
+        if params.get("score_column"):
+            summary["statistics"].append(f"score={params.get('score_column')}")
+        if params.get("label_column"):
+            summary["statistics"].append(f"label={params.get('label_column')}")
+        if params.get("positive_label"):
+            summary["statistics"].append(f"positive label={params.get('positive_label')}")
+        if params.get("direction"):
+            summary["statistics"].append(f"score direction={params.get('direction')}")
+        if "show_baseline" in params:
+            summary["display"].append(f"prevalence baseline={bool(params.get('show_baseline'))}")
+        if "show_average_precision" in params:
+            summary["display"].append(f"average precision annotation={bool(params.get('show_average_precision'))}")
+        if "show_threshold_points" in params:
+            summary["display"].append(f"threshold points={bool(params.get('show_threshold_points'))}")
+        if params.get("threshold_count"):
+            summary["display"].append(f"threshold count={params.get('threshold_count')}")
+        if params.get("line_width"):
+            summary["display"].append(f"line width={params.get('line_width')}")
+    if plot_id == "kaplan_meier":
+        if params.get("time_column"):
+            summary["statistics"].append(f"time={params.get('time_column')}")
+        if params.get("event_column"):
+            summary["statistics"].append(f"event={params.get('event_column')}")
+        if params.get("group"):
+            summary["display"].append(f"group={params.get('group')}")
+        if params.get("event_value") is not None:
+            summary["statistics"].append(f"event value={params.get('event_value')}")
+        if "show_censor_marks" in params:
+            summary["display"].append(f"censor marks={bool(params.get('show_censor_marks'))}")
+        if "show_logrank" in params:
+            summary["statistics"].append(f"log-rank shown={bool(params.get('show_logrank'))}")
+        if "show_risk_table" in params:
+            summary["display"].append(f"risk table metadata={bool(params.get('show_risk_table'))}")
+        if params.get("curve_mode"):
+            summary["display"].append(f"curve mode={params.get('curve_mode')}")
+        if params.get("line_width"):
+            summary["display"].append(f"line width={params.get('line_width')}")
+    if plot_id == "bland_altman":
+        if params.get("x_method"):
+            summary["statistics"].append(f"method A={params.get('x_method')}")
+        if params.get("y_method"):
+            summary["statistics"].append(f"method B={params.get('y_method')}")
+        if params.get("difference_mode"):
+            summary["statistics"].append(f"difference mode={params.get('difference_mode')}")
+        if "show_bias_line" in params:
+            summary["display"].append(f"bias line={bool(params.get('show_bias_line'))}")
+        if "show_limits" in params:
+            summary["display"].append(f"limits shown={bool(params.get('show_limits'))}")
+        if params.get("limits_sd") is not None:
+            summary["statistics"].append(f"limits SD={params.get('limits_sd')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("line_width"):
+            summary["display"].append(f"reference line width={params.get('line_width')}")
+    if plot_id == "dose_response":
+        if params.get("dose_column"):
+            summary["statistics"].append(f"dose={params.get('dose_column')}")
+        if params.get("response_column"):
+            summary["statistics"].append(f"response={params.get('response_column')}")
+        if params.get("group"):
+            summary["display"].append(f"group={params.get('group')}")
+        if params.get("response_mode"):
+            summary["statistics"].append(f"response mode={params.get('response_mode')}")
+        if "log_x" in params:
+            summary["display"].append(f"log dose axis={bool(params.get('log_x'))}")
+        if "normalize_response" in params:
+            summary["statistics"].append(f"normalized response={bool(params.get('normalize_response'))}")
+        if "show_half_max" in params:
+            summary["display"].append(f"half-max guide={bool(params.get('show_half_max'))}")
+        if params.get("line_width"):
+            summary["display"].append(f"line width={params.get('line_width')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+    if plot_id == "paired_dot":
+        if params.get("value_column"):
+            summary["statistics"].append(f"value={params.get('value_column')}")
+        if params.get("condition_column"):
+            summary["statistics"].append(f"condition={params.get('condition_column')}")
+        if params.get("subject_column"):
+            summary["statistics"].append(f"subject={params.get('subject_column')}")
+        if params.get("group"):
+            summary["display"].append(f"group={params.get('group')}")
+        if "connect_pairs" in params:
+            summary["display"].append(f"paired lines={bool(params.get('connect_pairs'))}")
+        if "show_summary" in params:
+            summary["display"].append(f"summary shown={bool(params.get('show_summary'))}")
+        if params.get("summary_stat"):
+            summary["statistics"].append(f"summary={params.get('summary_stat')}")
+        if params.get("max_subjects"):
+            summary["display"].append(f"max subjects={params.get('max_subjects')}")
     if plot_id in {"heatmap", "correlation"}:
         if plot_id == "correlation" and params.get("method"):
             summary["statistics"].append(f"method={params.get('method')}")

@@ -17,17 +17,17 @@ def test_cleanup_server_logs_keeps_latest_matching_port(tmp_path: Path) -> None:
     old_out = tmp_path / "server-8010-20260527-120000.out.log"
     old_err = tmp_path / "server-8010-20260527-120000.err.log"
     latest = tmp_path / "server-8010-20260528-120000.out.log"
-    retired_port = tmp_path / "server-5174-20260528-120000.out.log"
+    unmatched_port = tmp_path / "server-9001-20260528-120000.out.log"
     other_port = tmp_path / "server-9000.out.log"
     gitkeep = tmp_path / ".gitkeep"
-    for index, path in enumerate([old_out, old_err, latest, retired_port, other_port, gitkeep], start=1):
+    for index, path in enumerate([old_out, old_err, latest, unmatched_port, other_port, gitkeep], start=1):
         _touch(path, index)
 
     removed = cleanup_server_logs(tmp_path, port=8010, keep_latest=1)
 
     assert removed == [old_out, old_err]
     assert latest.exists()
-    assert retired_port.exists()
+    assert unmatched_port.exists()
     assert other_port.exists()
     assert gitkeep.exists()
 

@@ -67,6 +67,14 @@ def create_plot_studio_spec(
         "parallel_coordinates": _build_parallel_coordinates_spec,
         "waterfall": _build_waterfall_spec,
         "ma_plot": _build_ma_plot_spec,
+        "qq_plot": _build_qq_plot_spec,
+        "forest_plot": _build_forest_plot_spec,
+        "roc_curve": _build_roc_curve_spec,
+        "pr_curve": _build_pr_curve_spec,
+        "kaplan_meier": _build_kaplan_meier_spec,
+        "bland_altman": _build_bland_altman_spec,
+        "dose_response": _build_dose_response_spec,
+        "paired_dot": _build_paired_dot_spec,
         "bubble": _build_bubble_spec,
         "volcano": _build_volcano_spec,
         "upset": _build_upset_spec,
@@ -1242,6 +1250,1275 @@ def _ma_label_trace(grouped: dict[str, list[dict[str, Any]]], params: dict[str, 
         "hoverinfo": "skip",
         "showlegend": False,
     }
+
+
+def _build_qq_plot_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    p_value_column = _requested_column(params.get("p_value_column"), columns) or _find_column(
+        columns, ["padj", "p_adjust", "p_value", "pvalue"]
+    )
+    label_column = _requested_column(params.get("label_column"), columns) or _find_column(
+        columns, ["gene", "symbol", "name", "feature", "id"]
+    )
+    group_column = _requested_column(params.get("group"), columns)
+    if not p_value_column:
+        return _empty_plot_spec("qq_plot", "QQ plot requires one p-value column.", context["table_summary"])
+
+    rows = []
+    for index, row in enumerate(context["records"]):
+        p_value = _number_or_none(row.get(p_value_column))
+        if p_value is None or p_value <= 0 or p_value > 1:
+            continue
+        rows.append(
+            {
+                "p_value": p_value,
+                "label": str(row.get(label_column) or f"row {index + 1}") if label_column else f"row {index + 1}",
+                "group": str(row.get(group_column) or "All") if group_column else "All",
+            }
+        )
+    if not rows:
+        return _empty_plot_spec("qq_plot", "No valid p-values in (0, 1] were available.", context["table_summary"])
+
+    max_points = _bounded_int(params.get("max_points"), 5000, 100, 200000)
+    if len(rows) > max_points:
+        rows.sort(key=lambda item: item["p_value"])
+        step = max(1, len(rows) // max_points)
+        rows = rows[: max_points // 2] + rows[max_points // 2 :: step][: max_points - max_points // 2]
+
+    grouped = _group_qq_rows(rows, group_column is not None)
+    traces = []
+    all_expected = []
+    label_candidates = []
+    marker_size = _bounded_float(params.get("point_size"), 6, 1, 30)
+    marker_opacity = _bounded_float(params.get("point_alpha"), 0.72, 0.05, 1)
+    for index, (group_name, group_rows) in enumerate(grouped.items()):
+        group_rows = sorted(group_rows, key=lambda item: item["p_value"])
+        n = len(group_rows)
+        expected = [-math.log10((rank - 0.5) / n) for rank in range(1, n + 1)]
+        observed = [-math.log10(max(item["p_value"], 1e-300)) for item in group_rows]
+        all_expected.extend(expected)
+        traces.append(
+            {
+                "type": "scattergl",
+                "mode": "markers",
+                "name": group_name,
+                "x": expected,
+                "y": observed,
+                "text": [item["label"] for item in group_rows],
+                "customdata": [[item["p_value"]] for item in group_rows],
+                "marker": {
+                    "size": marker_size,
+                    "opacity": marker_opacity,
+                    "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+                    "line": {"color": "#ffffff", "width": 0.4},
+                },
+                "hovertemplate": "%{text}<br>expected=%{x:.3g}<br>observed=%{y:.3g}<br>p=%{customdata[0]:.3g}<extra>%{fullData.name}</extra>",
+            }
+        )
+        for item, expected_value, observed_value in zip(group_rows, expected, observed):
+            label_candidates.append(
+                {
+                    "x": expected_value,
+                    "y": observed_value,
+                    "label": item["label"],
+                    "p_value": item["p_value"],
+                    "group": group_name,
+                }
+            )
+
+    layout = _base_layout(
+        title=f"QQ plot: {p_value_column}",
+        x_title="Expected -log10(p)",
+        y_title="Observed -log10(p)",
+        params=params,
+    )
+    max_axis = max(max(all_expected or [1]), max(candidate["y"] for candidate in label_candidates), 1)
+    if _truthy(params.get("confidence_band"), True):
+        band_trace = _qq_confidence_band_trace(len(rows), max_axis, params)
+        if band_trace:
+            traces.insert(0, band_trace)
+    if _truthy(params.get("show_diagonal"), True):
+        layout.setdefault("shapes", []).append(
+            {
+                "type": "line",
+                "xref": "x",
+                "yref": "y",
+                "x0": 0,
+                "x1": max_axis,
+                "y0": 0,
+                "y1": max_axis,
+                "line": {"color": str(params.get("diagonal_color") or "#52616b"), "width": 1.2, "dash": "dash"},
+            }
+        )
+    label_trace = _qq_label_trace(label_candidates, params)
+    if label_trace:
+        traces.append(label_trace)
+    layout["xaxis"]["range"] = [0, max_axis * 1.04]
+    layout["yaxis"]["range"] = [0, max_axis * 1.04]
+    warnings = []
+    if len(context["records"]) > len(rows):
+        warnings.append(f"Rendered {len(rows)} valid p-values after filtering invalid values and max point limits.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _group_qq_rows(rows: list[dict[str, Any]], has_group: bool) -> dict[str, list[dict[str, Any]]]:
+    if not has_group:
+        return {"All": rows}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get("group") or "All"), []).append(row)
+    return grouped
+
+
+def _qq_confidence_band_trace(row_count: int, max_axis: float, params: dict[str, Any]) -> dict[str, Any] | None:
+    if row_count < 20:
+        return None
+    confidence_level = _bounded_float(params.get("confidence_level"), 0.95, 0.5, 0.999)
+    z_value = 2.576 if confidence_level >= 0.99 else 1.645 if confidence_level <= 0.90 else 1.96
+    ranks = [max(1, round(1 + index * (row_count - 1) / 120)) for index in range(121)]
+    expected = []
+    lower = []
+    upper = []
+    for rank in ranks:
+        probability = (rank - 0.5) / row_count
+        se = math.sqrt(max(probability * (1 - probability) / row_count, 1e-12))
+        lower_p = max(1e-300, probability - z_value * se)
+        upper_p = min(1.0, probability + z_value * se)
+        x_value = -math.log10(probability)
+        expected.append(min(x_value, max_axis))
+        lower.append(-math.log10(upper_p))
+        upper.append(-math.log10(lower_p))
+    return {
+        "type": "scatter",
+        "mode": "lines",
+        "name": f"{confidence_level:.0%} null band",
+        "x": expected + list(reversed(expected)),
+        "y": upper + list(reversed(lower)),
+        "fill": "toself",
+        "fillcolor": str(params.get("band_color") or "rgba(49, 95, 214, 0.16)"),
+        "line": {"color": "rgba(0,0,0,0)", "width": 0},
+        "hoverinfo": "skip",
+    }
+
+
+def _qq_label_trace(candidates: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any] | None:
+    label_top_n = _bounded_int(params.get("label_top_n"), 10, 0, 200)
+    if label_top_n <= 0:
+        return None
+    selected = sorted([item for item in candidates if item.get("label")], key=lambda item: item["p_value"])[:label_top_n]
+    if not selected:
+        return None
+    return {
+        "type": "scatter",
+        "mode": "text",
+        "name": "Feature labels",
+        "x": [item["x"] for item in selected],
+        "y": [item["y"] for item in selected],
+        "text": [item["label"] for item in selected],
+        "textposition": "top center",
+        "textfont": {"size": _bounded_int(params.get("label_font_size"), 11, 6, 24), "color": "#07131f"},
+        "hoverinfo": "skip",
+        "showlegend": False,
+    }
+
+
+def _build_forest_plot_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    label_column = _requested_column(params.get("label_column"), columns) or _find_column(
+        columns, ["term", "gene", "feature", "comparison", "name", "id"]
+    )
+    effect_column = _requested_column(params.get("effect_column"), columns) or _find_column(
+        columns, ["effect", "estimate", "log2fc", "beta", "odds_ratio", "hazard_ratio"]
+    )
+    ci_low_column = _requested_column(params.get("ci_low_column"), columns) or _find_column(
+        columns, ["ci_low", "ci_lower", "lower_ci", "conf_low", "lcl"]
+    )
+    ci_high_column = _requested_column(params.get("ci_high_column"), columns) or _find_column(
+        columns, ["ci_high", "ci_upper", "upper_ci", "conf_high", "ucl"]
+    )
+    p_value_column = _requested_column(params.get("p_value_column"), columns) or _find_column(
+        columns, ["padj", "p_adjust", "p_value", "pvalue"]
+    )
+    group_column = _requested_column(params.get("group"), columns)
+    if not effect_column or not ci_low_column or not ci_high_column:
+        return _empty_plot_spec("forest_plot", "Forest plot requires effect, CI lower, and CI upper columns.", context["table_summary"])
+
+    rows = []
+    for index, row in enumerate(context["records"]):
+        effect = _number_or_none(row.get(effect_column))
+        ci_low = _number_or_none(row.get(ci_low_column))
+        ci_high = _number_or_none(row.get(ci_high_column))
+        if effect is None or ci_low is None or ci_high is None:
+            continue
+        lower = min(ci_low, ci_high)
+        upper = max(ci_low, ci_high)
+        p_value = _number_or_none(row.get(p_value_column)) if p_value_column else None
+        rows.append(
+            {
+                "label": str(row.get(label_column) or f"row {index + 1}") if label_column else f"row {index + 1}",
+                "effect": effect,
+                "ci_low": lower,
+                "ci_high": upper,
+                "p_value": p_value,
+                "group": str(row.get(group_column) or "Group") if group_column else "",
+                "input_index": index,
+            }
+        )
+    if not rows:
+        return _empty_plot_spec("forest_plot", "No finite effect-size rows were available.", context["table_summary"])
+
+    sort_by = str(params.get("sort_by") or "p_value")
+    if sort_by == "abs_effect":
+        rows.sort(key=lambda item: abs(item["effect"]), reverse=True)
+    elif sort_by == "effect_desc":
+        rows.sort(key=lambda item: item["effect"], reverse=True)
+    elif sort_by == "effect_asc":
+        rows.sort(key=lambda item: item["effect"])
+    elif sort_by == "input":
+        rows.sort(key=lambda item: item["input_index"])
+    else:
+        rows.sort(key=lambda item: item["p_value"] if item["p_value"] is not None else math.inf)
+
+    top_n = _bounded_int(params.get("top_n"), 30, 1, 500)
+    warnings = []
+    if len(rows) > top_n:
+        warnings.append(f"Showing top {top_n} rows ranked by {sort_by}.")
+        rows = rows[:top_n]
+    rows = list(reversed(rows))
+
+    reference_value = _bounded_float(params.get("reference_value"), 0, -100000, 100000)
+    group_colors = {
+        group: PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+        for index, group in enumerate(dict.fromkeys(item["group"] for item in rows if item["group"]))
+    }
+    marker_colors = [
+        _forest_color(
+            item,
+            color_mode=str(params.get("color_mode") or "significance"),
+            reference_value=reference_value,
+            p_value_column=p_value_column,
+            positive_color=str(params.get("positive_color") or "#c44f3a"),
+            negative_color=str(params.get("negative_color") or "#315fd6"),
+            neutral_color=str(params.get("neutral_color") or "#9aaab7"),
+            group_colors=group_colors,
+        )
+        for item in rows
+    ]
+    labels = [item["label"] for item in rows]
+    effects = [item["effect"] for item in rows]
+    trace = {
+        "type": "scatter",
+        "mode": "markers",
+        "name": effect_column,
+        "x": effects,
+        "y": labels,
+        "error_x": {
+            "type": "data",
+            "symmetric": False,
+            "array": [max(0.0, item["ci_high"] - item["effect"]) for item in rows],
+            "arrayminus": [max(0.0, item["effect"] - item["ci_low"]) for item in rows],
+            "thickness": _bounded_float(params.get("line_width"), 1.8, 0.2, 8),
+            "width": _bounded_float(params.get("cap_width"), 5, 0, 20),
+            "color": "#52616b",
+        },
+        "marker": {
+            "size": _bounded_float(params.get("point_size"), 9, 1, 36),
+            "opacity": _bounded_float(params.get("point_alpha"), 0.9, 0.05, 1),
+            "color": marker_colors,
+            "line": {"color": "#ffffff", "width": 0.8},
+        },
+        "customdata": [[item["ci_low"], item["ci_high"], item["p_value"] if item["p_value"] is not None else "", item["group"]] for item in rows],
+        "hovertemplate": "%{y}<br>effect=%{x:.4g}<br>CI=%{customdata[0]:.4g} to %{customdata[1]:.4g}<br>p=%{customdata[2]}<br>group=%{customdata[3]}<extra></extra>",
+    }
+    layout = _base_layout(
+        title=f"Forest plot: {effect_column}",
+        x_title=effect_column,
+        y_title=label_column or "feature",
+        params=params,
+    )
+    layout["yaxis"]["automargin"] = True
+    if params.get("height") in {None, ""}:
+        layout["height"] = max(520, min(1800, 180 + len(rows) * 28))
+    if _truthy(params.get("show_reference_line"), True):
+        layout.setdefault("shapes", []).append(
+            _vertical_line(reference_value, line={"color": "#52616b", "width": 1.2, "dash": "dash"})
+        )
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _forest_color(
+    item: dict[str, Any],
+    *,
+    color_mode: str,
+    reference_value: float,
+    p_value_column: str | None,
+    positive_color: str,
+    negative_color: str,
+    neutral_color: str,
+    group_colors: dict[str, str],
+) -> str:
+    if color_mode == "group" and item.get("group"):
+        return group_colors.get(str(item["group"]), neutral_color)
+    if color_mode == "single":
+        return positive_color
+    if color_mode == "significance" and p_value_column and item.get("p_value") is not None and item["p_value"] > 0.05:
+        return neutral_color
+    return positive_color if item["effect"] >= reference_value else negative_color
+
+
+def _build_roc_curve_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    score_column = _requested_column(params.get("score_column"), columns) or _find_column(
+        columns, ["score", "probability", "prediction", "risk_score", "auc_score"]
+    )
+    label_column = _requested_column(params.get("label_column"), columns) or _find_column(
+        columns, ["label", "class", "group", "status", "outcome"]
+    )
+    group_column = _requested_column(params.get("group"), columns)
+    if not score_column or not label_column:
+        return _empty_plot_spec("roc_curve", "ROC curve requires a numeric score column and a binary label column.", context["table_summary"])
+
+    rows = []
+    for row in context["records"]:
+        score = _number_or_none(row.get(score_column))
+        label = str(row.get(label_column) or "").strip()
+        if score is None or not label:
+            continue
+        rows.append({"score": score, "label": label, "group": str(row.get(group_column) or "All") if group_column else "All"})
+    if not rows:
+        return _empty_plot_spec("roc_curve", "No valid score/label rows were available.", context["table_summary"])
+
+    grouped = _records_by_roc_group(rows, group_column is not None)
+    traces = []
+    auc_annotations = []
+    warnings = []
+    line_width = _bounded_float(params.get("line_width"), 2.6, 0.5, 8)
+    marker_size = _bounded_float(params.get("point_size"), 6, 1, 30)
+    marker_opacity = _bounded_float(params.get("point_alpha"), 0.8, 0.05, 1)
+    show_threshold_points = _truthy(params.get("show_threshold_points"), False)
+    for index, (group_name, group_rows) in enumerate(grouped.items()):
+        result = _roc_points(group_rows, params)
+        if result is None:
+            warnings.append(f"Skipping {group_name}: ROC needs both positive and negative labels.")
+            continue
+        auc_annotations.append(f"{group_name} AUC={result['auc']:.3f} (n={len(group_rows)}, pos={result['positive_count']}, neg={result['negative_count']})")
+        trace = {
+            "type": "scatter",
+            "mode": "lines+markers" if show_threshold_points else "lines",
+            "name": f"{group_name} AUC={result['auc']:.3f}" if _truthy(params.get("show_auc"), True) else group_name,
+            "x": result["fpr"],
+            "y": result["tpr"],
+            "customdata": [[threshold, specificity] for threshold, specificity in zip(result["thresholds"], result["specificity"])],
+            "line": {"color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)], "width": line_width},
+            "marker": {"size": marker_size, "opacity": marker_opacity},
+            "hovertemplate": "FPR=%{x:.3f}<br>TPR=%{y:.3f}<br>specificity=%{customdata[1]:.3f}<br>threshold=%{customdata[0]}<extra>%{fullData.name}</extra>",
+        }
+        if show_threshold_points:
+            trace = _thin_threshold_markers(trace, _bounded_int(params.get("threshold_count"), 12, 2, 100))
+        traces.append(trace)
+
+    if _truthy(params.get("show_diagonal"), True):
+        traces.insert(
+            0,
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "name": "No skill",
+                "x": [0, 1],
+                "y": [0, 1],
+                "line": {"color": str(params.get("diagonal_color") or "#8799aa"), "width": 1.2, "dash": "dash"},
+                "hoverinfo": "skip",
+            },
+        )
+    layout = _base_layout(
+        title=f"ROC curve: {score_column} vs {label_column}",
+        x_title="False positive rate",
+        y_title="True positive rate",
+        params=params,
+    )
+    layout["xaxis"]["range"] = [0, 1]
+    layout["yaxis"]["range"] = [0, 1]
+    layout["xaxis"]["constrain"] = "domain"
+    layout["yaxis"]["scaleanchor"] = "x"
+    layout["meta"] = {"roc_summary": auc_annotations}
+    if _truthy(params.get("show_auc"), True) and auc_annotations:
+        layout.setdefault("annotations", []).append(
+            {
+                "text": "<br>".join(auc_annotations[:4]),
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.98,
+                "y": 0.04,
+                "xanchor": "right",
+                "yanchor": "bottom",
+                "showarrow": False,
+                "align": "right",
+                "font": {"size": 12, "color": "#324657"},
+                "bgcolor": "rgba(255,255,255,0.78)",
+                "bordercolor": "rgba(82,97,107,0.18)",
+            }
+        )
+    if not traces or (len(traces) == 1 and traces[0].get("name") == "No skill"):
+        warnings.append("No renderable ROC curve was available.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _records_by_roc_group(rows: list[dict[str, Any]], has_group: bool) -> dict[str, list[dict[str, Any]]]:
+    if not has_group:
+        return {"All": rows}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get("group") or "All"), []).append(row)
+    return grouped
+
+
+def _roc_points(rows: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any] | None:
+    labels = sorted({row["label"] for row in rows})
+    if len(labels) != 2:
+        return None
+    requested_positive = str(params.get("positive_label") or "auto").strip()
+    positive_label = requested_positive if requested_positive and requested_positive != "auto" and requested_positive in labels else labels[-1]
+    direction = str(params.get("direction") or "higher_positive")
+    scored = [
+        {
+            "score": row["score"] if direction != "lower_positive" else -row["score"],
+            "raw_score": row["score"],
+            "positive": row["label"] == positive_label,
+        }
+        for row in rows
+    ]
+    positive_count = sum(1 for row in scored if row["positive"])
+    negative_count = len(scored) - positive_count
+    if positive_count == 0 or negative_count == 0:
+        return None
+    scored.sort(key=lambda row: row["score"], reverse=True)
+    points = [{"fpr": 0.0, "tpr": 0.0, "threshold": "Inf"}]
+    tp = 0
+    fp = 0
+    last_score = None
+    for row in scored:
+        if last_score is not None and row["score"] != last_score:
+            points.append({"fpr": fp / negative_count, "tpr": tp / positive_count, "threshold": _round_number(last_score)})
+        if row["positive"]:
+            tp += 1
+        else:
+            fp += 1
+        last_score = row["score"]
+    points.append({"fpr": fp / negative_count, "tpr": tp / positive_count, "threshold": _round_number(last_score)})
+    points.append({"fpr": 1.0, "tpr": 1.0, "threshold": "-Inf"})
+    points = _dedupe_roc_points(points)
+    auc = 0.0
+    for left, right in zip(points, points[1:]):
+        auc += (right["fpr"] - left["fpr"]) * (right["tpr"] + left["tpr"]) / 2
+    return {
+        "fpr": [point["fpr"] for point in points],
+        "tpr": [point["tpr"] for point in points],
+        "specificity": [1 - point["fpr"] for point in points],
+        "thresholds": [point["threshold"] for point in points],
+        "auc": auc,
+        "positive_count": positive_count,
+        "negative_count": negative_count,
+    }
+
+
+def _dedupe_roc_points(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped = []
+    seen = set()
+    for point in points:
+        key = (round(point["fpr"], 12), round(point["tpr"], 12), str(point["threshold"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(point)
+    return deduped
+
+
+def _thin_threshold_markers(trace: dict[str, Any], threshold_count: int) -> dict[str, Any]:
+    count = len(trace["x"])
+    if count <= threshold_count:
+        return trace
+    keep = {0, count - 1}
+    for index in range(threshold_count):
+        keep.add(round(index * (count - 1) / max(1, threshold_count - 1)))
+    for key in ("x", "y", "customdata"):
+        trace[key] = [value for index, value in enumerate(trace[key]) if index in keep]
+    return trace
+
+
+def _build_pr_curve_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    score_column = _requested_column(params.get("score_column"), columns) or _find_column(
+        columns, ["score", "probability", "prediction", "risk_score", "auc_score"]
+    )
+    label_column = _requested_column(params.get("label_column"), columns) or _find_column(
+        columns, ["label", "class", "group", "status", "outcome"]
+    )
+    group_column = _requested_column(params.get("group"), columns)
+    if not score_column or not label_column:
+        return _empty_plot_spec("pr_curve", "Precision-recall curve requires a numeric score column and a binary label column.", context["table_summary"])
+
+    rows = []
+    for row in context["records"]:
+        score = _number_or_none(row.get(score_column))
+        label = str(row.get(label_column) or "").strip()
+        if score is None or not label:
+            continue
+        rows.append({"score": score, "label": label, "group": str(row.get(group_column) or "All") if group_column else "All"})
+    grouped = _records_by_roc_group(rows, group_column is not None)
+    traces = []
+    summaries = []
+    warnings = []
+    prevalence_values = []
+    show_threshold_points = _truthy(params.get("show_threshold_points"), False)
+    for index, (group_name, group_rows) in enumerate(grouped.items()):
+        result = _precision_recall_points(group_rows, params)
+        if result is None:
+            warnings.append(f"Skipping {group_name}: precision-recall needs both positive and negative labels.")
+            continue
+        prevalence_values.append(result["prevalence"])
+        summaries.append(
+            f"{group_name} AP={result['average_precision']:.3f} (n={len(group_rows)}, pos={result['positive_count']}, prevalence={result['prevalence']:.3f})"
+        )
+        trace = {
+            "type": "scatter",
+            "mode": "lines+markers" if show_threshold_points else "lines",
+            "name": f"{group_name} AP={result['average_precision']:.3f}" if _truthy(params.get("show_average_precision"), True) else group_name,
+            "x": result["recall"],
+            "y": result["precision"],
+            "customdata": [[threshold] for threshold in result["thresholds"]],
+            "line": {"color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)], "width": _bounded_float(params.get("line_width"), 2.6, 0.5, 8)},
+            "marker": {
+                "size": _bounded_float(params.get("point_size"), 6, 1, 30),
+                "opacity": _bounded_float(params.get("point_alpha"), 0.8, 0.05, 1),
+            },
+            "hovertemplate": "recall=%{x:.3f}<br>precision=%{y:.3f}<br>threshold=%{customdata[0]}<extra>%{fullData.name}</extra>",
+        }
+        if show_threshold_points:
+            trace = _thin_threshold_markers(trace, _bounded_int(params.get("threshold_count"), 12, 2, 100))
+        traces.append(trace)
+    if _truthy(params.get("show_baseline"), True) and prevalence_values:
+        baseline = sum(prevalence_values) / len(prevalence_values)
+        traces.insert(
+            0,
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "name": f"Prevalence baseline={baseline:.3f}",
+                "x": [0, 1],
+                "y": [baseline, baseline],
+                "line": {"color": str(params.get("baseline_color") or "#8799aa"), "width": 1.2, "dash": "dash"},
+                "hoverinfo": "skip",
+            },
+        )
+    layout = _base_layout(
+        title=f"Precision-recall: {score_column} vs {label_column}",
+        x_title="Recall",
+        y_title="Precision",
+        params=params,
+    )
+    layout["xaxis"]["range"] = [0, 1]
+    layout["yaxis"]["range"] = [0, 1]
+    layout["meta"] = {"pr_summary": summaries}
+    if _truthy(params.get("show_average_precision"), True) and summaries:
+        layout.setdefault("annotations", []).append(
+            {
+                "text": "<br>".join(summaries[:4]),
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.98,
+                "y": 0.04,
+                "xanchor": "right",
+                "yanchor": "bottom",
+                "showarrow": False,
+                "align": "right",
+                "font": {"size": 12, "color": "#324657"},
+                "bgcolor": "rgba(255,255,255,0.78)",
+                "bordercolor": "rgba(82,97,107,0.18)",
+            }
+        )
+    if not traces:
+        warnings.append("No renderable precision-recall curve was available.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _precision_recall_points(rows: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any] | None:
+    labels = sorted({row["label"] for row in rows})
+    if len(labels) != 2:
+        return None
+    requested_positive = str(params.get("positive_label") or "auto").strip()
+    positive_label = requested_positive if requested_positive and requested_positive != "auto" and requested_positive in labels else labels[-1]
+    direction = str(params.get("direction") or "higher_positive")
+    scored = [
+        {
+            "score": row["score"] if direction != "lower_positive" else -row["score"],
+            "positive": row["label"] == positive_label,
+        }
+        for row in rows
+    ]
+    positive_count = sum(1 for row in scored if row["positive"])
+    negative_count = len(scored) - positive_count
+    if positive_count == 0 or negative_count == 0:
+        return None
+    scored.sort(key=lambda row: row["score"], reverse=True)
+    points = [{"recall": 0.0, "precision": 1.0, "threshold": "Inf"}]
+    tp = 0
+    fp = 0
+    last_score = None
+    for row in scored:
+        if last_score is not None and row["score"] != last_score:
+            points.append(
+                {
+                    "recall": tp / positive_count,
+                    "precision": tp / max(tp + fp, 1),
+                    "threshold": _round_number(last_score),
+                }
+            )
+        if row["positive"]:
+            tp += 1
+        else:
+            fp += 1
+        last_score = row["score"]
+    points.append({"recall": tp / positive_count, "precision": tp / max(tp + fp, 1), "threshold": _round_number(last_score)})
+    points = _dedupe_pr_points(points)
+    average_precision = 0.0
+    previous_recall = 0.0
+    for point in points[1:]:
+        average_precision += max(0.0, point["recall"] - previous_recall) * point["precision"]
+        previous_recall = point["recall"]
+    return {
+        "recall": [point["recall"] for point in points],
+        "precision": [point["precision"] for point in points],
+        "thresholds": [point["threshold"] for point in points],
+        "average_precision": average_precision,
+        "positive_count": positive_count,
+        "negative_count": negative_count,
+        "prevalence": positive_count / len(scored),
+    }
+
+
+def _dedupe_pr_points(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped = []
+    seen = set()
+    for point in points:
+        key = (round(point["recall"], 12), round(point["precision"], 12), str(point["threshold"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(point)
+    return deduped
+
+
+def _build_kaplan_meier_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    time_column = _requested_column(params.get("time_column"), columns) or _find_column(
+        columns, ["time", "survival_time", "os_time", "pfs_time", "days", "months"]
+    )
+    event_column = _requested_column(params.get("event_column"), columns) or _find_column(
+        columns, ["event", "status", "os_event", "pfs_event", "death"]
+    )
+    group_column = _requested_column(params.get("group"), columns)
+    if not time_column or not event_column:
+        return _empty_plot_spec("kaplan_meier", "Kaplan-Meier requires time and event columns.", context["table_summary"])
+
+    records = []
+    for row in context["records"]:
+        time_value = _number_or_none(row.get(time_column))
+        if time_value is None or time_value < 0:
+            continue
+        event = _is_event_value(row.get(event_column), params)
+        records.append(
+            {
+                "time": time_value,
+                "event": event,
+                "group": str(row.get(group_column) or "All") if group_column else "All",
+            }
+        )
+    if not records:
+        return _empty_plot_spec("kaplan_meier", "No valid time-to-event rows were available.", context["table_summary"])
+
+    grouped = _records_by_km_group(records)
+    traces = []
+    risk_table = {}
+    warnings = []
+    curve_mode = str(params.get("curve_mode") or "survival")
+    for index, (group_name, group_rows) in enumerate(grouped.items()):
+        result = _kaplan_meier_curve(group_rows)
+        if result is None:
+            warnings.append(f"Skipping {group_name}: no subjects were available.")
+            continue
+        y_values = result["survival"] if curve_mode == "survival" else [1 - value for value in result["survival"]]
+        traces.append(
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "name": group_name,
+                "x": result["times"],
+                "y": y_values,
+                "line": {
+                    "shape": "hv",
+                    "width": _bounded_float(params.get("line_width"), 2.6, 0.5, 8),
+                    "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+                },
+                "hovertemplate": f"{group_name}<br>{time_column}=%{{x:.4g}}<br>{curve_mode}=%{{y:.3f}}<extra></extra>",
+            }
+        )
+        if _truthy(params.get("show_censor_marks"), True) and result["censor_times"]:
+            censor_y = result["censor_survival"] if curve_mode == "survival" else [1 - value for value in result["censor_survival"]]
+            traces.append(
+                {
+                    "type": "scatter",
+                    "mode": "markers",
+                    "name": f"{group_name} censored",
+                    "x": result["censor_times"],
+                    "y": censor_y,
+                    "marker": {
+                        "symbol": "line-ns-open",
+                        "size": _bounded_float(params.get("censor_marker_size"), 7, 2, 24),
+                        "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+                    },
+                    "hovertemplate": f"{group_name}<br>censored at {time_column}=%{{x:.4g}}<extra></extra>",
+                    "showlegend": False,
+                }
+            )
+        risk_table[group_name] = result["risk_table"]
+
+    layout = _base_layout(
+        title=f"Kaplan-Meier: {time_column}",
+        x_title=str(params.get("time_unit") or time_column),
+        y_title="Survival probability" if curve_mode == "survival" else "Failure probability",
+        params=params,
+    )
+    layout["yaxis"]["range"] = [0, 1.02]
+    layout["meta"] = {"risk_table": risk_table}
+    if _truthy(params.get("show_logrank"), True):
+        logrank = _logrank_two_group(grouped)
+        if logrank:
+            layout["meta"]["logrank"] = logrank
+            layout.setdefault("annotations", []).append(
+                {
+                    "text": f"log-rank p={logrank['p_value']:.3g}",
+                    "xref": "paper",
+                    "yref": "paper",
+                    "x": 0.98,
+                    "y": 0.04,
+                    "xanchor": "right",
+                    "yanchor": "bottom",
+                    "showarrow": False,
+                    "font": {"size": 12, "color": "#324657"},
+                    "bgcolor": "rgba(255,255,255,0.78)",
+                    "bordercolor": "rgba(82,97,107,0.18)",
+                }
+            )
+    if _truthy(params.get("show_confidence_band"), False):
+        warnings.append("Kaplan-Meier confidence bands are recorded as planned controls; interval rendering is not enabled yet.")
+    if not traces:
+        warnings.append("No renderable Kaplan-Meier curves were available.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _is_event_value(value: Any, params: dict[str, Any]) -> bool:
+    event_value = str(params.get("event_value") or "1").strip().lower()
+    censor_value = str(params.get("censor_value") or "0").strip().lower()
+    raw = str(value or "").strip().lower()
+    if raw == event_value:
+        return True
+    if raw == censor_value:
+        return False
+    return raw in {"1", "true", "yes", "event", "dead", "deceased", "progressed"}
+
+
+def _records_by_km_group(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in records:
+        grouped.setdefault(str(row.get("group") or "All"), []).append(row)
+    return grouped
+
+
+def _kaplan_meier_curve(records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not records:
+        return None
+    sorted_records = sorted(records, key=lambda item: item["time"])
+    times = [0.0]
+    survival = [1.0]
+    censor_times = []
+    censor_survival = []
+    risk_table = []
+    current_survival = 1.0
+    unique_times = sorted({row["time"] for row in sorted_records})
+    for time_value in unique_times:
+        at_risk = sum(1 for row in sorted_records if row["time"] >= time_value)
+        events = sum(1 for row in sorted_records if row["time"] == time_value and row["event"])
+        censored = sum(1 for row in sorted_records if row["time"] == time_value and not row["event"])
+        risk_table.append({"time": time_value, "at_risk": at_risk, "events": events, "censored": censored})
+        if censored:
+            censor_times.extend([time_value] * censored)
+            censor_survival.extend([current_survival] * censored)
+        if events and at_risk:
+            current_survival *= max(0.0, 1 - events / at_risk)
+            times.append(time_value)
+            survival.append(current_survival)
+    if times[-1] < unique_times[-1]:
+        times.append(unique_times[-1])
+        survival.append(current_survival)
+    return {
+        "times": times,
+        "survival": survival,
+        "censor_times": censor_times,
+        "censor_survival": censor_survival,
+        "risk_table": risk_table,
+    }
+
+
+def _logrank_two_group(grouped: dict[str, list[dict[str, Any]]]) -> dict[str, Any] | None:
+    if len(grouped) != 2:
+        return None
+    group_names = list(grouped)
+    first, second = grouped[group_names[0]], grouped[group_names[1]]
+    event_times = sorted({row["time"] for row in first + second if row["event"]})
+    observed = expected = variance = 0.0
+    for time_value in event_times:
+        n1 = sum(1 for row in first if row["time"] >= time_value)
+        n2 = sum(1 for row in second if row["time"] >= time_value)
+        d1 = sum(1 for row in first if row["time"] == time_value and row["event"])
+        d2 = sum(1 for row in second if row["time"] == time_value and row["event"])
+        total_risk = n1 + n2
+        total_events = d1 + d2
+        if total_risk <= 1 or total_events == 0:
+            continue
+        observed += d1
+        expected += total_events * n1 / total_risk
+        variance += (n1 * n2 * total_events * (total_risk - total_events)) / (
+            total_risk * total_risk * max(total_risk - 1, 1)
+        )
+    if variance <= 0:
+        return None
+    chi_square = (observed - expected) ** 2 / variance
+    p_value = math.erfc(math.sqrt(chi_square / 2))
+    return {"groups": group_names, "chi_square": chi_square, "p_value": p_value}
+
+
+def _build_bland_altman_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    x_column = _choose_column(params.get("x_method"), context["numeric_columns"], fallback_index=0)
+    y_column = _choose_column(params.get("y_method"), context["numeric_columns"], fallback_index=1)
+    if not x_column or not y_column:
+        return _empty_plot_spec("bland_altman", "Bland-Altman requires two numeric measurement columns.", context["table_summary"])
+
+    label_column = _choose_column(params.get("label"), context["columns"])
+    color_column = _choose_column(params.get("color"), context["categorical_columns"])
+    difference_mode = str(params.get("difference_mode") or "y_minus_x")
+    rows = []
+    for row in context["records"]:
+        x_value = _number_or_none(row.get(x_column))
+        y_value = _number_or_none(row.get(y_column))
+        if x_value is None or y_value is None:
+            continue
+        mean_value = (x_value + y_value) / 2
+        if difference_mode == "x_minus_y":
+            difference = x_value - y_value
+        elif difference_mode == "percent_difference":
+            denominator = mean_value if mean_value else None
+            if denominator is None:
+                continue
+            difference = (y_value - x_value) / denominator * 100
+        else:
+            difference = y_value - x_value
+        rows.append(
+            {
+                "mean": mean_value,
+                "difference": difference,
+                "label": str(row.get(label_column) or "") if label_column else "",
+                "group": str(row.get(color_column) or "All") if color_column else "All",
+                "x": x_value,
+                "y": y_value,
+            }
+        )
+    if not rows:
+        return _empty_plot_spec("bland_altman", "No complete paired measurements were available.", context["table_summary"])
+
+    bias = fmean(item["difference"] for item in rows)
+    sd = pstdev([item["difference"] for item in rows]) if len(rows) > 1 else 0.0
+    multiplier = _bounded_float(params.get("limits_sd"), 1.96, 0.5, 4)
+    lower = bias - multiplier * sd
+    upper = bias + multiplier * sd
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row["group"], []).append(row)
+    traces = []
+    for index, (group_name, group_rows) in enumerate(grouped.items()):
+        traces.append(
+            {
+                "type": "scatter",
+                "mode": "markers",
+                "name": group_name,
+                "x": [item["mean"] for item in group_rows],
+                "y": [item["difference"] for item in group_rows],
+                "text": [item["label"] for item in group_rows],
+                "customdata": [[item["x"], item["y"]] for item in group_rows],
+                "marker": {
+                    "size": _bounded_float(params.get("point_size"), 8, 1, 36),
+                    "opacity": _bounded_float(params.get("point_alpha"), 0.78, 0.05, 1),
+                    "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+                    "line": {
+                        "color": str(params.get("marker_line_color") or "#ffffff"),
+                        "width": _bounded_float(params.get("marker_line_width"), 0.6, 0, 5),
+                    },
+                },
+                "hovertemplate": "%{text}<br>mean=%{x:.4g}<br>difference=%{y:.4g}<br>A=%{customdata[0]:.4g}<br>B=%{customdata[1]:.4g}<extra>%{fullData.name}</extra>",
+            }
+        )
+
+    layout = _base_layout(
+        title=f"Bland-Altman: {y_column} vs {x_column}",
+        x_title=f"Mean of {x_column} and {y_column}",
+        y_title="% difference" if difference_mode == "percent_difference" else f"Difference ({difference_mode.replace('_', ' ')})",
+        params=params,
+    )
+    line_width = _bounded_float(params.get("line_width"), 1.4, 0.4, 8)
+    shapes = layout.setdefault("shapes", [])
+    annotations = layout.setdefault("annotations", [])
+    if _truthy(params.get("show_zero_line"), True):
+        shapes.append(_horizontal_line(0, line={"color": "#a5b4c3", "width": 1.0, "dash": "dot"}))
+    if _truthy(params.get("show_bias_line"), True):
+        shapes.append(_horizontal_line(bias, line={"color": "#07131f", "width": line_width, "dash": "solid"}))
+        annotations.append(_line_label_annotation(bias, f"bias {bias:.3g}"))
+    if _truthy(params.get("show_limits"), True):
+        limit_line = {"color": "#c44f3a", "width": line_width, "dash": "dash"}
+        shapes.extend([_horizontal_line(lower, line=limit_line), _horizontal_line(upper, line=limit_line)])
+        annotations.extend([_line_label_annotation(lower, f"lower {lower:.3g}"), _line_label_annotation(upper, f"upper {upper:.3g}")])
+    layout["meta"] = {
+        "agreement": {
+            "bias": bias,
+            "sd": sd,
+            "lower_limit": lower,
+            "upper_limit": upper,
+            "n": len(rows),
+            "difference_mode": difference_mode,
+        }
+    }
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
+
+
+def _line_label_annotation(y_value: float, text: str) -> dict[str, Any]:
+    return {
+        "text": text,
+        "xref": "paper",
+        "yref": "y",
+        "x": 1,
+        "y": y_value,
+        "xanchor": "right",
+        "yanchor": "bottom",
+        "showarrow": False,
+        "font": {"size": 11, "color": "#324657"},
+        "bgcolor": "rgba(255,255,255,0.75)",
+    }
+
+
+def _build_dose_response_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    dose_column = _choose_column(params.get("dose_column"), context["numeric_columns"], fallback_index=0)
+    response_column = _choose_column(params.get("response_column"), context["numeric_columns"], fallback_index=1)
+    if not dose_column or not response_column:
+        return _empty_plot_spec("dose_response", "Dose-response requires dose and response numeric columns.", context["table_summary"])
+
+    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    label_column = _choose_column(params.get("label"), context["columns"])
+    log_x = _truthy(params.get("log_x"), True)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in context["records"]:
+        dose = _number_or_none(row.get(dose_column))
+        response = _number_or_none(row.get(response_column))
+        if dose is None or response is None:
+            continue
+        if log_x and dose <= 0:
+            continue
+        group_name = str(row.get(group_column) or "All") if group_column else "All"
+        grouped.setdefault(group_name, []).append(
+            {
+                "dose": dose,
+                "response": response,
+                "label": str(row.get(label_column) or "") if label_column else "",
+            }
+        )
+    if not grouped:
+        return _empty_plot_spec("dose_response", "No complete dose-response rows were available.", context["table_summary"])
+
+    traces = []
+    estimates = {}
+    warnings = []
+    response_mode = str(params.get("response_mode") or "inhibition")
+    normalize = _truthy(params.get("normalize_response"), False)
+    for index, (group_name, rows) in enumerate(grouped.items()):
+        rows = sorted(rows, key=lambda item: item["dose"])
+        prepared = _prepare_dose_response_rows(rows, normalize)
+        color = PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+        if _truthy(params.get("show_points"), True):
+            traces.append(
+                {
+                    "type": "scatter",
+                    "mode": "markers",
+                    "name": f"{group_name} points" if _truthy(params.get("show_curve"), True) else group_name,
+                    "x": [item["dose"] for item in prepared],
+                    "y": [item["display_response"] for item in prepared],
+                    "text": [item["label"] for item in prepared],
+                    "customdata": [[item["response"]] for item in prepared],
+                    "marker": {
+                        "size": _bounded_float(params.get("point_size"), 8, 1, 36),
+                        "opacity": _bounded_float(params.get("point_alpha"), 0.78, 0.05, 1),
+                        "color": color,
+                        "line": {
+                            "color": str(params.get("marker_line_color") or "#ffffff"),
+                            "width": _bounded_float(params.get("marker_line_width"), 0.6, 0, 5),
+                        },
+                    },
+                    "hovertemplate": "%{text}<br>dose=%{x:.4g}<br>display response=%{y:.4g}<br>raw response=%{customdata[0]:.4g}<extra>%{fullData.name}</extra>",
+                }
+            )
+        if _truthy(params.get("show_curve"), True):
+            traces.append(
+                {
+                    "type": "scatter",
+                    "mode": "lines",
+                    "name": group_name,
+                    "x": [item["dose"] for item in prepared],
+                    "y": [item["display_response"] for item in prepared],
+                    "line": {
+                        "color": color,
+                        "width": _bounded_float(params.get("line_width"), 2.6, 0.5, 8),
+                        "shape": _dose_line_shape(params.get("line_shape")),
+                    },
+                    "hovertemplate": f"{group_name}<br>dose=%{{x:.4g}}<br>response=%{{y:.4g}}<extra></extra>",
+                }
+            )
+        estimate = _dose_half_max_estimate(prepared, response_mode)
+        if estimate:
+            estimates[group_name] = estimate
+    layout = _base_layout(
+        title=f"Dose-response: {response_column} by {dose_column}",
+        x_title=dose_column,
+        y_title=f"{response_column} (% normalized)" if normalize else response_column,
+        params=params,
+    )
+    if log_x:
+        layout["xaxis"]["type"] = "log"
+    if _truthy(params.get("show_half_max"), True):
+        guide_shapes, guide_annotations = _dose_response_guides(estimates)
+        layout.setdefault("shapes", []).extend(guide_shapes)
+        layout.setdefault("annotations", []).extend(guide_annotations)
+    layout["meta"] = {"dose_response": {"estimates": estimates, "normalized": normalize, "response_mode": response_mode}}
+    if any(len(rows) < 3 for rows in grouped.values()):
+        warnings.append("Some dose-response groups have fewer than three points; IC50/EC50 estimates are approximate.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _prepare_dose_response_rows(rows: list[dict[str, Any]], normalize: bool) -> list[dict[str, Any]]:
+    if not normalize:
+        return [{**row, "display_response": row["response"]} for row in rows]
+    values = [row["response"] for row in rows]
+    low, high = min(values), max(values)
+    span = max(high - low, 1e-12)
+    return [{**row, "display_response": (row["response"] - low) / span * 100} for row in rows]
+
+
+def _dose_half_max_estimate(rows: list[dict[str, Any]], response_mode: str) -> dict[str, Any] | None:
+    if len(rows) < 2:
+        return None
+    values = [row["display_response"] for row in rows]
+    low, high = min(values), max(values)
+    if high == low:
+        return None
+    target = (low + high) / 2
+    ordered = rows if response_mode != "inhibition" else sorted(rows, key=lambda item: item["dose"])
+    for left, right in zip(ordered, ordered[1:]):
+        y1, y2 = left["display_response"], right["display_response"]
+        if (y1 - target) == 0:
+            dose = left["dose"]
+            break
+        if (y1 - target) * (y2 - target) <= 0 and y1 != y2:
+            fraction = (target - y1) / (y2 - y1)
+            if left["dose"] > 0 and right["dose"] > 0:
+                log_dose = math.log10(left["dose"]) + fraction * (math.log10(right["dose"]) - math.log10(left["dose"]))
+                dose = 10**log_dose
+            else:
+                dose = left["dose"] + fraction * (right["dose"] - left["dose"])
+            break
+    else:
+        return None
+    return {
+        "half_max_dose": dose,
+        "half_max_response": target,
+        "min_response": low,
+        "max_response": high,
+        "label": "IC50" if response_mode == "inhibition" else "EC50",
+    }
+
+
+def _dose_response_guides(estimates: dict[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    shapes = []
+    annotations = []
+    for index, (group_name, estimate) in enumerate(estimates.items()):
+        color = PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+        line = {"color": color, "width": 1.1, "dash": "dot"}
+        shapes.append(_vertical_line(estimate["half_max_dose"], line=line))
+        shapes.append(_horizontal_line(estimate["half_max_response"], line=line))
+        annotations.append(
+            {
+                "text": f"{group_name} {estimate['label']}={estimate['half_max_dose']:.3g}",
+                "xref": "x",
+                "yref": "paper",
+                "x": estimate["half_max_dose"],
+                "y": 0.98,
+                "showarrow": False,
+                "font": {"size": 11, "color": color},
+                "bgcolor": "rgba(255,255,255,0.74)",
+            }
+        )
+    return shapes, annotations
+
+
+def _dose_line_shape(value: Any) -> str:
+    shape = str(value or "spline")
+    return shape if shape in {"linear", "spline", "hv"} else "spline"
+
+
+def _build_paired_dot_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    value_column = _choose_column(params.get("value_column"), context["numeric_columns"], fallback_index=0)
+    condition_column = _choose_column(params.get("condition_column"), context["categorical_columns"])
+    subject_column = _choose_column(params.get("subject_column"), context["columns"])
+    if not value_column or not condition_column or not subject_column:
+        return _empty_plot_spec("paired_dot", "Paired dot requires value, condition, and subject columns.", context["table_summary"])
+
+    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    subject_rows: dict[str, list[dict[str, Any]]] = {}
+    conditions = []
+    for row in context["records"]:
+        value = _number_or_none(row.get(value_column))
+        condition = str(row.get(condition_column) or "").strip()
+        subject = str(row.get(subject_column) or "").strip()
+        if value is None or not condition or not subject:
+            continue
+        if condition not in conditions:
+            conditions.append(condition)
+        subject_rows.setdefault(subject, []).append(
+            {
+                "condition": condition,
+                "value": value,
+                "group": str(row.get(group_column) or "All") if group_column else "All",
+            }
+        )
+    if not subject_rows or len(conditions) < 2:
+        return _empty_plot_spec("paired_dot", "Paired dot requires at least two conditions with paired subjects.", context["table_summary"])
+
+    max_subjects = _bounded_int(params.get("max_subjects"), 120, 2, 2000)
+    warnings = []
+    subjects = list(subject_rows)[:max_subjects]
+    if len(subject_rows) > max_subjects:
+        warnings.append(f"Showing first {max_subjects} subjects to keep the paired plot readable.")
+    condition_index = {condition: index for index, condition in enumerate(conditions)}
+    traces = []
+    line_alpha = _bounded_float(params.get("line_alpha"), 0.35, 0.05, 1)
+    line_color = f"rgba(82, 97, 107, {line_alpha:.3f})"
+    if _truthy(params.get("connect_pairs"), True):
+        for subject in subjects:
+            rows = sorted(subject_rows[subject], key=lambda item: condition_index.get(item["condition"], 999))
+            traces.append(
+                {
+                    "type": "scatter",
+                    "mode": "lines",
+                    "name": subject,
+                    "x": [condition_index[item["condition"]] for item in rows],
+                    "y": [item["value"] for item in rows],
+                    "line": {"color": line_color, "width": _bounded_float(params.get("line_width"), 1.2, 0.2, 8)},
+                    "hoverinfo": "skip",
+                    "showlegend": False,
+                }
+            )
+
+    grouped_points: dict[str, list[dict[str, Any]]] = {}
+    for subject in subjects:
+        for item in subject_rows[subject]:
+            grouped_points.setdefault(item["group"], []).append({"subject": subject, **item})
+    jitter = _bounded_float(params.get("jitter"), 0.05, 0, 0.45)
+    for index, (group_name, rows) in enumerate(grouped_points.items()):
+        traces.append(
+            {
+                "type": "scatter",
+                "mode": "markers",
+                "name": group_name,
+                "x": [_jittered_condition(item["condition"], condition_index, item["subject"], jitter) for item in rows],
+                "y": [item["value"] for item in rows],
+                "text": [item["subject"] for item in rows],
+                "customdata": [[item["condition"]] for item in rows],
+                "marker": {
+                    "size": _bounded_float(params.get("point_size"), 8, 1, 36),
+                    "opacity": _bounded_float(params.get("point_alpha"), 0.82, 0.05, 1),
+                    "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+                    "line": {"color": "#ffffff", "width": 0.6},
+                },
+                "hovertemplate": "%{text}<br>condition=%{customdata[0]}<br>value=%{y:.4g}<extra>%{fullData.name}</extra>",
+            }
+        )
+
+    if _truthy(params.get("show_summary"), True):
+        summary = _paired_summary_by_condition(subjects, subject_rows, conditions, str(params.get("summary_stat") or "mean"))
+        traces.append(
+            {
+                "type": "scatter",
+                "mode": "lines+markers",
+                "name": f"{params.get('summary_stat') or 'mean'} summary",
+                "x": list(range(len(conditions))),
+                "y": [summary.get(condition) for condition in conditions],
+                "line": {"color": "#07131f", "width": 2.4},
+                "marker": {"size": 9, "color": "#07131f"},
+                "hovertemplate": "%{x}<br>summary=%{y:.4g}<extra></extra>",
+            }
+        )
+
+    layout = _base_layout(
+        title=f"Paired dot: {value_column} by {condition_column}",
+        x_title=condition_column,
+        y_title=value_column,
+        params=params,
+    )
+    layout["xaxis"]["tickmode"] = "array"
+    layout["xaxis"]["tickvals"] = list(range(len(conditions)))
+    layout["xaxis"]["ticktext"] = conditions
+    layout["meta"] = {"paired_dot": {"subjects": len(subjects), "conditions": conditions, "value_column": value_column}}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _jittered_condition(condition: str, condition_index: dict[str, int], subject: str, jitter: float) -> str | float:
+    if jitter <= 0:
+        return condition
+    base = condition_index[condition]
+    offset = ((sum(ord(char) for char in subject + condition) % 100) / 99 - 0.5) * jitter
+    return base + offset
+
+
+def _paired_summary_by_condition(
+    subjects: list[str],
+    subject_rows: dict[str, list[dict[str, Any]]],
+    conditions: list[str],
+    summary_stat: str,
+) -> dict[str, float]:
+    result = {}
+    for condition in conditions:
+        values = [
+            item["value"]
+            for subject in subjects
+            for item in subject_rows[subject]
+            if item["condition"] == condition
+        ]
+        if not values:
+            continue
+        result[condition] = median(values) if summary_stat == "median" else fmean(values)
+    return result
 
 
 def _volcano_label_trace(grouped: dict[str, list[dict[str, Any]]], params: dict[str, Any]) -> dict[str, Any] | None:

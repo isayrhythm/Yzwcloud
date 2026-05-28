@@ -475,6 +475,94 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
       </div>
     );
   }
+  if (kind === "qq_plot") {
+    return (
+      <div className="mini-plot mini-qq" aria-hidden="true">
+        <i />
+        {Array.from({ length: 16 }, (_, index) => (
+          <span key={index} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "forest_plot") {
+    return (
+      <div className="mini-plot mini-forest" aria-hidden="true">
+        {[0, 1, 2, 3].map((item) => (
+          <span key={item}>
+            <i />
+          </span>
+        ))}
+      </div>
+    );
+  }
+  if (kind === "roc_curve") {
+    return (
+      <div className="mini-plot mini-roc" aria-hidden="true">
+        <i />
+        <b />
+        {[0, 1, 2, 3, 4, 5].map((item) => (
+          <span key={item} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "pr_curve") {
+    return (
+      <div className="mini-plot mini-pr" aria-hidden="true">
+        <i />
+        <b />
+        {[0, 1, 2, 3, 4].map((item) => (
+          <span key={item} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "kaplan_meier") {
+    return (
+      <div className="mini-plot mini-km" aria-hidden="true">
+        <i className="curve c1" />
+        <i className="curve c2" />
+        {[0, 1, 2, 3].map((item) => (
+          <span key={item} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "bland_altman") {
+    return (
+      <div className="mini-plot mini-bland" aria-hidden="true">
+        <i className="bias" />
+        <i className="limit upper" />
+        <i className="limit lower" />
+        {Array.from({ length: 16 }, (_, index) => (
+          <span key={index} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "dose_response") {
+    return (
+      <div className="mini-plot mini-dose" aria-hidden="true">
+        <i />
+        {[0, 1, 2, 3, 4, 5].map((item) => (
+          <span key={item} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "paired_dot") {
+    return (
+      <div className="mini-plot mini-paired" aria-hidden="true">
+        {[0, 1, 2].map((item) => (
+          <i key={item} />
+        ))}
+        {Array.from({ length: 6 }, (_, index) => (
+          <span key={index} />
+        ))}
+      </div>
+    );
+  }
   if (kind === "upset") {
     return (
       <div className="mini-plot mini-upset" aria-hidden="true">
@@ -564,6 +652,8 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const [specError, setSpecError] = useState("");
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [agentContextCopied, setAgentContextCopied] = useState(false);
+  const [plotSearch, setPlotSearch] = useState("");
+  const [recommendedOnly, setRecommendedOnly] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -588,7 +678,19 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const workflowStages = manifest?.workflow_stages?.length ? manifest.workflow_stages : FALLBACK_WORKFLOW_STAGES;
   const tableSummary = studioReport?.table_summary || null;
   const recommendedPlotIds = studioReport?.recommended_plot_ids || [];
-  const groupedPresets = useMemo(() => groupPlotPresets(plotPresets), [plotPresets]);
+  const filteredGroupedPresets = useMemo(() => {
+    const query = plotSearch.trim().toLowerCase();
+    const recommendedSet = new Set(recommendedPlotIds);
+    const filtered = plotPresets.filter((preset) => {
+      if (recommendedOnly && !recommendedSet.has(preset.id)) return false;
+      if (!query) return true;
+      return [preset.id, preset.label, preset.category, preset.engine, preset.use_case, preset.description]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+    return groupPlotPresets(filtered);
+  }, [plotPresets, plotSearch, recommendedOnly, recommendedPlotIds]);
+  const visiblePlotCount = filteredGroupedPresets.reduce((total, group) => total + group.items.length, 0);
   const selectedPreset = useMemo(() => {
     if (!plotPresets.length) return null;
     const reportSelected = studioReport?.selected_plot?.id;
@@ -718,8 +820,26 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
             <span className="muted">{status === "loading" ? t("updating") : selectedSource?.type || t("selectSourceFirst")}</span>
           </div>
           {error ? <p className="plot-error">{error}</p> : null}
+          <div className="plot-type-filter" role="search">
+            <input
+              type="search"
+              value={plotSearch}
+              onChange={(event) => setPlotSearch(event.target.value)}
+              placeholder={t("plotSearchPlaceholder")}
+              aria-label={t("plotSearchPlaceholder")}
+            />
+            <button
+              className={recommendedOnly ? "active" : ""}
+              type="button"
+              onClick={() => setRecommendedOnly((current) => !current)}
+              disabled={!recommendedPlotIds.length}
+            >
+              {t("recommendedOnly")}
+            </button>
+            <span>{visiblePlotCount} / {plotPresets.length}</span>
+          </div>
           <div className="plot-type-toolbox">
-            {groupedPresets.length ? groupedPresets.map((group) => (
+            {filteredGroupedPresets.length ? filteredGroupedPresets.map((group) => (
               <section className="plot-type-section" key={group.category}>
                 <h3>{group.category}</h3>
                 <div className="plot-type-grid compact">
@@ -750,7 +870,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                   })}
                 </div>
               </section>
-            )) : <p className="muted">{t("loadingPresets")}</p>}
+            )) : <p className="muted">{plotPresets.length ? t("noPlotTypeMatches") : t("loadingPresets")}</p>}
           </div>
 
           <section className="plot-source-list">

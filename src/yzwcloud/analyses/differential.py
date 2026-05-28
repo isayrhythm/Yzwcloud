@@ -16,11 +16,11 @@ from yzwcloud.analyses.common import (
     read_diff_rows,
     values_at,
     variance,
-    welch_p_value,
     write_data_output,
     write_json_detail,
 )
 from yzwcloud.analyses.rendering import write_heatmap_html, write_heatmap_preview
+from yzwcloud.analyses.r_runner import run_r_script
 from yzwcloud.models import DataObject
 
 
@@ -43,51 +43,33 @@ def run_differential_analysis(
 
     diff_csv = output_dir / f"{node_id}_diff.csv"
     output_json = output_dir / f"{node_id}_output.json"
-    rows = []
-    with matrix_path.open(encoding="utf-8-sig", newline="") as file:
-        reader = csv.reader(file)
-        next(reader)
-        for row in reader:
-            if len(row) <= GENE_INFO_COLUMNS:
-                continue
-            gene_name = row[0] or row[1]
-            gene_id = row[1] or row[0]
-            case_values = values_at(row, case_columns)
-            control_values = values_at(row, control_columns)
-            if len(case_values) < 2 or len(control_values) < 2:
-                continue
-            case_mean = fmean(case_values)
-            control_mean = fmean(control_values)
-            log2fc = case_mean - control_mean
-            p_value = welch_p_value(case_values, control_values)
-            rows.append(
-                {
-                    "gene": gene_name,
-                    "gene_id": gene_id,
-                    "case_mean": case_mean,
-                    "control_mean": control_mean,
-                    "log2fc": log2fc,
-                    "p_value": p_value,
-                    "neg_log10_p": -math.log10(max(p_value, 1e-300)),
-                }
-            )
 
-    rows.sort(key=lambda item: item["p_value"])
-    with diff_csv.open("w", encoding="utf-8-sig", newline="") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "gene",
-                "gene_id",
-                "case_mean",
-                "control_mean",
-                "log2fc",
-                "p_value",
-                "neg_log10_p",
-            ],
-        )
-        writer.writeheader()
-        writer.writerows(rows)
+    r_matrix, r_metadata, r_comparisons, slug = _write_r_differential_inputs(
+        matrix_path=matrix_path,
+        metadata_path=metadata_path,
+        case_condition=case_condition,
+        control_condition=control_condition,
+        case_columns=case_columns,
+        control_columns=control_columns,
+        output_dir=output_dir,
+        node_id=node_id,
+    )
+    r_output_file, r_log_file, method = _run_r_differential(
+        params=params,
+        output_dir=output_dir,
+        r_matrix=r_matrix,
+        r_metadata=r_metadata,
+        r_comparisons=r_comparisons,
+        slug=slug,
+        node_id=node_id,
+    )
+    rows = _write_canonical_diff_csv(
+        r_output_file=r_output_file,
+        r_matrix=r_matrix,
+        diff_csv=diff_csv,
+        case_samples=[item.name for item in case_columns],
+        control_samples=[item.name for item in control_columns],
+    )
 
     significant = [
         item
@@ -97,13 +79,15 @@ def run_differential_analysis(
     meta = {
         "diff_gene_count": len(significant),
         "tested_gene_count": len(rows),
-        "method": params.get("method", "demo_welch_ttest"),
+        "method": method,
         "case_condition": case_condition,
         "control_condition": control_condition,
         "comparison_label": f"{case_condition} vs {control_condition}",
         "case_sample_count": len(case_columns),
         "control_sample_count": len(control_columns),
         "diff_result_file": str(diff_csv),
+        "r_result_file": str(r_output_file),
+        "r_log_file": str(r_log_file),
         "matrix_file": str(matrix_path),
         "sample_metadata_file": str(metadata_path),
     }
@@ -114,6 +98,208 @@ def run_differential_analysis(
         {"message": "差异分析完成", "meta": meta, "top_genes": rows[:30]},
     )
     return output
+
+
+def _write_r_differential_inputs(
+    matrix_path: Path,
+    metadata_path: Path,
+    case_condition: str,
+    control_condition: str,
+    case_columns: list[SampleColumn],
+    control_columns: list[SampleColumn],
+    output_dir: Path,
+    node_id: str,
+) -> tuple[Path, Path, Path, str]:
+    slug = _safe_slug(f"{case_condition}_vs_{control_condition}") or _safe_slug(node_id)
+    selected_columns = [*case_columns, *control_columns]
+    r_matrix = output_dir / f"{node_id}_r_matrix.csv"
+    r_metadata = output_dir / f"{node_id}_r_metadata.csv"
+    r_comparisons = output_dir / f"{node_id}_r_comparisons.csv"
+
+    with matrix_path.open(encoding="utf-8-sig", newline="") as source_file, r_matrix.open(
+        "w", encoding="utf-8-sig", newline=""
+    ) as target_file:
+        reader = csv.reader(source_file)
+        next(reader, None)
+        writer = csv.writer(target_file)
+        writer.writerow(["feature_id", "feature_name", "description", *[item.name for item in selected_columns]])
+        for row in reader:
+            if len(row) <= GENE_INFO_COLUMNS:
+                continue
+            values = []
+            for column in selected_columns:
+                values.append(row[column.index] if column.index < len(row) else "")
+            writer.writerow([row[1] or row[0], row[0] or row[1], row[2] if len(row) > 2 else "", *values])
+
+    with r_metadata.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=["sample", "group", "condition"])
+        writer.writeheader()
+        for column in selected_columns:
+            writer.writerow({"sample": column.name, "group": column.group, "condition": column.condition})
+
+    with r_comparisons.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=["numerator", "denominator", "slug"])
+        writer.writeheader()
+        writer.writerow({"numerator": case_condition, "denominator": control_condition, "slug": slug})
+
+    return r_matrix, r_metadata, r_comparisons, slug
+
+
+def _run_r_differential(
+    params: dict[str, Any],
+    output_dir: Path,
+    r_matrix: Path,
+    r_metadata: Path,
+    r_comparisons: Path,
+    slug: str,
+    node_id: str,
+) -> tuple[Path, Path, str]:
+    script_dir = Path(__file__).resolve().parents[1] / "r"
+    p_value = float(params.get("p_value", 0.05))
+    log2fc = float(params.get("log2fc", 1.0))
+    log_path = output_dir / f"{node_id}_r.log"
+
+    if _is_protein_mode(params):
+        script_path = script_dir / "differential_protein.R"
+        fold_change = 2**log2fc
+        args = [str(r_matrix), str(r_metadata), str(r_comparisons), str(output_dir), str(p_value), str(fold_change)]
+        r_output = output_dir / f"{slug}_all_results.csv"
+        method = "r_protein_ttest"
+        failure_hint = "R protein differential analysis failed"
+    else:
+        script_path = script_dir / "differential_transcriptomics.R"
+        args = [str(r_matrix), str(r_metadata), str(r_comparisons), str(output_dir), str(p_value), str(log2fc)]
+        r_output = output_dir / f"{slug}_all_genes.csv"
+        method = "r_transcriptomics_differential"
+        failure_hint = "R transcriptomics differential analysis failed"
+
+    run_r_script(
+        script_path=script_path,
+        args=args,
+        cwd=Path(__file__).resolve().parents[3],
+        log_path=log_path,
+        timeout=600,
+        failure_hint=failure_hint,
+    )
+    if not r_output.exists():
+        raise ValueError(f"R differential analysis finished without result table: {r_output}. Log: {log_path}")
+    return r_output, log_path, method
+
+
+def _write_canonical_diff_csv(
+    r_output_file: Path,
+    r_matrix: Path,
+    diff_csv: Path,
+    case_samples: list[str],
+    control_samples: list[str],
+) -> list[dict[str, Any]]:
+    matrix_stats = _read_r_matrix_stats(r_matrix, case_samples, control_samples)
+    rows: list[dict[str, Any]] = []
+    with r_output_file.open(encoding="utf-8-sig", newline="") as file:
+        for raw in csv.DictReader(file):
+            gene_id = (
+                raw.get("gene_id")
+                or raw.get("feature_id")
+                or raw.get("id")
+                or raw.get("row")
+                or raw.get("")
+                or ""
+            ).strip()
+            if not gene_id:
+                continue
+            stats = matrix_stats.get(gene_id, {})
+            gene = (raw.get("gene") or raw.get("feature_name") or raw.get("gene_name") or stats.get("gene") or gene_id).strip()
+            case_mean = _float_or_none(raw.get("mean_numerator")) or _float_or_none(raw.get("case_mean"))
+            control_mean = _float_or_none(raw.get("mean_denominator")) or _float_or_none(raw.get("control_mean"))
+            if case_mean is None:
+                case_mean = stats.get("case_mean", 0.0)
+            if control_mean is None:
+                control_mean = stats.get("control_mean", 0.0)
+            log2fc = (
+                _float_or_none(raw.get("log2FoldChange"))
+                or _float_or_none(raw.get("log2_fc"))
+                or _float_or_none(raw.get("log2fc"))
+            )
+            if log2fc is None:
+                log2fc = _infer_log2fc(float(case_mean), float(control_mean))
+            p_value = (
+                _float_or_none(raw.get("pvalue"))
+                or _float_or_none(raw.get("p_value"))
+                or _float_or_none(raw.get("p.val"))
+                or _float_or_none(raw.get("padj"))
+                or 1.0
+            )
+            rows.append(
+                {
+                    "gene": gene,
+                    "gene_id": gene_id,
+                    "case_mean": float(case_mean),
+                    "control_mean": float(control_mean),
+                    "log2fc": float(log2fc),
+                    "p_value": float(p_value),
+                    "neg_log10_p": -math.log10(max(float(p_value), 1e-300)),
+                }
+            )
+
+    rows.sort(key=lambda item: item["p_value"])
+    with diff_csv.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=["gene", "gene_id", "case_mean", "control_mean", "log2fc", "p_value", "neg_log10_p"],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    return rows
+
+
+def _read_r_matrix_stats(
+    r_matrix: Path,
+    case_samples: list[str],
+    control_samples: list[str],
+) -> dict[str, dict[str, Any]]:
+    stats: dict[str, dict[str, Any]] = {}
+    with r_matrix.open(encoding="utf-8-sig", newline="") as file:
+        for row in csv.DictReader(file):
+            gene_id = str(row.get("feature_id") or "").strip()
+            if not gene_id:
+                continue
+            case_values = [_float_or_none(row.get(sample)) for sample in case_samples]
+            control_values = [_float_or_none(row.get(sample)) for sample in control_samples]
+            case_values = [value for value in case_values if value is not None]
+            control_values = [value for value in control_values if value is not None]
+            stats[gene_id] = {
+                "gene": row.get("feature_name") or gene_id,
+                "case_mean": fmean(case_values) if case_values else 0.0,
+                "control_mean": fmean(control_values) if control_values else 0.0,
+            }
+    return stats
+
+
+def _is_protein_mode(params: dict[str, Any]) -> bool:
+    marker = " ".join(str(params.get(key, "")) for key in ("method", "omics_type", "analysis_kind")).lower()
+    return "protein" in marker or "proteom" in marker
+
+
+def _safe_slug(value: str) -> str:
+    return "".join(char.lower() if char.isalnum() else "_" for char in value).strip("_")
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _infer_log2fc(case_mean: float, control_mean: float) -> float:
+    if case_mean > 0 and control_mean > 0:
+        return math.log2(case_mean / control_mean)
+    return case_mean - control_mean
 
 
 def create_volcano_result(diff: DataObject, output_dir: Path, node_id: str) -> DataObject:

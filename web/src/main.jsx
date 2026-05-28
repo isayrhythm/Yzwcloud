@@ -184,6 +184,7 @@ function App() {
         onRun: runNode,
         onDelete: deleteNode,
         onUploadInput: uploadInputFile,
+        onUploadMetadataText: uploadSampleMetadataText,
         onEditGroups: openGroupEditor,
         onAddNext: openNextModal,
         onOpenResult: openResultModal,
@@ -516,6 +517,18 @@ function App() {
       }
       window.alert(`上传失败：${detail}`);
       return;
+    }
+    await loadDetail(activeTaskId);
+  };
+
+  const uploadSampleMetadataText = async (content) => {
+    if (!activeTaskId) return;
+    const response = await api(`/api/tasks/${activeTaskId}/inputs/sample_metadata/text`, {
+      method: "POST",
+      body: JSON.stringify({ content, filename: "sample_metadata.csv" }),
+    });
+    if (!response) {
+      throw new Error("metadata upload failed");
     }
     await loadDetail(activeTaskId);
   };

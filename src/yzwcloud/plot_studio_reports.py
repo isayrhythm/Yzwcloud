@@ -1,0 +1,270 @@
+from __future__ import annotations
+
+from typing import Any
+
+from yzwcloud.plot_studio_presets import PLOT_PRESETS, PLOT_STUDIO_VERSION, recommend_plot_types
+from yzwcloud.plot_studio_source import _select_source_table, _source_summary
+from yzwcloud.plot_studio_specs import _select_plot_id
+from yzwcloud.plot_studio_tables import inspect_table
+
+
+PLOT_REPORT_GUIDANCE = {
+    "scatter": {
+        "focus": "relationship strength, outliers, group separation, and whether a fitted trend is biologically plausible",
+        "parameter_hint": "Check axis mapping first, then add color, labels, log scaling, and an optional trend line only when the variables justify it.",
+    },
+    "boxplot": {
+        "focus": "group medians, spread, raw point distribution, outliers, and whether a pairwise test is appropriate",
+        "parameter_hint": "Keep raw points visible by default, use group colors consistently, and add pairwise tests only after confirming the grouping design.",
+    },
+    "violin": {
+        "focus": "distribution shape, multimodality, group spread, and whether a box overlay clarifies the summary",
+        "parameter_hint": "Use violin plots when distribution shape matters; keep a box overlay and points when sample size is modest.",
+    },
+    "bar": {
+        "focus": "aggregated group summaries, error bar meaning, and whether raw values should be overlaid",
+        "parameter_hint": "Make the aggregation explicit, choose SD/SEM/CI deliberately, and prefer raw-point overlays for small sample sizes.",
+    },
+    "line": {
+        "focus": "ordered trends, time-course behavior, missing values, and consistency across series",
+        "parameter_hint": "Confirm the x-axis has a meaningful order before smoothing or connecting gaps.",
+    },
+    "histogram": {
+        "focus": "single-variable distribution shape, skewness, tails, bin sensitivity, and group shifts",
+        "parameter_hint": "Start with 30 bins, keep grouped histograms semi-transparent, and switch to density scaling when group sizes differ.",
+    },
+    "density_contour": {
+        "focus": "two-variable density structure, crowded point regions, outliers, and whether groups occupy distinct regions",
+        "parameter_hint": "Use contours for crowded scatter data, then add raw points with low opacity to avoid hiding rare samples.",
+    },
+    "scatter_3d": {
+        "focus": "three-dimensional separation, outliers, axis contribution, and whether rotation changes the apparent grouping",
+        "parameter_hint": "Map the three most interpretable numeric dimensions first, then use color for sample group or class.",
+    },
+    "surface_3d": {
+        "focus": "matrix-level expression ridges, scaled feature blocks, row ranking, and whether 3D perspective helps or obscures the pattern",
+        "parameter_hint": "Keep top_n modest for the first render, use row z-score scaling, and export 2D heatmap as the publication fallback.",
+    },
+    "heatmap": {
+        "focus": "row/column clustering, scaled expression blocks, annotation consistency, and candidate feature groups",
+        "parameter_hint": "Start with row z-score scaling, keep dendrograms enabled, and tune top_n for readability before exporting.",
+    },
+    "bubble": {
+        "focus": "x/y relationships plus size and color encodings, especially whether large bubbles dominate interpretation",
+        "parameter_hint": "Map size to a meaningful numeric variable, cap maximum bubble size, and use hover labels for dense regions.",
+    },
+    "volcano": {
+        "focus": "up/down significant features, fold-change magnitude, p-value thresholds, and top labeled genes",
+        "parameter_hint": "Start with abs(log2FC)=1 and p=0.05, then expose label count and adjusted-p threshold controls.",
+    },
+    "upset": {
+        "focus": "set intersections, dominant overlap patterns, and whether rare intersections should be filtered",
+        "parameter_hint": "Limit max sets and minimum intersection size so the chart stays interpretable.",
+    },
+    "venn": {
+        "focus": "small-set overlaps, unique/shared counts, and whether percent labels help the audience",
+        "parameter_hint": "Use Venn only for two to four sets; switch to UpSet when set count or overlap complexity grows.",
+    },
+    "correlation": {
+        "focus": "sample or variable similarity blocks, low-correlation outliers, and group consistency after clustering",
+        "parameter_hint": "Use Pearson for linear numeric relationships, Spearman for monotonic ranks, and keep group color bars consistent with upstream metadata.",
+    },
+    "enrichment_dot": {
+        "focus": "top enriched terms, gene ratio, term size, adjusted significance, and redundant pathway labels",
+        "parameter_hint": "Sort by adjusted p-value first, cap top terms, and use count/ratio encodings consistently.",
+    },
+}
+
+
+def create_plot_studio_report(
+    source: dict[str, Any],
+    *,
+    plot_type: str | None = None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    source_type = str(source.get("type") or source.get("output_type") or "")
+    data_path, path_reason = _select_source_table(source)
+    table_summary = inspect_table(data_path) if data_path else None
+    recommended_plot_ids = recommend_plot_types(source_type, table_summary)
+    selected_plot_id = _select_plot_id(plot_type, recommended_plot_ids)
+    selected_preset = next(item for item in PLOT_PRESETS if item["id"] == selected_plot_id)
+    report = _build_report(
+        source=source,
+        source_type=source_type,
+        selected_preset=selected_preset,
+        table_summary=table_summary,
+        params=params or {},
+        path_reason=path_reason,
+    )
+    return {
+        "version": PLOT_STUDIO_VERSION,
+        "source": _source_summary(source, data_path),
+        "selected_plot": {
+            "id": selected_preset["id"],
+            "label": selected_preset["label"],
+            "engine": selected_preset["engine"],
+            "default_params": selected_preset["default_params"],
+        },
+        "recommended_plot_ids": recommended_plot_ids,
+        "table_summary": table_summary,
+        "report": report,
+    }
+
+
+def _build_report(
+    *,
+    source: dict[str, Any],
+    source_type: str,
+    selected_preset: dict[str, Any],
+    table_summary: dict[str, Any] | None,
+    params: dict[str, Any],
+    path_reason: str,
+) -> dict[str, Any]:
+    observations = _build_observations(source, source_type, selected_preset, table_summary, params, path_reason)
+    limitations = [
+        "This report is generated from source metadata and tabular statistics only.",
+        "Rendered images are not inspected by the report agent.",
+    ]
+    if table_summary is None:
+        limitations.append("No readable table was available, so the report is metadata-only.")
+
+    return {
+        "headline": _build_headline(source, selected_preset, table_summary),
+        "sections": [
+            {
+                "title": "Data readiness",
+                "text": observations["data_readiness"],
+                "tone": "positive" if table_summary else "warning",
+            },
+            {
+                "title": "Recommended figure",
+                "text": observations["figure_choice"],
+                "tone": "neutral",
+            },
+            {
+                "title": "Signals to inspect",
+                "text": observations["signals"],
+                "tone": "neutral",
+            },
+            {
+                "title": "Parameter notes",
+                "text": observations["parameter_notes"],
+                "tone": "neutral",
+            },
+            {
+                "title": "Figure interpretation",
+                "text": observations["figure_interpretation"],
+                "tone": "neutral",
+            },
+        ],
+        "limitations": limitations,
+    }
+
+
+def _build_observations(
+    source: dict[str, Any],
+    source_type: str,
+    selected_preset: dict[str, Any],
+    table_summary: dict[str, Any] | None,
+    params: dict[str, Any],
+    path_reason: str,
+) -> dict[str, str]:
+    meta = dict(source.get("meta") or {})
+    if table_summary:
+        data_readiness = (
+            f"Using {table_summary['filename']} from {path_reason}; scanned "
+            f"{table_summary['scanned_rows']} rows and {table_summary['column_count']} columns. "
+            f"{len(table_summary['numeric_columns'])} numeric column(s) and "
+            f"{len(table_summary['categorical_columns'])} categorical column(s) were detected."
+        )
+    else:
+        data_readiness = (
+            f"No tabular file was resolved from this source. Source type is '{source_type or 'unknown'}' "
+            "and available metadata will be used for planning only."
+        )
+
+    figure_choice = (
+        f"{selected_preset['label']} is selected with the {selected_preset['engine']} engine. "
+        f"Default parameters include {', '.join(sorted(selected_preset['default_params'])[:5])}."
+    )
+
+    signals = _signal_text(source_type, table_summary, meta)
+    parameter_notes = _parameter_notes(selected_preset["id"], table_summary, meta, params)
+    figure_interpretation = _figure_interpretation(selected_preset["id"], table_summary)
+    return {
+        "data_readiness": data_readiness,
+        "figure_choice": figure_choice,
+        "signals": signals,
+        "parameter_notes": parameter_notes,
+        "figure_interpretation": figure_interpretation,
+    }
+
+
+def _signal_text(source_type: str, table_summary: dict[str, Any] | None, meta: dict[str, Any]) -> str:
+    if table_summary:
+        diff_signal = table_summary.get("signals", {}).get("differential_default_threshold")
+        if diff_signal:
+            return (
+                "At abs(log2FC) >= {abs_log2fc} and p <= {p_value}, {significant} feature(s) pass "
+                "the default differential threshold: {up} up and {down} down."
+            ).format(**diff_signal)
+        numeric_columns = table_summary.get("numeric_columns") or []
+        if "expression" in source_type or meta.get("sample_count"):
+            sample_count = meta.get("passed_sample_count") or meta.get("sample_count") or len(numeric_columns)
+            gene_count = meta.get("gene_count") or table_summary.get("scanned_rows")
+            return f"The source looks expression-like with {gene_count} row(s) and {sample_count} sample-like numeric column(s)."
+        if numeric_columns:
+            preview = ", ".join(numeric_columns[:5])
+            return f"Numeric signal columns are available for plotting: {preview}."
+    if meta:
+        keys = ", ".join(sorted(meta)[:8])
+        return f"Metadata keys available for interpretation: {keys}."
+    return "No statistical signal can be inferred until a readable table or richer metadata is attached."
+
+
+def _parameter_notes(
+    plot_id: str,
+    table_summary: dict[str, Any] | None,
+    meta: dict[str, Any],
+    params: dict[str, Any],
+) -> str:
+    guidance = PLOT_REPORT_GUIDANCE.get(plot_id)
+    if plot_id in {"heatmap", "correlation"}:
+        group_note = "Group colors are available." if meta.get("condition_colors") else "Group colors are not attached yet."
+        top_n = params.get("top_n") or params.get("top_genes") or 50
+        hint = guidance["parameter_hint"] if guidance else "Keep clustering enabled and review dendrogram stability."
+        return f"Use top_n={top_n} for the first render. {hint} {group_note}"
+    if guidance:
+        return guidance["parameter_hint"]
+    if table_summary and len(table_summary.get("numeric_columns") or []) >= 2:
+        return "Map numeric columns first, then add color/facet fields only if categorical columns are present."
+    return "Start from the preset defaults, then refine mappings after the source table is inspected."
+
+
+def _figure_interpretation(plot_id: str, table_summary: dict[str, Any] | None) -> str:
+    guidance = PLOT_REPORT_GUIDANCE.get(plot_id)
+    if not guidance:
+        return "The report agent should describe what the selected chart can and cannot prove from the attached table."
+    if table_summary:
+        numeric_count = len(table_summary.get("numeric_columns") or [])
+        categorical_count = len(table_summary.get("categorical_columns") or [])
+        data_context = f"The scanned table has {numeric_count} numeric field(s) and {categorical_count} categorical field(s)."
+    else:
+        data_context = "No table was resolved, so interpretation must stay at the metadata-planning level."
+    return (
+        f"For {plot_id}, the report agent should focus on {guidance['focus']}. "
+        f"{data_context} It should avoid claiming causality or visual details that are not present in the structured data."
+    )
+
+
+def _build_headline(
+    source: dict[str, Any],
+    selected_preset: dict[str, Any],
+    table_summary: dict[str, Any] | None,
+) -> str:
+    name = str(source.get("name") or source.get("node_id") or source.get("nodeId") or "Selected source")
+    if table_summary:
+        return f"{selected_preset['label']} ready for {name}: {table_summary['scanned_rows']} scanned row(s)."
+    return f"{selected_preset['label']} plan ready for {name}."
+
+

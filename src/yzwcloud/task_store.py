@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import csv
+from io import StringIO
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -237,11 +238,19 @@ def save_task_input(
     upload_node = next((node for node in graph.nodes if node.id == "upload_expression"), None)
     if upload_node is None:
         raise ValueError("Upload node not found")
+    existing_manifest = manifest.get("sample_metadata")
+    existing_sample_metadata_path = None
+    if isinstance(existing_manifest, dict):
+        existing_path = str(existing_manifest.get("path") or "")
+        if existing_path:
+            existing_sample_metadata_path = existing_path
+
     if input_kind == "expression_matrix":
         upload_node.params["source_path"] = str(target.resolve())
         upload_node.default_params["source_path"] = str(target.resolve())
-        upload_node.params["sample_metadata_path"] = "__missing_sample_metadata__.csv"
-        upload_node.default_params["sample_metadata_path"] = "__missing_sample_metadata__.csv"
+        sample_metadata_path = existing_sample_metadata_path or "__missing_sample_metadata__.csv"
+        upload_node.params["sample_metadata_path"] = sample_metadata_path
+        upload_node.default_params["sample_metadata_path"] = sample_metadata_path
     else:
         upload_node.params["sample_metadata_path"] = str(target.resolve())
         upload_node.default_params["sample_metadata_path"] = str(target.resolve())
@@ -251,6 +260,26 @@ def save_task_input(
     save_graph(graph)
     append_log(task_id, f"Input uploaded: {input_kind} -> {filename}")
     return task, graph
+
+
+def save_task_input_text(
+    task_id: str,
+    input_kind: str,
+    content: str,
+    filename: str = "sample_metadata.csv",
+) -> tuple[TaskState, Graph]:
+    if input_kind != "sample_metadata":
+        raise ValueError("Only sample_metadata text upload is supported")
+    text = content.strip()
+    if not text:
+        raise ValueError("Metadata content is empty")
+
+    metadata_rows = _parse_metadata_text(text)
+    canonical = _serialize_metadata_rows(metadata_rows)
+    safe_name = filename.strip() or "sample_metadata.csv"
+    if not safe_name.lower().endswith(".csv"):
+        safe_name = f"{safe_name}.csv"
+    return save_task_input(task_id, input_kind, safe_name, canonical.encode("utf-8-sig"))
 
 
 def create_diff_analysis_branch(
@@ -714,6 +743,105 @@ def _read_manifest(path: Path) -> dict:
 def _safe_filename(filename: str) -> str:
     raw_name = Path(filename).name or "uploaded_file"
     return "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in raw_name)
+
+
+def _parse_metadata_text(content: str) -> list[dict[str, str]]:
+    parsed = _parse_metadata_text_as_csv(content, ",")
+    if parsed:
+        return parsed
+    parsed = _parse_metadata_text_as_csv(content, "\t")
+    if parsed:
+        return parsed
+
+    try:
+        loaded = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Metadata text must be CSV/TSV text or JSON list format") from exc
+
+    if isinstance(loaded, dict):
+        loaded = [loaded]
+    if not isinstance(loaded, list):
+        raise ValueError("Metadata JSON must be an object or array of objects")
+
+    if not loaded:
+        raise ValueError("Metadata content is empty")
+
+    rows: list[dict[str, str]] = []
+    for raw_row in loaded:
+        if not isinstance(raw_row, dict):
+            raise ValueError("Metadata JSON records must be objects")
+        row = {
+            _metadata_header(key): str(value).strip()
+            for key, value in raw_row.items()
+            if _metadata_header(key)
+        }
+        if not row:
+            continue
+        rows.append(row)
+    if not rows:
+        raise ValueError("Metadata JSON has no valid records")
+
+    if not _is_valid_metadata_rows(rows):
+        raise ValueError("Metadata JSON must include sample, group, and condition for each row")
+    return rows
+
+
+def _parse_metadata_text_as_csv(content: str, delimiter: str) -> list[dict[str, str]]:
+    reader = csv.DictReader(StringIO(content), delimiter=delimiter)
+    if not reader.fieldnames:
+        return []
+
+    fieldnames = [_metadata_header(name) for name in reader.fieldnames]
+    field_lookup = {name.lower(): name for name in fieldnames if name.strip()}
+    if not set(("sample", "group", "condition")).issubset(field_lookup.keys()):
+        # Allow aliased input from quick manual copy/paste.
+        aliases = {
+            "sample": {"sample", "sample_id", "sample name", "sample_name"},
+            "group": {"group", "group_id", "group name", "group_name"},
+            "condition": {"condition", "condition_id", "condition name", "condition_name"},
+        }
+        normalized_lookup = {}
+        for required, candidates in aliases.items():
+            match = next(
+                (field_lookup.get(key) for key in map(str.lower, candidates) if key in field_lookup),
+                None,
+            )
+            if match is None:
+                return []
+            normalized_lookup[required] = match
+    else:
+        normalized_lookup = {key: key for key in ("sample", "group", "condition")}
+
+    rows: list[dict[str, str]] = []
+    for raw_row in reader:
+        normalized_row = {_metadata_header(key): str(value or "").strip() for key, value in raw_row.items()}
+        row = {key: str(normalized_row.get(source, "")).strip() for key, source in normalized_lookup.items()}
+        if row["sample"] or row["group"] or row["condition"]:
+            rows.append(row)
+    if not rows:
+        return []
+    if not _is_valid_metadata_rows(rows):
+        raise ValueError("Metadata text must include sample, group, and condition for each row")
+    return rows
+
+
+def _is_valid_metadata_rows(rows: list[dict[str, str]]) -> bool:
+    return all(
+        bool(row.get("sample", "").strip()) and bool(row.get("group", "").strip()) and bool(row.get("condition", "").strip())
+        for row in rows
+    )
+
+
+def _metadata_header(value: str | None) -> str:
+    return (value or "").lstrip("\ufeff").strip().lower()
+
+
+def _serialize_metadata_rows(rows: list[dict[str, str]]) -> str:
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=["sample", "group", "condition"])
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue()
 
 
 def _is_supported_expression_upload(filename: str) -> bool:

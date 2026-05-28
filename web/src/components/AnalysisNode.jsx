@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 
 import { formatBytes, formatDateTime, outputUrl } from "../workflow/format.js";
@@ -6,6 +7,8 @@ import { statusLabel } from "../workflow/status.js";
 
 export function AnalysisNode({ data }) {
   const node = data.node;
+  const [showMetadataEditor, setShowMetadataEditor] = useState(false);
+  const [metadataText, setMetadataText] = useState("");
   const output = summarizeOutput(node.output);
   const options = nextAnalysisOptions(node, data.detail);
   const canRun = node.id === "diff_analysis" || node.status === "ready" || node.status === "failed";
@@ -22,7 +25,9 @@ export function AnalysisNode({ data }) {
       <div className="node-topline">
         <span className="status-dot" />
         <span className="status">{statusLabel[node.status] || node.status}</span>
-        <button className="node-delete" onClick={() => data.onDelete(node.id)} title="删除节点及下游">×</button>
+        <button className="node-delete" onClick={() => data.onDelete(node.id)} title="删除节点">
+          ×
+        </button>
       </div>
       <h3 title={node.description}>{node.name}</h3>
       <small>输出：{output}</small>
@@ -58,9 +63,44 @@ export function AnalysisNode({ data }) {
               />
             </label>
           )}
+          <button
+            type="button"
+            onClick={() => setShowMetadataEditor((current) => !current)}
+          >
+            手工填写 metadata
+          </button>
+          {showMetadataEditor ? (
+            <div className="metadata-editor">
+              <textarea
+                rows={4}
+                value={metadataText}
+                onChange={(event) => setMetadataText(event.target.value)}
+                placeholder="sample,group,condition\nsampleA,group1,conditionA\nsampleB,group2,conditionB"
+              />
+              <div className="metadata-editor-actions">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!metadataText.trim()) {
+                      window.alert("metadata 内容不能为空");
+                      return;
+                    }
+                    await data.onUploadMetadataText(metadataText);
+                    setMetadataText("");
+                    setShowMetadataEditor(false);
+                  }}
+                >
+                  提交
+                </button>
+                <button type="button" onClick={() => setShowMetadataEditor(false)}>
+                  取消
+                </button>
+              </div>
+            </div>
+          ) : null}
           {node.output?.meta?.sample_metadata_file ? (
             <button type="button" onClick={() => data.onEditGroups()}>
-              调整参数
+              校准参数
             </button>
           ) : null}
         </div>
@@ -75,15 +115,21 @@ export function AnalysisNode({ data }) {
       {previewUrl ? (
         <button className="result-preview nodrag" onClick={() => data.onOpenResult(node)}>
           <img src={previewUrl} alt={`${node.name} 预览`} />
-          {canOpenResult ? <span>点击查看大图</span> : null}
+          {canOpenResult ? <span>点击查看可视化</span> : null}
         </button>
       ) : null}
       <div className="node-actions">
         <button className="run" disabled={!canRun} onClick={() => data.onRun(node.id)}>
-          {node.id === "diff_analysis" ? "选择分组" : node.status === "failed" ? "重新执行" : "执行节点"}
+          {node.id === "diff_analysis"
+            ? "选择对照组"
+            : node.status === "failed"
+            ? "重试运行"
+            : "运行节点"}
         </button>
         {options.length ? (
-          <button className="add-next" onClick={() => data.onAddNext(node.id)} title="添加后续分析">+</button>
+          <button className="add-next" onClick={() => data.onAddNext(node.id)} title="添加下游分析">
+            +
+          </button>
         ) : null}
         {node.output && data.onOpenPlotStudio ? (
           <button className="plot-send" onClick={() => data.onOpenPlotStudio(node)} title="Send output to Plot Studio">
@@ -102,8 +148,8 @@ function AgentProgress({ progress, failed, onOpenReport }) {
   const steps = [
     { step: "inspect_file", label: "读取数据" },
     { step: "classify_data", label: "识别类型" },
-    { step: "standardize_data", label: "规整数据" },
-    { step: "validate_output", label: "验证数据" },
+    { step: "standardize_data", label: "标准化数据" },
+    { step: "validate_output", label: "校验数据" },
   ];
   const activeIndex = steps.findIndex((item) => item.step === currentStep);
   const completedCount = history.filter((item) => item.status === "completed").length;
@@ -118,10 +164,14 @@ function AgentProgress({ progress, failed, onOpenReport }) {
     <div className={`agent-progress compact ${failed ? "failed" : progress?.status || "running"}`}>
       <span className="agent-pulse" />
       <div className="agent-copy">
-        <strong key={progress?.label || "Agent 正在准备"}>{progress?.label || "Agent 正在准备"}</strong>
-        {lastDone && progress?.status !== "completed" ? <small>刚完成：{lastDone.label}</small> : null}
+        <strong key={progress?.label || "Agent 正在运行"}>
+          {progress?.label || "Agent 正在运行"}
+        </strong>
+        {lastDone && progress?.status !== "completed" ? <small>最近完成：{lastDone.label}</small> : null}
       </div>
-      <span className="agent-step-count">{stepCount}/{steps.length}</span>
+      <span className="agent-step-count">
+        {stepCount}/{steps.length}
+      </span>
       {failed ? (
         <button className="agent-report-link nodrag" type="button" onClick={onOpenReport}>
           查看报告

@@ -14,6 +14,7 @@ from yzwcloud.models import (
     HealthResponse,
     PlotStudioReportRequest,
     PlotStudioSpecRequest,
+    SampleMetadataTextRequest,
     RunNodeRequest,
     TaskDetail,
     TaskState,
@@ -39,6 +40,7 @@ from yzwcloud.task_store import (
     read_log,
     read_sample_groups,
     rename_task,
+    save_task_input_text,
     save_task_input,
     update_sample_groups,
 )
@@ -133,6 +135,26 @@ async def api_upload_task_input(
             input_kind=input_kind,
             filename=filename,
             content=content,
+        )
+        return TaskDetail(task=task, graph=graph)
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/tasks/{task_id}/inputs/{input_kind}/text", response_model=TaskDetail)
+def api_upload_task_input_text(
+    task_id: str,
+    input_kind: str,
+    payload: SampleMetadataTextRequest,
+) -> TaskDetail:
+    try:
+        task, graph = save_task_input_text(
+            task_id=task_id,
+            input_kind=input_kind,
+            filename=payload.filename,
+            content=payload.content,
         )
         return TaskDetail(task=task, graph=graph)
     except TaskNotFoundError as exc:

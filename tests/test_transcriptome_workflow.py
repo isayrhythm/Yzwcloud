@@ -210,7 +210,7 @@ def test_transcriptome_workflow() -> None:
             json={
                 "case_condition": case_condition,
                 "control_condition": control_condition,
-                "method": "demo_ttest",
+                "method": "r_transcriptomics",
                 "p_value": 0.05,
                 "log2fc": 1.0,
             },

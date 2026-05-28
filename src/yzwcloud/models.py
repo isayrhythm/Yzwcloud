@@ -130,6 +130,11 @@ class UpdateSampleGroupsRequest(BaseModel):
     condition_colors: dict[str, str] = Field(default_factory=dict)
 
 
+class SampleMetadataTextRequest(BaseModel):
+    content: str = Field(min_length=1, description="sample metadata in CSV/TSV text")
+    filename: str = "sample_metadata.csv"
+
+
 class ComparisonOptionsResponse(BaseModel):
     conditions: list[str]
     counts: dict[str, int]

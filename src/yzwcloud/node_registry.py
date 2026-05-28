@@ -42,7 +42,7 @@ NODE_DEFINITIONS: dict[str, NodeDefinition] = {
         description="选择两个样本分组后，衍生出一个独立的差异分析分支。",
         input_types=["expression_matrix"],
         output_type="diff_selector",
-        default_params={"method": "demo_ttest", "p_value": 0.05, "log2fc": 1.0},
+        default_params={"method": "r_transcriptomics", "p_value": 0.05, "log2fc": 1.0},
         depends_on=["upload_expression"],
     ),
 }
@@ -222,7 +222,7 @@ def _execute_diff_node(
             "case": case_condition,
             "control": control_condition,
         },
-        "method": params.get("method", "demo_ttest"),
+        "method": params.get("method", "r_transcriptomics"),
         "threshold": {
             "p_value": params.get("p_value", 0.05),
             "log2fc": params.get("log2fc", 1.0),

@@ -258,6 +258,45 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
+  if (plotId === "histogram") {
+    return (
+      <div className="mini-plot mini-histogram" aria-hidden="true">
+        {[28, 42, 67, 54, 78, 49, 32].map((height, index) => (
+          <span style={{ height: `${height}%` }} key={index} />
+        ))}
+      </div>
+    );
+  }
+  if (plotId === "density_contour") {
+    return (
+      <div className="mini-plot mini-density" aria-hidden="true">
+        <span className="ring r1" />
+        <span className="ring r2" />
+        <span className="ring r3" />
+        <i className="dot d1" />
+        <i className="dot d2" />
+        <i className="dot d3" />
+      </div>
+    );
+  }
+  if (plotId === "scatter_3d") {
+    return (
+      <div className="mini-plot mini-3d-scatter" aria-hidden="true">
+        {Array.from({ length: 14 }, (_, index) => (
+          <span key={index} />
+        ))}
+      </div>
+    );
+  }
+  if (plotId === "surface_3d") {
+    return (
+      <div className="mini-plot mini-surface" aria-hidden="true">
+        {Array.from({ length: 24 }, (_, index) => (
+          <span key={index} />
+        ))}
+      </div>
+    );
+  }
   if (plotId === "heatmap" || plotId === "correlation") {
     return (
       <div className={`mini-plot mini-heatmap ${plotId === "correlation" ? "corr" : ""}`} aria-hidden="true">
@@ -325,6 +364,29 @@ function MiniPlotThumbnail({ plotId }) {
   );
 }
 
+function plotCategoryFor(plotId) {
+  if (["boxplot", "violin", "histogram", "bar"].includes(plotId)) return "Distribution";
+  if (["scatter", "line", "bubble", "density_contour", "scatter_3d"].includes(plotId)) return "Relationship";
+  if (["heatmap", "correlation", "surface_3d"].includes(plotId)) return "Matrix";
+  if (["volcano", "enrichment_dot"].includes(plotId)) return "Omics results";
+  if (["upset", "venn"].includes(plotId)) return "Sets";
+  return "Other";
+}
+
+function groupPlotPresets(presets) {
+  const groups = new Map();
+  presets.forEach((preset) => {
+    const category = plotCategoryFor(preset.id);
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(preset);
+  });
+  return Array.from(groups.entries()).map(([category, items]) => ({ category, items }));
+}
+
+function isAdvancedParameterGroup(group) {
+  return ["theme", "export", "labels", "style"].includes(group.id);
+}
+
 export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, onOpenAnalysis }) {
   const { t } = useI18n();
   const outputs = report?.outputs || [];
@@ -338,6 +400,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const [specStatus, setSpecStatus] = useState("idle");
   const [error, setError] = useState("");
   const [specError, setSpecError] = useState("");
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -361,6 +424,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const plotPresets = manifest?.presets || [];
   const tableSummary = studioReport?.table_summary || null;
   const recommendedPlotIds = studioReport?.recommended_plot_ids || [];
+  const groupedPresets = useMemo(() => groupPlotPresets(plotPresets), [plotPresets]);
   const selectedPreset = useMemo(() => {
     if (!plotPresets.length) return null;
     const reportSelected = studioReport?.selected_plot?.id;
@@ -404,7 +468,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
         setStatus("error");
       });
     return () => controller.abort();
-  }, [selectedSource, selectedPlotId, params]);
+  }, [selectedSource, selectedPlotId, params, refreshNonce]);
 
   useEffect(() => {
     if (!selectedSource || !selectedPlotId) {
@@ -441,10 +505,16 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     ? Object.entries(selectedSource.meta).filter(([, value]) => value !== null && value !== undefined && value !== "")
     : [];
   const parameterGroups = selectedPreset?.parameter_groups || [];
+  const basicParameterGroups = parameterGroups.filter((group) => !isAdvancedParameterGroup(group));
+  const advancedParameterGroups = parameterGroups.filter(isAdvancedParameterGroup);
   const reportSections = studioReport?.report?.sections || [];
 
   const updateParam = (paramId, value) => {
     setParams((current) => ({ ...current, [paramId]: value }));
+  };
+
+  const resetParams = () => {
+    if (selectedPreset) setParams(defaultParamsFromPreset(selectedPreset));
   };
 
   return (
@@ -461,36 +531,39 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
       <section className="plot-studio-layout">
         <aside className="plot-agent-panel">
           <div className="panel-title">
-            <h2>{t("inputSource")}</h2>
-            <span className="muted">{selectedSource ? t("connected") : t("empty")}</span>
+            <h2>{t("figureTypes")}</h2>
+            <span className="muted">{status === "loading" ? t("updating") : selectedSource?.type || t("selectSourceFirst")}</span>
           </div>
-
-          {selectedSource ? (
-            <article className="plot-source-card">
-              <span>{selectedSource.sourceKind.replace(/_/g, " ")}</span>
-              <strong>{selectedSource.name}</strong>
-              <p>{selectedSource.summary}</p>
-              <dl>
-                <div><dt>{t("task")}</dt><dd>{selectedSource.taskName || selectedSource.taskId || "-"}</dd></div>
-                <div><dt>{t("node")}</dt><dd>{selectedSource.nodeId || "-"}</dd></div>
-                <div><dt>{t("type")}</dt><dd>{selectedSource.type || "-"}</dd></div>
-              </dl>
-              <div className="plot-source-actions">
-                {selectedSource.htmlUrl ? <a href={selectedSource.htmlUrl} target="_blank" rel="noreferrer">{t("openInteractiveOutput")}</a> : null}
-                {selectedSource.previewUrl ? <a href={selectedSource.previewUrl} target="_blank" rel="noreferrer">{t("openPreview")}</a> : null}
-              </div>
-            </article>
-          ) : (
-            <div className="plot-dropzone">
-              <strong>{t("selectAnalysisOutput")}</strong>
-              <p>{t("chooseWorkflowResult")}</p>
-            </div>
-          )}
-
-          <div className="plot-param-list">
-            {(manifest?.parameter_groups || FALLBACK_PARAMETER_GROUPS).map((group) => (
-              <span key={group}>{group}</span>
-            ))}
+          {error ? <p className="plot-error">{error}</p> : null}
+          <div className="plot-type-toolbox">
+            {groupedPresets.length ? groupedPresets.map((group) => (
+              <section className="plot-type-section" key={group.category}>
+                <h3>{group.category}</h3>
+                <div className="plot-type-grid compact">
+                  {group.items.map((plot) => {
+                    const recommended = recommendedPlotIds.includes(plot.id);
+                    const active = selectedPreset?.id === plot.id;
+                    return (
+                      <button
+                        className={`plot-type-card ${recommended ? "recommended" : ""} ${active ? "active" : ""}`}
+                        key={plot.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPlotId(plot.id);
+                          setParams(defaultParamsFromPreset(plot));
+                        }}
+                      >
+                        <MiniPlotThumbnail plotId={plot.id} />
+                        <span>
+                          <strong>{plot.label}</strong>
+                          <small>{recommended ? t("recommendedForSource") : plot.engine}</small>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )) : <p className="muted">{t("loadingPresets")}</p>}
           </div>
 
           <section className="plot-source-list">
@@ -520,37 +593,12 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
         </aside>
 
         <section className="plot-library-panel">
-          <div className="panel-title">
-            <h2>{t("figureTypes")}</h2>
-            <span className="muted">{status === "loading" ? t("updating") : selectedSource?.type || t("selectSourceFirst")}</span>
-          </div>
-          <p className="plot-note">{t("interactiveEnginePlan")}</p>
-          {error ? <p className="plot-error">{error}</p> : null}
-          <div className="plot-type-grid">
-            {plotPresets.map((plot) => {
-              const recommended = recommendedPlotIds.includes(plot.id);
-              const active = selectedPreset?.id === plot.id;
-              return (
-                <button
-                  className={`plot-type-card ${recommended ? "recommended" : ""} ${active ? "active" : ""}`}
-                  key={plot.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedPlotId(plot.id);
-                    setParams(defaultParamsFromPreset(plot));
-                  }}
-                >
-                  <MiniPlotThumbnail plotId={plot.id} />
-                  <strong>{plot.label}</strong>
-                  <small>{recommended ? t("recommendedForSource") : plot.engine}</small>
-                </button>
-              );
-            })}
-          </div>
-
-          <section className="plot-preview-panel">
+          <section className="plot-preview-panel plot-preview-main">
             <div className="panel-title">
-              <h2>{t("interactivePreview")}</h2>
+              <div>
+                <h2>{selectedPreset?.label || t("interactivePreview")}</h2>
+                <p>{selectedPreset?.description || t("interactiveEnginePlan")}</p>
+              </div>
               <span className="muted">{specStatus === "loading" ? t("rendering") : specStatus === "ready" ? t("ready") : specStatus}</span>
             </div>
             {specError ? <p className="plot-error">{specError}</p> : null}
@@ -568,52 +616,6 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                 {plotSpec.warnings.map((warning) => <span key={warning}>{warning}</span>)}
               </div>
             ) : null}
-          </section>
-
-          <section className="plot-workbench-grid">
-            <article className="plot-config-panel">
-              <div className="panel-title">
-                <h2>{selectedPreset ? `${selectedPreset.label} ${t("parameters")}` : t("parameters")}</h2>
-                <span className="muted">{selectedPreset?.engine || "-"}</span>
-              </div>
-              {selectedPreset?.description ? <p className="plot-note">{selectedPreset.description}</p> : null}
-              <div className="plot-param-groups">
-                {parameterGroups.length ? parameterGroups.map((group) => (
-                  <section className="plot-param-group" key={group.id}>
-                    <h3>{group.label}</h3>
-                    <div className="plot-param-controls">
-                      {group.parameters.map((parameter) => (
-                        <ParameterControl
-                          key={parameter.id}
-                          parameter={parameter}
-                          value={params[parameter.id]}
-                          tableSummary={tableSummary}
-                          onChange={updateParam}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )) : <p className="muted">{t("loadingPresets")}</p>}
-              </div>
-            </article>
-
-            <article className="plot-report-panel">
-              <div className="panel-title">
-                <h2>{t("agentReport")}</h2>
-                <span className="muted">{status}</span>
-              </div>
-              {studioReport?.report?.headline ? <p className="plot-report-headline">{studioReport.report.headline}</p> : null}
-              <div className="plot-report-sections">
-                {reportSections.length ? reportSections.map((section) => (
-                  <ReportSection section={section} key={section.title} />
-                )) : <p className="muted">{t("selectSourceReport")}</p>}
-              </div>
-              {studioReport?.report?.limitations?.length ? (
-                <div className="plot-limitations">
-                  {studioReport.report.limitations.map((item) => <span key={item}>{item}</span>)}
-                </div>
-              ) : null}
-            </article>
           </section>
 
           <section className="plot-source-list">
@@ -650,6 +652,112 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
             )}
           </section>
         </section>
+
+        <aside className="plot-inspector-panel">
+          <div className="panel-title">
+            <h2>{t("inputSource")}</h2>
+            <span className="muted">{selectedSource ? t("connected") : t("empty")}</span>
+          </div>
+
+          {selectedSource ? (
+            <article className="plot-source-card">
+              <span>{selectedSource.sourceKind.replace(/_/g, " ")}</span>
+              <strong>{selectedSource.name}</strong>
+              <p>{selectedSource.summary}</p>
+              <dl>
+                <div><dt>{t("task")}</dt><dd>{selectedSource.taskName || selectedSource.taskId || "-"}</dd></div>
+                <div><dt>{t("node")}</dt><dd>{selectedSource.nodeId || "-"}</dd></div>
+                <div><dt>{t("type")}</dt><dd>{selectedSource.type || "-"}</dd></div>
+              </dl>
+              <div className="plot-source-actions">
+                {selectedSource.htmlUrl ? <a href={selectedSource.htmlUrl} target="_blank" rel="noreferrer">{t("openInteractiveOutput")}</a> : null}
+                {selectedSource.previewUrl ? <a href={selectedSource.previewUrl} target="_blank" rel="noreferrer">{t("openPreview")}</a> : null}
+              </div>
+            </article>
+          ) : (
+            <div className="plot-dropzone compact">
+              <strong>{t("selectAnalysisOutput")}</strong>
+              <p>{t("chooseWorkflowResult")}</p>
+            </div>
+          )}
+
+          <article className="plot-config-panel">
+            <div className="panel-title">
+              <h2>{selectedPreset ? `${selectedPreset.label} ${t("parameters")}` : t("parameters")}</h2>
+              <span className="muted">{selectedPreset?.engine || "-"}</span>
+            </div>
+            <div className="plot-action-strip">
+              <button type="button" onClick={resetParams}>{t("resetDefaults")}</button>
+              <button className="primary" type="button" onClick={() => setRefreshNonce((current) => current + 1)}>
+                {t("runPreview")}
+              </button>
+            </div>
+            <div className="plot-param-groups">
+              {basicParameterGroups.length ? (
+                <section className="plot-param-stack" aria-label={t("basicParameters")}>
+                  <h3>{t("basicParameters")}</h3>
+                  {basicParameterGroups.map((group) => (
+                    <section className="plot-param-group" key={group.id}>
+                      <h4>{group.label}</h4>
+                      <div className="plot-param-controls">
+                        {group.parameters.map((parameter) => (
+                          <ParameterControl
+                            key={parameter.id}
+                            parameter={parameter}
+                            value={params[parameter.id]}
+                            tableSummary={tableSummary}
+                            onChange={updateParam}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </section>
+              ) : <p className="muted">{t("loadingPresets")}</p>}
+              {advancedParameterGroups.length ? (
+                <details className="plot-param-advanced">
+                  <summary>{t("advancedParameters")}</summary>
+                  <div className="plot-param-stack">
+                    {advancedParameterGroups.map((group) => (
+                      <section className="plot-param-group" key={group.id}>
+                        <h4>{group.label}</h4>
+                        <div className="plot-param-controls">
+                          {group.parameters.map((parameter) => (
+                            <ParameterControl
+                              key={parameter.id}
+                              parameter={parameter}
+                              value={params[parameter.id]}
+                              tableSummary={tableSummary}
+                              onChange={updateParam}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          </article>
+
+          <article className="plot-report-panel">
+            <div className="panel-title">
+              <h2>{t("agentReport")}</h2>
+              <span className="muted">{status}</span>
+            </div>
+            {studioReport?.report?.headline ? <p className="plot-report-headline">{studioReport.report.headline}</p> : null}
+            <div className="plot-report-sections">
+              {reportSections.length ? reportSections.map((section) => (
+                <ReportSection section={section} key={section.title} />
+              )) : <p className="muted">{t("selectSourceReport")}</p>}
+            </div>
+            {studioReport?.report?.limitations?.length ? (
+              <div className="plot-limitations">
+                {studioReport.report.limitations.map((item) => <span key={item}>{item}</span>)}
+              </div>
+            ) : null}
+          </article>
+        </aside>
       </section>
     </main>
   );

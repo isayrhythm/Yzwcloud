@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
 from statistics import fmean, median, pstdev
@@ -113,13 +113,17 @@ def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
         marker_size=_bounded_float(params.get("point_size"), 8, 1, 40),
         marker_opacity=_bounded_float(params.get("point_alpha"), 0.85, 0.05, 1),
     )
+    warnings = []
+    overlays, overlay_warnings = _scatter_statistical_overlays(traces, params)
+    traces.extend(overlays)
+    warnings.extend(overlay_warnings)
     layout = _base_layout(
         title=f"Scatter: {x_column} vs {y_column}",
         x_title=x_column,
         y_title=y_column,
         params=params,
     )
-    return {"data": traces, "layout": layout, "config": _plotly_config(), "warnings": []}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_bubble_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -169,7 +173,7 @@ def _build_bubble_spec(context: dict[str, Any]) -> dict[str, Any]:
         y_title=y_column,
         params=params,
     )
-    return {"data": traces, "layout": layout, "config": _plotly_config(), "warnings": []}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
 
 
 def _build_boxplot_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -186,6 +190,7 @@ def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dic
     group_column = _choose_column(params.get("group"), context["categorical_columns"])
     traces = []
     warnings = []
+    grouped_values: list[tuple[str, list[float]]] = []
     if y_column and group_column:
         grouped = _records_by_category(context["records"], group_column)
         for index, (group_name, rows) in enumerate(grouped.items()):
@@ -193,6 +198,7 @@ def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dic
             values = [value for value in values if value is not None]
             if not values:
                 continue
+            grouped_values.append((group_name, values))
             traces.append(
                 _distribution_trace(
                     trace_type,
@@ -211,6 +217,7 @@ def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dic
             values = [value for value in values if value is not None]
             if not values:
                 continue
+            grouped_values.append((column, values))
             traces.append(
                 _distribution_trace(
                     trace_type,
@@ -236,7 +243,14 @@ def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dic
     )
     layout["boxmode"] = "group"
     layout["violingap"] = 0.18
-    return {"data": traces, "layout": layout, "config": _plotly_config(), "warnings": warnings}
+    if trace_type == "box" and _truthy(params.get("show_p_values"), False):
+        comparison_result = _pairwise_comparison_overlays(grouped_values, params)
+        layout.setdefault("shapes", []).extend(comparison_result["shapes"])
+        layout.setdefault("annotations", []).extend(comparison_result["annotations"])
+        if comparison_result["y_range"]:
+            layout["yaxis"]["range"] = comparison_result["y_range"]
+        warnings.extend(comparison_result["warnings"])
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -333,7 +347,7 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
 
     layout = _base_layout(title=title, x_title=x_title, y_title=y_title, params=params)
     layout["bargap"] = 0.28
-    return {"data": data, "layout": layout, "config": _plotly_config(), "warnings": warnings}
+    return {"data": data, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_line_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -378,7 +392,7 @@ def _build_line_spec(context: dict[str, Any]) -> dict[str, Any]:
         return _empty_plot_spec("line", "Line plot requires at least one numeric column.", context["table_summary"])
 
     layout = _base_layout(title=title, x_title=x_column or "row index", y_title=y_title, params=params)
-    return {"data": traces, "layout": layout, "config": _plotly_config(), "warnings": []}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
 
 
 def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -421,7 +435,7 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
         params=params,
     )
     layout["barmode"] = str(params.get("barmode") or "overlay")
-    return {"data": traces, "layout": layout, "config": _plotly_config(), "warnings": []}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
 
 
 def _build_density_contour_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -480,7 +494,7 @@ def _build_density_contour_spec(context: dict[str, Any]) -> dict[str, Any]:
         y_title=y_column,
         params=params,
     )
-    return {"data": traces, "layout": layout, "config": _plotly_config(), "warnings": []}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
 
 
 def _build_scatter_3d_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -547,7 +561,7 @@ def _build_scatter_3d_spec(context: dict[str, Any]) -> dict[str, Any]:
         "camera": {"eye": _camera_eye(str(params.get("camera") or "isometric"))},
     }
     layout["height"] = _bounded_int(params.get("height"), 760, 360, 3000)
-    return {"data": traces, "layout": layout, "config": _plotly_config(), "warnings": []}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
 
 
 def _build_surface_3d_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -619,7 +633,7 @@ def _build_surface_3d_spec(context: dict[str, Any]) -> dict[str, Any]:
     warnings = []
     if len(context["records"]) > len(matrix_rows):
         warnings.append(f"Showing top {len(matrix_rows)} rows ranked by variance.")
-    return {"data": [trace], "layout": layout, "config": _plotly_config(), "warnings": warnings}
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -698,7 +712,7 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
     warnings = []
     if not traces:
         warnings.append("No valid p-value/log2FC rows were available.")
-    return {"data": traces, "layout": layout, "config": _plotly_config(), "warnings": warnings}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_heatmap_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -735,13 +749,14 @@ def _build_heatmap_spec(context: dict[str, Any]) -> dict[str, Any]:
         y_title=row_id_column or "row",
         params=params,
     )
-    layout["height"] = max(520, min(1800, 220 + len(labels) * 14))
+    if params.get("height") in {None, ""}:
+        layout["height"] = max(520, min(1800, 220 + len(labels) * 14))
     layout["yaxis"]["automargin"] = True
     layout["xaxis"]["automargin"] = True
     warnings = []
     if len(context["records"]) > len(matrix_rows):
         warnings.append(f"Showing top {len(matrix_rows)} rows ranked by variance.")
-    return {"data": [trace], "layout": layout, "config": _plotly_config(), "warnings": warnings}
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -783,13 +798,14 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
         y_title="numeric column",
         params=params,
     )
-    layout["height"] = max(560, min(1800, 220 + len(numeric_columns) * 13))
+    if params.get("height") in {None, ""}:
+        layout["height"] = max(560, min(1800, 220 + len(numeric_columns) * 13))
     layout["xaxis"]["automargin"] = True
     layout["yaxis"]["automargin"] = True
     warnings = []
     if len(context["numeric_columns"]) > len(numeric_columns):
         warnings.append(f"Showing first {len(numeric_columns)} numeric columns to keep correlation readable.")
-    return {"data": [trace], "layout": layout, "config": _plotly_config(), "warnings": warnings}
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_enrichment_dot_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -859,12 +875,13 @@ def _build_enrichment_dot_spec(context: dict[str, Any]) -> dict[str, Any]:
         y_title=term_column,
         params=params,
     )
-    layout["height"] = max(520, min(1600, 180 + len(rows) * 24))
+    if params.get("height") in {None, ""}:
+        layout["height"] = max(520, min(1600, 180 + len(rows) * 24))
     layout["yaxis"]["automargin"] = True
     warnings = []
     if len(context["records"]) > len(rows):
         warnings.append(f"Showing top {len(rows)} enrichment terms.")
-    return {"data": [trace], "layout": layout, "config": _plotly_config(), "warnings": warnings}
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _empty_plot_spec(
@@ -878,7 +895,7 @@ def _empty_plot_spec(
         "engine": "plotly",
         "data": [],
         "layout": _base_layout(title="No renderable chart", x_title="", y_title="", params={}),
-        "config": _plotly_config(),
+        "config": _plotly_config({}),
         "warnings": [message],
         "table_summary": table_summary,
         "supported_plot_types": sorted(SUPPORTED_PLOTLY_SPEC_TYPES),
@@ -890,26 +907,68 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
     background = "rgba(0,0,0,0)" if params.get("background") == "transparent" else "#ffffff"
     legend_position = str(params.get("legend_position") or "right")
     font_size = _bounded_int(params.get("font_size"), 13, 8, 28)
+    axis_line = bool(params.get("axis_line", True))
+    resolved_title = _text_or_default(params.get("title"), title)
+    subtitle = str(params.get("subtitle") or "").strip()
+    title_position = str(params.get("title_position") or "left")
+    title_x = 0.5 if title_position == "center" else 0.02
+    title_anchor = "center" if title_position == "center" else "left"
+    width = _bounded_int(params.get("width"), 1200, 320, 4000)
+    height = _bounded_int(params.get("height"), 760, 240, 3000)
+    margin = {
+        "l": _bounded_int(params.get("margin_left"), 72, 20, 300),
+        "r": _bounded_int(params.get("margin_right"), 32, 10, 300),
+        "t": _bounded_int(params.get("margin_top"), 72, 20, 300),
+        "b": _bounded_int(params.get("margin_bottom"), 64, 20, 300),
+    }
+    x_tick_angle = _bounded_float(params.get("x_tick_angle"), 0, -90, 90)
+    y_tick_angle = _bounded_float(params.get("y_tick_angle"), 0, -90, 90)
+    font_family = _font_family(str(params.get("font_family") or "inter"))
     layout: dict[str, Any] = {
-        "title": {"text": title, "x": 0.02, "xanchor": "left"},
-        "font": {"family": "Inter, Arial, sans-serif", "size": font_size, "color": "#07131f"},
+        "title": {"text": resolved_title, "x": title_x, "xanchor": title_anchor},
+        "font": {"family": font_family, "size": font_size, "color": "#07131f"},
         "paper_bgcolor": background,
         "plot_bgcolor": background,
-        "margin": {"l": 72, "r": 32, "t": 72, "b": 64},
+        "width": width,
+        "height": height,
+        "margin": margin,
         "hovermode": "closest",
         "xaxis": {
-            "title": x_title,
+            "title": _text_or_default(params.get("x_title"), x_title),
             "showgrid": show_grid,
             "gridcolor": "#e7eef4",
             "zerolinecolor": "#b8c7d4",
+            "showline": axis_line,
+            "linecolor": "#425466",
+            "ticks": "outside",
+            "tickangle": x_tick_angle,
         },
         "yaxis": {
-            "title": y_title,
+            "title": _text_or_default(params.get("y_title"), y_title),
             "showgrid": show_grid,
             "gridcolor": "#e7eef4",
             "zerolinecolor": "#b8c7d4",
+            "showline": axis_line,
+            "linecolor": "#425466",
+            "ticks": "outside",
+            "tickangle": y_tick_angle,
         },
     }
+    if subtitle:
+        layout["annotations"] = [
+            {
+                "text": subtitle,
+                "xref": "paper",
+                "yref": "paper",
+                "x": title_x,
+                "y": 1.08,
+                "xanchor": title_anchor,
+                "yanchor": "bottom",
+                "showarrow": False,
+                "font": {"size": max(10, font_size - 1), "color": "#617383"},
+            }
+        ]
+        layout["margin"]["t"] = max(layout["margin"]["t"], 92)
     if legend_position == "none":
         layout["showlegend"] = False
     elif legend_position == "top":
@@ -921,13 +980,33 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
     return layout
 
 
-def _plotly_config() -> dict[str, Any]:
+def _plotly_config(params: dict[str, Any]) -> dict[str, Any]:
+    export_format = str(params.get("format") or "svg")
+    if export_format not in {"svg", "png", "jpeg", "webp"}:
+        export_format = "svg"
+    dpi = str(params.get("dpi") or "300")
+    scale = {"150": 1, "300": 2, "600": 4}.get(dpi, 2)
     return {
         "displaylogo": False,
         "responsive": True,
-        "toImageButtonOptions": {"format": "svg", "filename": "yzw_biocloud_plot", "scale": 2},
+        "toImageButtonOptions": {"format": export_format, "filename": "yzw_biocloud_plot", "scale": scale},
         "modeBarButtonsToRemove": ["lasso2d", "select2d"],
     }
+
+
+def _text_or_default(value: Any, default: str) -> str:
+    text = str(value or "").strip()
+    return text or default
+
+
+def _font_family(font_key: str) -> str:
+    return {
+        "arial": "Arial, Helvetica, sans-serif",
+        "helvetica": "Helvetica, Arial, sans-serif",
+        "times": "'Times New Roman', Times, serif",
+        "georgia": "Georgia, 'Times New Roman', serif",
+        "noto_sans": "'Noto Sans SC', 'Noto Sans', Arial, sans-serif",
+    }.get(font_key, "Inter, Arial, sans-serif")
 
 
 def _choose_column(
@@ -1161,6 +1240,188 @@ def _grouped_marker_traces(
     return traces
 
 
+def _scatter_statistical_overlays(
+    traces: list[dict[str, Any]],
+    params: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    trendline = str(params.get("trendline") or "none")
+    show_ellipse = bool(params.get("confidence_ellipse", False))
+    ellipse_level = _bounded_float(params.get("ellipse_level"), 0.95, 0.5, 0.99)
+    overlays: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for trace in traces:
+        points = _trace_numeric_points(trace)
+        if len(points) < 3:
+            if trendline != "none" or show_ellipse:
+                warnings.append(f"Skipping statistical overlay for {trace.get('name', 'group')}: fewer than 3 points.")
+            continue
+        x_values = [point[0] for point in points]
+        y_values = [point[1] for point in points]
+        color = str(trace.get("marker", {}).get("color") or PLOTLY_PALETTE[0])
+        name = str(trace.get("name") or "All")
+        if trendline == "linear":
+            fit_trace = _linear_fit_trace(name, x_values, y_values, color)
+            if fit_trace:
+                overlays.append(fit_trace)
+        elif trendline == "loess":
+            smooth_trace = _loess_fit_trace(name, x_values, y_values, color, params)
+            if smooth_trace:
+                overlays.append(smooth_trace)
+        elif trendline != "none":
+            warnings.append(f"Unsupported trend line '{trendline}' was ignored.")
+        if show_ellipse:
+            ellipse_trace = _confidence_ellipse_trace(name, x_values, y_values, color, ellipse_level)
+            if ellipse_trace:
+                overlays.append(ellipse_trace)
+            else:
+                warnings.append(f"Skipping confidence ellipse for {name}: covariance is degenerate.")
+    return overlays, warnings
+
+
+def _trace_numeric_points(trace: dict[str, Any]) -> list[tuple[float, float]]:
+    points = []
+    for raw_x, raw_y in zip(trace.get("x", []), trace.get("y", []), strict=False):
+        x_value = _number_or_none(raw_x)
+        y_value = _number_or_none(raw_y)
+        if x_value is not None and y_value is not None:
+            points.append((x_value, y_value))
+    return points
+
+
+def _linear_fit_trace(name: str, x_values: list[float], y_values: list[float], color: str) -> dict[str, Any] | None:
+    if len(set(x_values)) < 2:
+        return None
+    x_mean = fmean(x_values)
+    y_mean = fmean(y_values)
+    ss_xx = sum((x_value - x_mean) ** 2 for x_value in x_values)
+    if ss_xx <= 0:
+        return None
+    ss_xy = sum((x_value - x_mean) * (y_value - y_mean) for x_value, y_value in zip(x_values, y_values, strict=False))
+    slope = ss_xy / ss_xx
+    intercept = y_mean - slope * x_mean
+    predicted = [slope * x_value + intercept for x_value in x_values]
+    ss_total = sum((y_value - y_mean) ** 2 for y_value in y_values)
+    ss_residual = sum((y_value - y_hat) ** 2 for y_value, y_hat in zip(y_values, predicted, strict=False))
+    r_squared = 1 - ss_residual / ss_total if ss_total > 0 else 1.0
+    x_min = min(x_values)
+    x_max = max(x_values)
+    return {
+        "type": "scatter",
+        "mode": "lines",
+        "name": f"{name} linear fit",
+        "x": [x_min, x_max],
+        "y": [slope * x_min + intercept, slope * x_max + intercept],
+        "line": {"color": color, "width": 2.2, "dash": "dash"},
+        "hovertemplate": (
+            f"y={_round_number(slope)}x+{_round_number(intercept)}<br>"
+            f"R2={_round_number(r_squared)}<extra>{name} linear fit</extra>"
+        ),
+    }
+
+
+def _loess_fit_trace(
+    name: str,
+    x_values: list[float],
+    y_values: list[float],
+    color: str,
+    params: dict[str, Any],
+) -> dict[str, Any] | None:
+    if len(set(x_values)) < 3:
+        return None
+    fraction = _bounded_float(params.get("loess_fraction"), 0.35, 0.15, 0.9)
+    paired = sorted(zip(x_values, y_values, strict=False), key=lambda item: item[0])
+    smoothed = []
+    for x_target, _ in paired:
+        y_hat = _local_linear_prediction(paired, x_target, fraction)
+        if y_hat is not None:
+            smoothed.append((x_target, y_hat))
+    if len(smoothed) < 2:
+        return None
+    return {
+        "type": "scatter",
+        "mode": "lines",
+        "name": f"{name} LOESS smooth",
+        "x": [point[0] for point in smoothed],
+        "y": [point[1] for point in smoothed],
+        "line": {"color": color, "width": 2.4, "shape": "spline"},
+        "hovertemplate": "x=%{x:.4g}<br>smoothed y=%{y:.4g}<extra>%{fullData.name}</extra>",
+    }
+
+
+def _local_linear_prediction(points: list[tuple[float, float]], x_target: float, fraction: float) -> float | None:
+    window_size = max(3, min(len(points), math.ceil(len(points) * fraction)))
+    neighbors = sorted(points, key=lambda point: abs(point[0] - x_target))[:window_size]
+    max_distance = max(abs(point[0] - x_target) for point in neighbors) or 1.0
+    weights = []
+    for x_value, y_value in neighbors:
+        scaled = abs(x_value - x_target) / max_distance
+        weights.append(((1 - scaled**3) ** 3, x_value, y_value))
+    weight_sum = sum(weight for weight, _, _ in weights)
+    if weight_sum <= 0:
+        return None
+    x_mean = sum(weight * x_value for weight, x_value, _ in weights) / weight_sum
+    y_mean = sum(weight * y_value for weight, _, y_value in weights) / weight_sum
+    denominator = sum(weight * (x_value - x_mean) ** 2 for weight, x_value, _ in weights)
+    if denominator <= 1e-12:
+        return y_mean
+    slope = sum(
+        weight * (x_value - x_mean) * (y_value - y_mean)
+        for weight, x_value, y_value in weights
+    ) / denominator
+    intercept = y_mean - slope * x_mean
+    return slope * x_target + intercept
+
+
+def _confidence_ellipse_trace(
+    name: str,
+    x_values: list[float],
+    y_values: list[float],
+    color: str,
+    level: float,
+) -> dict[str, Any] | None:
+    if len(x_values) < 3 or len(set(x_values)) < 2 or len(set(y_values)) < 2:
+        return None
+    x_mean = fmean(x_values)
+    y_mean = fmean(y_values)
+    sample_size = len(x_values)
+    cov_xx = sum((x_value - x_mean) ** 2 for x_value in x_values) / (sample_size - 1)
+    cov_yy = sum((y_value - y_mean) ** 2 for y_value in y_values) / (sample_size - 1)
+    cov_xy = sum(
+        (x_value - x_mean) * (y_value - y_mean)
+        for x_value, y_value in zip(x_values, y_values, strict=False)
+    ) / (sample_size - 1)
+    trace_value = cov_xx + cov_yy
+    determinant = cov_xx * cov_yy - cov_xy**2
+    eigen_part = max(trace_value**2 / 4 - determinant, 0)
+    eigen_1 = trace_value / 2 + math.sqrt(eigen_part)
+    eigen_2 = trace_value / 2 - math.sqrt(eigen_part)
+    if eigen_1 <= 0 or eigen_2 <= 0:
+        return None
+    angle = 0.5 * math.atan2(2 * cov_xy, cov_xx - cov_yy)
+    chi_square_scale = math.sqrt(-2 * math.log(max(1e-6, 1 - level)))
+    radius_1 = chi_square_scale * math.sqrt(eigen_1)
+    radius_2 = chi_square_scale * math.sqrt(eigen_2)
+    cos_angle = math.cos(angle)
+    sin_angle = math.sin(angle)
+    ellipse_x = []
+    ellipse_y = []
+    for degree in range(0, 361, 5):
+        theta = math.radians(degree)
+        x_offset = radius_1 * math.cos(theta)
+        y_offset = radius_2 * math.sin(theta)
+        ellipse_x.append(x_mean + x_offset * cos_angle - y_offset * sin_angle)
+        ellipse_y.append(y_mean + x_offset * sin_angle + y_offset * cos_angle)
+    return {
+        "type": "scatter",
+        "mode": "lines",
+        "name": f"{name} {int(round(level * 100))}% ellipse",
+        "x": ellipse_x,
+        "y": ellipse_y,
+        "line": {"color": color, "width": 1.5, "dash": "dot"},
+        "hoverinfo": "skip",
+    }
+
+
 def _records_by_category(records: list[dict[str, str]], column: str | None) -> dict[str, list[dict[str, str]]]:
     grouped: dict[str, list[dict[str, str]]] = {}
     for row in records:
@@ -1209,6 +1470,199 @@ def _distribution_trace(
         "boxmean": bool(params.get("show_mean", True)),
         "hovertemplate": f"{name}<br>value=%{{y:.4g}}<extra></extra>",
     }
+
+
+def _pairwise_comparison_overlays(
+    grouped_values: list[tuple[str, list[float]]],
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    method = str(params.get("pairwise_test") or "none")
+    if method == "none" or len(grouped_values) < 2:
+        return {"shapes": [], "annotations": [], "warnings": [], "y_range": None}
+    if method not in {"t_test", "wilcoxon", "anova_then_tukey"}:
+        return {
+            "shapes": [],
+            "annotations": [],
+            "warnings": [f"Unsupported pairwise test '{method}' was ignored."],
+            "y_range": None,
+        }
+
+    comparisons = []
+    for first_index, (first_name, first_values) in enumerate(grouped_values[:-1]):
+        for second_index, (second_name, second_values) in enumerate(grouped_values[first_index + 1 :], start=first_index + 1):
+            if len(first_values) < 2 or len(second_values) < 2:
+                continue
+            if method == "wilcoxon":
+                p_value = _mann_whitney_p_value(first_values, second_values)
+            else:
+                p_value = _welch_t_p_value(first_values, second_values)
+            comparisons.append(
+                {
+                    "first_index": first_index,
+                    "second_index": second_index,
+                    "first_name": first_name,
+                    "second_name": second_name,
+                    "p_value": p_value,
+                }
+            )
+    if not comparisons:
+        return {
+            "shapes": [],
+            "annotations": [],
+            "warnings": ["Pairwise p-values require at least two values in each compared group."],
+            "y_range": None,
+        }
+
+    adjusted_values = _adjust_p_values([item["p_value"] for item in comparisons], str(params.get("multiple_testing") or "BH"))
+    all_values = [value for _, values in grouped_values for value in values]
+    y_min = min(all_values)
+    y_max = max(all_values)
+    y_span = max(y_max - y_min, abs(y_max) * 0.05, 1e-9)
+    base_y = y_max + y_span * 0.12
+    step_y = y_span * 0.12
+    bracket_height = y_span * 0.035
+    denominator = max(len(grouped_values) - 1, 1)
+    shapes = []
+    annotations = []
+    for layer, (comparison, adjusted_p) in enumerate(zip(comparisons, adjusted_values, strict=False)):
+        x0 = comparison["first_index"] / denominator
+        x1 = comparison["second_index"] / denominator
+        y = base_y + layer * step_y
+        shapes.extend(
+            [
+                _paper_y_line(x0, y, y + bracket_height),
+                _paper_y_line(x1, y, y + bracket_height),
+                _paper_x_line(x0, x1, y + bracket_height),
+            ]
+        )
+        annotations.append(
+            {
+                "xref": "paper",
+                "yref": "y",
+                "x": (x0 + x1) / 2,
+                "y": y + bracket_height,
+                "text": _p_value_label(adjusted_p),
+                "showarrow": False,
+                "yshift": 7,
+                "font": {"size": 11, "color": "#24323f"},
+                "hovertext": (
+                    f"{comparison['first_name']} vs {comparison['second_name']}: "
+                    f"raw p={comparison['p_value']:.4g}, adjusted p={adjusted_p:.4g}"
+                ),
+            }
+        )
+    y_top = base_y + len(comparisons) * step_y + bracket_height + y_span * 0.08
+    warnings = []
+    if method == "anova_then_tukey":
+        warnings.append("ANOVA/Tukey display uses pairwise Welch p-values as a lightweight browser-ready approximation.")
+    return {
+        "shapes": shapes,
+        "annotations": annotations,
+        "warnings": warnings,
+        "y_range": [y_min - y_span * 0.08, y_top],
+    }
+
+
+def _paper_y_line(x_value: float, y0: float, y1: float) -> dict[str, Any]:
+    return {
+        "type": "line",
+        "xref": "paper",
+        "yref": "y",
+        "x0": x_value,
+        "x1": x_value,
+        "y0": y0,
+        "y1": y1,
+        "line": {"color": "#324657", "width": 1.1},
+    }
+
+
+def _paper_x_line(x0: float, x1: float, y_value: float) -> dict[str, Any]:
+    return {
+        "type": "line",
+        "xref": "paper",
+        "yref": "y",
+        "x0": x0,
+        "x1": x1,
+        "y0": y_value,
+        "y1": y_value,
+        "line": {"color": "#324657", "width": 1.1},
+    }
+
+
+def _welch_t_p_value(first_values: list[float], second_values: list[float]) -> float:
+    if len(first_values) < 2 or len(second_values) < 2:
+        return 1.0
+    first_mean = fmean(first_values)
+    second_mean = fmean(second_values)
+    first_var = _sample_variance(first_values)
+    second_var = _sample_variance(second_values)
+    standard_error = math.sqrt(first_var / len(first_values) + second_var / len(second_values))
+    if standard_error <= 0:
+        return 1.0
+    z_score = abs(first_mean - second_mean) / standard_error
+    return max(0.0, min(1.0, math.erfc(z_score / math.sqrt(2))))
+
+
+def _mann_whitney_p_value(first_values: list[float], second_values: list[float]) -> float:
+    first_count = len(first_values)
+    second_count = len(second_values)
+    if first_count < 2 or second_count < 2:
+        return 1.0
+    ranked = _average_ranks([(value, "first") for value in first_values] + [(value, "second") for value in second_values])
+    first_rank_sum = sum(rank for rank, group in ranked if group == "first")
+    u_value = first_rank_sum - first_count * (first_count + 1) / 2
+    mean_u = first_count * second_count / 2
+    sd_u = math.sqrt(first_count * second_count * (first_count + second_count + 1) / 12)
+    if sd_u <= 0:
+        return 1.0
+    z_score = abs(u_value - mean_u) / sd_u
+    return max(0.0, min(1.0, math.erfc(z_score / math.sqrt(2))))
+
+
+def _average_ranks(values: list[tuple[float, str]]) -> list[tuple[float, str]]:
+    sorted_values = sorted(enumerate(values), key=lambda item: item[1][0])
+    ranked = [0.0] * len(values)
+    index = 0
+    while index < len(sorted_values):
+        end = index + 1
+        while end < len(sorted_values) and sorted_values[end][1][0] == sorted_values[index][1][0]:
+            end += 1
+        average_rank = (index + 1 + end) / 2
+        for original_index, _ in sorted_values[index:end]:
+            ranked[original_index] = average_rank
+        index = end
+    return [(rank, group) for rank, (_, group) in zip(ranked, values, strict=False)]
+
+
+def _sample_variance(values: list[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    mean_value = fmean(values)
+    return sum((value - mean_value) ** 2 for value in values) / (len(values) - 1)
+
+
+def _adjust_p_values(p_values: list[float], method: str) -> list[float]:
+    if method == "bonferroni":
+        return [min(1.0, value * len(p_values)) for value in p_values]
+    if method != "BH":
+        return [min(1.0, max(0.0, value)) for value in p_values]
+    indexed = sorted(enumerate(p_values), key=lambda item: item[1], reverse=True)
+    adjusted = [1.0] * len(p_values)
+    running = 1.0
+    total = len(p_values)
+    for reverse_rank, (original_index, value) in enumerate(indexed, start=1):
+        rank = total - reverse_rank + 1
+        running = min(running, value * total / rank)
+        adjusted[original_index] = min(1.0, max(0.0, running))
+    return adjusted
+
+
+def _p_value_label(p_value: float) -> str:
+    if p_value < 0.0001:
+        return "p<0.0001"
+    if p_value < 0.001:
+        return "p<0.001"
+    return f"p={p_value:.3g}"
 
 
 def _aggregate_values(values: list[float], method: str) -> float:
@@ -1267,14 +1721,28 @@ def _line_trace(
             continue
         x_values.append(row.get(x_column) if x_column else index + 1)
         y_values.append(y_value)
+    line_shape = str(params.get("line_shape") or "linear")
+    if bool(params.get("smooth")):
+        line_shape = "spline"
+    if line_shape not in {"linear", "spline", "hv", "vh"}:
+        line_shape = "linear"
+    show_points = bool(params.get("show_points", True))
     return {
         "type": "scatter",
-        "mode": "lines+markers" if params.get("show_points", True) else "lines",
+        "mode": "lines+markers" if show_points else "lines",
         "name": name,
         "x": x_values,
         "y": y_values,
-        "line": {"color": color, "shape": "spline" if params.get("smooth") else "linear", "width": 2.4},
-        "marker": {"color": color, "size": 6},
+        "line": {
+            "color": color,
+            "shape": line_shape,
+            "width": _bounded_float(params.get("line_width"), 2.4, 0.5, 10),
+        },
+        "marker": {
+            "color": color,
+            "size": _bounded_float(params.get("marker_size"), 6, 0, 30),
+            "symbol": str(params.get("marker_symbol") or "circle"),
+        },
         "hovertemplate": "%{x}<br>value=%{y:.4g}<extra>%{fullData.name}</extra>",
         "connectgaps": bool(params.get("connect_gaps", False)),
     }
@@ -1335,5 +1803,6 @@ def _select_plot_id(plot_type: str | None, recommended_plot_ids: list[str]) -> s
         if item in known_ids:
             return item
     return "scatter"
+
 
 

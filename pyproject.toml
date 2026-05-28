@@ -19,8 +19,9 @@ build-backend = "pdm.backend"
 distribution = true
 
 [tool.pdm.scripts]
-dev = "uvicorn yzwcloud.main:app --reload --host 127.0.0.1 --port 8000"
-start = "uvicorn yzwcloud.main:app --host 127.0.0.1 --port 8000"
+dev = "uvicorn yzwcloud.main:app --reload --host 127.0.0.1 --port 8010"
+start = "uvicorn yzwcloud.main:app --host 127.0.0.1 --port 8010"
+clean-logs = "python -m yzwcloud.dev_server clean-logs --port 8010"
 
 [tool.pdm.build]
 package-dir = "src"

@@ -9,7 +9,6 @@ logs/*
 !logs/.gitkeep
 .tmp-uvicorn.*.log
 uvicorn-*.log
-uvicorn-5174*.log
 server-*.log
 references/plotting/*.pdf
 node_modules/

@@ -96,6 +96,14 @@ def create_plot_studio_report(
         params=params or {},
         path_reason=path_reason,
     )
+    agent_context = _build_agent_context(
+        source=source,
+        source_type=source_type,
+        selected_preset=selected_preset,
+        table_summary=table_summary,
+        params=params or {},
+        path_reason=path_reason,
+    )
     return {
         "version": PLOT_STUDIO_VERSION,
         "source": _source_summary(source, data_path),
@@ -108,6 +116,7 @@ def create_plot_studio_report(
         "recommended_plot_ids": recommended_plot_ids,
         "table_summary": table_summary,
         "report": report,
+        "agent_context": agent_context,
     }
 
 
@@ -233,12 +242,15 @@ def _parameter_notes(
         group_note = "Group colors are available." if meta.get("condition_colors") else "Group colors are not attached yet."
         top_n = params.get("top_n") or params.get("top_genes") or 50
         hint = guidance["parameter_hint"] if guidance else "Keep clustering enabled and review dendrogram stability."
-        return f"Use top_n={top_n} for the first render. {hint} {group_note}"
+        return f"Use top_n={top_n} for the first render. {hint} {group_note} {_analysis_parameter_text(plot_id, params)} {_layout_parameter_summary(params)}"
     if guidance:
-        return guidance["parameter_hint"]
+        return f"{guidance['parameter_hint']} {_analysis_parameter_text(plot_id, params)} {_layout_parameter_summary(params)}"
     if table_summary and len(table_summary.get("numeric_columns") or []) >= 2:
-        return "Map numeric columns first, then add color/facet fields only if categorical columns are present."
-    return "Start from the preset defaults, then refine mappings after the source table is inspected."
+        return (
+            "Map numeric columns first, then add color/facet fields only if categorical columns are present. "
+            f"{_analysis_parameter_text(plot_id, params)} {_layout_parameter_summary(params)}"
+        )
+    return f"Start from the preset defaults, then refine mappings after the source table is inspected. {_analysis_parameter_text(plot_id, params)} {_layout_parameter_summary(params)}"
 
 
 def _figure_interpretation(plot_id: str, table_summary: dict[str, Any] | None) -> str:
@@ -266,5 +278,115 @@ def _build_headline(
     if table_summary:
         return f"{selected_preset['label']} ready for {name}: {table_summary['scanned_rows']} scanned row(s)."
     return f"{selected_preset['label']} plan ready for {name}."
+
+
+def _layout_parameter_summary(params: dict[str, Any]) -> str:
+    notes = []
+    title = str(params.get("title") or "").strip()
+    subtitle = str(params.get("subtitle") or "").strip()
+    if title:
+        notes.append(f"title='{title}'")
+    if subtitle:
+        notes.append(f"subtitle='{subtitle}'")
+    x_title = str(params.get("x_title") or "").strip()
+    y_title = str(params.get("y_title") or "").strip()
+    if x_title or y_title:
+        notes.append(f"axis labels=({x_title or 'auto'}, {y_title or 'auto'})")
+    if params.get("width") or params.get("height"):
+        notes.append(f"canvas={params.get('width', 'auto')}x{params.get('height', 'auto')}")
+    if params.get("format") or params.get("dpi"):
+        notes.append(f"export={params.get('format', 'svg')}@{params.get('dpi', '300')}dpi")
+    if not notes:
+        return "No manual layout override is currently applied."
+    return "Manual layout/export overrides: " + "; ".join(notes) + "."
+
+
+def _analysis_parameter_text(plot_id: str, params: dict[str, Any]) -> str:
+    summary = _parameter_summary(plot_id, params)
+    notes = summary.get("statistics", []) + summary.get("display", [])
+    if not notes:
+        return "No analysis-specific parameter override is currently applied."
+    return "Analysis/display overrides: " + "; ".join(notes) + "."
+
+
+def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[str]]:
+    summary: dict[str, list[str]] = {"statistics": [], "display": [], "export": []}
+    if plot_id == "boxplot":
+        pairwise_test = str(params.get("pairwise_test") or "none")
+        if pairwise_test != "none":
+            summary["statistics"].append(f"pairwise test={pairwise_test}")
+            summary["statistics"].append(f"multiple testing={params.get('multiple_testing') or 'BH'}")
+        if params.get("show_p_values"):
+            summary["statistics"].append("p-values shown on plot")
+        if params.get("notched"):
+            summary["display"].append("notched boxes enabled")
+    if plot_id == "scatter":
+        trendline = str(params.get("trendline") or "none")
+        if trendline != "none":
+            summary["statistics"].append(f"trendline={trendline}")
+        if params.get("confidence_ellipse"):
+            summary["statistics"].append(f"confidence ellipse={params.get('ellipse_level') or 0.95}")
+    if plot_id == "bar":
+        if params.get("aggregation"):
+            summary["statistics"].append(f"aggregation={params.get('aggregation')}")
+        if params.get("error_bar"):
+            summary["statistics"].append(f"error bar={params.get('error_bar')}")
+    if plot_id == "line":
+        if params.get("line_shape"):
+            summary["display"].append(f"line shape={params.get('line_shape')}")
+        if params.get("line_width"):
+            summary["display"].append(f"line width={params.get('line_width')}")
+    if params.get("width") or params.get("height"):
+        summary["export"].append(f"canvas={params.get('width', 'auto')}x{params.get('height', 'auto')}")
+    if params.get("format") or params.get("dpi"):
+        summary["export"].append(f"export={params.get('format', 'svg')}@{params.get('dpi', '300')}dpi")
+    return {key: value for key, value in summary.items() if value}
+
+
+def _build_agent_context(
+    *,
+    source: dict[str, Any],
+    source_type: str,
+    selected_preset: dict[str, Any],
+    table_summary: dict[str, Any] | None,
+    params: dict[str, Any],
+    path_reason: str,
+) -> dict[str, Any]:
+    meta = dict(source.get("meta") or {})
+    return {
+        "purpose": "LLM-readable context for explaining a Plot Studio figure without image vision.",
+        "source_type": source_type or "unknown",
+        "source_name": source.get("name") or source.get("nodeId") or source.get("node_id"),
+        "path_reason": path_reason,
+        "plot": {
+            "id": selected_preset["id"],
+            "label": selected_preset["label"],
+            "engine": selected_preset["engine"],
+            "focus": PLOT_REPORT_GUIDANCE.get(selected_preset["id"], {}).get("focus", ""),
+        },
+        "table": _compact_table_context(table_summary),
+        "metadata": {key: meta[key] for key in sorted(meta)[:12]},
+        "params": params,
+        "parameter_summary": _parameter_summary(selected_preset["id"], params),
+        "interpretation_rules": [
+            "Use only metadata, table summaries, statistics, and parameters in this object.",
+            "Do not infer visual details from a rendered image.",
+            "State uncertainty when the table is missing or only partially scanned.",
+        ],
+    }
+
+
+def _compact_table_context(table_summary: dict[str, Any] | None) -> dict[str, Any] | None:
+    if table_summary is None:
+        return None
+    signals = table_summary.get("signals") or {}
+    return {
+        "filename": table_summary.get("filename"),
+        "scanned_rows": table_summary.get("scanned_rows"),
+        "column_count": table_summary.get("column_count"),
+        "numeric_columns": (table_summary.get("numeric_columns") or [])[:20],
+        "categorical_columns": (table_summary.get("categorical_columns") or [])[:20],
+        "signals": signals,
+    }
 
 

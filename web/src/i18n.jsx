@@ -116,6 +116,10 @@ const zh = {
   runPreview: "刷新预览",
   basicParameters: "基础参数",
   advancedParameters: "高级参数",
+  llmContext: "LLM 上下文",
+  llmContextHint: "这段 JSON 由数据摘要、图表类型和参数组成，可直接交给大模型解释图表；不依赖图片识别。",
+  copyContext: "复制上下文",
+  copied: "已复制",
   interactiveEnginePlan:
     "后续图形引擎规划：Plotly、ECharts、Observable Plot、Vega-Lite、deck.gl、Cytoscape.js、Mol*/NGL、3Dmol.js、Phylocanvas、Clustergrammer2、HiGlass。",
 };
@@ -234,6 +238,10 @@ const en = {
   runPreview: "Refresh preview",
   basicParameters: "Basic parameters",
   advancedParameters: "Advanced parameters",
+  llmContext: "LLM context",
+  llmContextHint: "This JSON combines data summaries, plot type, and parameters for model-side interpretation without image vision.",
+  copyContext: "Copy context",
+  copied: "Copied",
   interactiveEnginePlan:
     "Planned engines: Plotly, ECharts, Observable Plot, Vega-Lite, deck.gl, Cytoscape.js, Mol*/NGL, 3Dmol.js, Phylocanvas, Clustergrammer2, and HiGlass.",
 };

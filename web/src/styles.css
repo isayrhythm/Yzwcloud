@@ -2069,7 +2069,7 @@ h2 {
   padding: 10px;
 }
 
-.plot-type-grid.compact .plot-type-card span {
+.plot-type-grid.compact .plot-type-card .plot-type-card-main {
   display: grid;
   gap: 4px;
 }
@@ -2087,6 +2087,47 @@ h2 {
 .plot-type-card small {
   color: var(--muted);
   line-height: 1.5;
+}
+
+.plot-type-card-main {
+  min-width: 0;
+}
+
+.plot-type-card-main small {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.plot-type-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.plot-type-meta em {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid rgba(15, 138, 143, 0.18);
+  border-radius: 999px;
+  background: #eef8f6;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.plot-type-meta .recommended-badge {
+  border-color: rgba(49, 95, 214, 0.2);
+  background: #edf2ff;
+  color: #315fd6;
+  text-transform: none;
 }
 
 .mini-plot {
@@ -2753,6 +2794,57 @@ h2 {
 .plot-report-section.warning {
   border-color: rgba(185, 61, 47, 0.22);
   background: #fff8f6;
+}
+
+.plot-agent-context {
+  border: 1px solid rgba(15, 138, 143, 0.18);
+  border-radius: 14px;
+  background: #f8fbfc;
+}
+
+.plot-agent-context summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--accent-strong);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.plot-agent-context summary::marker {
+  color: var(--accent);
+}
+
+.plot-agent-context summary button {
+  border: 1px solid rgba(15, 138, 143, 0.22);
+  border-radius: 999px;
+  background: white;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.plot-agent-context p {
+  margin: 0;
+  padding: 0 14px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.plot-agent-context pre {
+  max-height: 260px;
+  margin: 0;
+  padding: 12px 14px 14px;
+  overflow: auto;
+  border-top: 1px solid rgba(15, 138, 143, 0.12);
+  color: #24313a;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .plot-limitations {

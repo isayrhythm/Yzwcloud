@@ -5,7 +5,25 @@ let plotlyLoader = null;
 
 function loadPlotly() {
   if (!plotlyLoader) {
-    plotlyLoader = import("plotly.js-dist-min").then((module) => module.default || module);
+    plotlyLoader = new Promise((resolve, reject) => {
+      if (window.Plotly) {
+        resolve(window.Plotly);
+        return;
+      }
+      const existingScript = document.querySelector("script[data-yzw-plotly]");
+      if (existingScript) {
+        existingScript.addEventListener("load", () => resolve(window.Plotly));
+        existingScript.addEventListener("error", () => reject(new Error("Plotly failed to load")));
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "/static/vendor/plotly.min.js";
+      script.async = true;
+      script.dataset.yzwPlotly = "true";
+      script.onload = () => resolve(window.Plotly);
+      script.onerror = () => reject(new Error("Plotly failed to load"));
+      document.head.appendChild(script);
+    });
   }
   return plotlyLoader;
 }
@@ -64,6 +82,24 @@ function valuePreview(value) {
   if (Array.isArray(value)) return value.join(", ");
   if (value && typeof value === "object") return JSON.stringify(value);
   return String(value ?? "");
+}
+
+async function copyTextToClipboard(text) {
+  if (!text) return false;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  return copied;
 }
 
 function defaultParamsFromPreset(preset) {
@@ -215,8 +251,9 @@ function InteractivePlot({ spec }) {
   return <div className="plotly-preview" ref={plotRef} />;
 }
 
-function MiniPlotThumbnail({ plotId }) {
-  if (plotId === "boxplot") {
+function MiniPlotThumbnail({ plotId, thumbnail }) {
+  const kind = thumbnail || plotId;
+  if (kind === "boxplot") {
     return (
       <div className="mini-plot mini-boxplot" aria-hidden="true">
         {[0, 1, 2].map((item) => (
@@ -227,7 +264,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "violin") {
+  if (kind === "violin") {
     return (
       <div className="mini-plot mini-violin" aria-hidden="true">
         <span />
@@ -236,7 +273,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "bar") {
+  if (kind === "bar") {
     return (
       <div className="mini-plot mini-bar" aria-hidden="true">
         {[38, 62, 48, 78, 54].map((height, index) => (
@@ -245,7 +282,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "line") {
+  if (kind === "line") {
     return (
       <div className="mini-plot mini-line" aria-hidden="true">
         <span className="line-segment s1" />
@@ -258,7 +295,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "histogram") {
+  if (kind === "histogram") {
     return (
       <div className="mini-plot mini-histogram" aria-hidden="true">
         {[28, 42, 67, 54, 78, 49, 32].map((height, index) => (
@@ -267,7 +304,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "density_contour") {
+  if (kind === "density_contour") {
     return (
       <div className="mini-plot mini-density" aria-hidden="true">
         <span className="ring r1" />
@@ -279,7 +316,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "scatter_3d") {
+  if (kind === "scatter_3d") {
     return (
       <div className="mini-plot mini-3d-scatter" aria-hidden="true">
         {Array.from({ length: 14 }, (_, index) => (
@@ -288,7 +325,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "surface_3d") {
+  if (kind === "surface_3d") {
     return (
       <div className="mini-plot mini-surface" aria-hidden="true">
         {Array.from({ length: 24 }, (_, index) => (
@@ -297,16 +334,16 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "heatmap" || plotId === "correlation") {
+  if (kind === "heatmap" || kind === "correlation") {
     return (
-      <div className={`mini-plot mini-heatmap ${plotId === "correlation" ? "corr" : ""}`} aria-hidden="true">
+      <div className={`mini-plot mini-heatmap ${kind === "correlation" ? "corr" : ""}`} aria-hidden="true">
         {Array.from({ length: 30 }, (_, index) => (
           <span key={index} />
         ))}
       </div>
     );
   }
-  if (plotId === "bubble") {
+  if (kind === "bubble") {
     return (
       <div className="mini-plot mini-bubble" aria-hidden="true">
         <span className="b1" />
@@ -316,7 +353,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "volcano") {
+  if (kind === "volcano") {
     return (
       <div className="mini-plot mini-volcano" aria-hidden="true">
         {Array.from({ length: 24 }, (_, index) => (
@@ -325,7 +362,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "upset") {
+  if (kind === "upset") {
     return (
       <div className="mini-plot mini-upset" aria-hidden="true">
         <div className="upset-bars">
@@ -337,7 +374,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "venn") {
+  if (kind === "venn") {
     return (
       <div className="mini-plot mini-venn" aria-hidden="true">
         <span className="v1" />
@@ -346,7 +383,7 @@ function MiniPlotThumbnail({ plotId }) {
       </div>
     );
   }
-  if (plotId === "enrichment_dot") {
+  if (kind === "enrichment_dot") {
     return (
       <div className="mini-plot mini-enrichment" aria-hidden="true">
         {[0, 1, 2, 3, 4].map((row) => (
@@ -364,19 +401,10 @@ function MiniPlotThumbnail({ plotId }) {
   );
 }
 
-function plotCategoryFor(plotId) {
-  if (["boxplot", "violin", "histogram", "bar"].includes(plotId)) return "Distribution";
-  if (["scatter", "line", "bubble", "density_contour", "scatter_3d"].includes(plotId)) return "Relationship";
-  if (["heatmap", "correlation", "surface_3d"].includes(plotId)) return "Matrix";
-  if (["volcano", "enrichment_dot"].includes(plotId)) return "Omics results";
-  if (["upset", "venn"].includes(plotId)) return "Sets";
-  return "Other";
-}
-
 function groupPlotPresets(presets) {
   const groups = new Map();
   presets.forEach((preset) => {
-    const category = plotCategoryFor(preset.id);
+    const category = preset.category || "Other";
     if (!groups.has(category)) groups.set(category, []);
     groups.get(category).push(preset);
   });
@@ -384,6 +412,7 @@ function groupPlotPresets(presets) {
 }
 
 function isAdvancedParameterGroup(group) {
+  if (typeof group.advanced === "boolean") return group.advanced;
   return ["theme", "export", "labels", "style"].includes(group.id);
 }
 
@@ -401,6 +430,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const [error, setError] = useState("");
   const [specError, setSpecError] = useState("");
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [agentContextCopied, setAgentContextCopied] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -508,6 +538,10 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const basicParameterGroups = parameterGroups.filter((group) => !isAdvancedParameterGroup(group));
   const advancedParameterGroups = parameterGroups.filter(isAdvancedParameterGroup);
   const reportSections = studioReport?.report?.sections || [];
+  const agentContextText = useMemo(
+    () => (studioReport?.agent_context ? JSON.stringify(studioReport.agent_context, null, 2) : ""),
+    [studioReport?.agent_context],
+  );
 
   const updateParam = (paramId, value) => {
     setParams((current) => ({ ...current, [paramId]: value }));
@@ -553,10 +587,14 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                           setParams(defaultParamsFromPreset(plot));
                         }}
                       >
-                        <MiniPlotThumbnail plotId={plot.id} />
-                        <span>
+                        <MiniPlotThumbnail plotId={plot.id} thumbnail={plot.thumbnail} />
+                        <span className="plot-type-card-main">
                           <strong>{plot.label}</strong>
-                          <small>{recommended ? t("recommendedForSource") : plot.engine}</small>
+                          <small>{plot.use_case || plot.description}</small>
+                          <span className="plot-type-meta">
+                            <em>{plot.engine}</em>
+                            {recommended ? <em className="recommended-badge">{t("recommendedForSource")}</em> : null}
+                          </span>
                         </span>
                       </button>
                     );
@@ -755,6 +793,27 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
               <div className="plot-limitations">
                 {studioReport.report.limitations.map((item) => <span key={item}>{item}</span>)}
               </div>
+            ) : null}
+            {agentContextText ? (
+              <details className="plot-agent-context">
+                <summary>
+                  <span>{t("llmContext")}</span>
+                  <button
+                    type="button"
+                    onClick={async (event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const copied = await copyTextToClipboard(agentContextText);
+                      setAgentContextCopied(copied);
+                      window.setTimeout(() => setAgentContextCopied(false), 1600);
+                    }}
+                  >
+                    {agentContextCopied ? t("copied") : t("copyContext")}
+                  </button>
+                </summary>
+                <p>{t("llmContextHint")}</p>
+                <pre>{agentContextText}</pre>
+              </details>
             ) : null}
           </article>
         </aside>

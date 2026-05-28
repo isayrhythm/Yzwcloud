@@ -32,6 +32,91 @@ SUPPORTED_PLOTLY_SPEC_TYPES = {
     "enrichment_dot",
 }
 
+ADVANCED_PARAMETER_GROUP_IDS = {"theme", "labels", "export", "style"}
+
+PLOT_UI_METADATA: dict[str, dict[str, str]] = {
+    "scatter": {
+        "category": "Relationship",
+        "thumbnail": "scatter",
+        "use_case": "Two numeric variables, PCA scores, sample maps.",
+    },
+    "boxplot": {
+        "category": "Distribution",
+        "thumbnail": "boxplot",
+        "use_case": "Group comparison with medians, spread, and raw points.",
+    },
+    "violin": {
+        "category": "Distribution",
+        "thumbnail": "violin",
+        "use_case": "Group distribution shape and hidden multimodality.",
+    },
+    "bar": {
+        "category": "Distribution",
+        "thumbnail": "bar",
+        "use_case": "Aggregated group summaries with error bars.",
+    },
+    "line": {
+        "category": "Relationship",
+        "thumbnail": "line",
+        "use_case": "Ordered series, time course, and trajectory trends.",
+    },
+    "histogram": {
+        "category": "Distribution",
+        "thumbnail": "histogram",
+        "use_case": "Single-variable distribution and value range checks.",
+    },
+    "density_contour": {
+        "category": "Relationship",
+        "thumbnail": "density_contour",
+        "use_case": "Crowded two-variable scatter with density structure.",
+    },
+    "scatter_3d": {
+        "category": "Relationship",
+        "thumbnail": "scatter_3d",
+        "use_case": "Three-axis separation, PCA-like embedding, feature space.",
+    },
+    "surface_3d": {
+        "category": "Matrix",
+        "thumbnail": "surface_3d",
+        "use_case": "Expression-like matrices as interactive surface ridges.",
+    },
+    "heatmap": {
+        "category": "Matrix",
+        "thumbnail": "heatmap",
+        "use_case": "Scaled matrices with clustering and annotation.",
+    },
+    "bubble": {
+        "category": "Relationship",
+        "thumbnail": "bubble",
+        "use_case": "X/Y position plus size and color encodings.",
+    },
+    "volcano": {
+        "category": "Omics results",
+        "thumbnail": "volcano",
+        "use_case": "Differential result significance versus effect size.",
+    },
+    "upset": {
+        "category": "Sets",
+        "thumbnail": "upset",
+        "use_case": "Multi-set intersections beyond simple Venn diagrams.",
+    },
+    "venn": {
+        "category": "Sets",
+        "thumbnail": "venn",
+        "use_case": "Two- to four-set overlap sketches.",
+    },
+    "correlation": {
+        "category": "Matrix",
+        "thumbnail": "correlation",
+        "use_case": "Sample similarity blocks with optional clustering.",
+    },
+    "enrichment_dot": {
+        "category": "Omics results",
+        "thumbnail": "enrichment_dot",
+        "use_case": "Pathway or term enrichment overview.",
+    },
+}
+
 
 def _param(
     param_id: str,
@@ -83,9 +168,30 @@ COMMON_THEME_GROUPS = [
                 options=["group", "viridis", "blue_red", "prism_muted", "okabe_ito", "custom"],
             ),
             _param("background", "Background", "select", "white", options=["white", "transparent"]),
+            _param(
+                "font_family",
+                "Font family",
+                "select",
+                "inter",
+                options=["inter", "arial", "helvetica", "times", "georgia", "noto_sans"],
+            ),
             _param("font_size", "Font size", "number", 13, min_value=8, max_value=28, step=1),
             _param("show_grid", "Show grid", "boolean", True),
+            _param("axis_line", "Axis line", "boolean", True),
             _param("legend_position", "Legend", "select", "right", options=["right", "top", "bottom", "none"]),
+        ],
+    ),
+    _group(
+        "labels",
+        "Labels and axes",
+        [
+            _param("title", "Figure title", "text", ""),
+            _param("subtitle", "Subtitle", "text", ""),
+            _param("x_title", "X title", "text", ""),
+            _param("y_title", "Y title", "text", ""),
+            _param("title_position", "Title position", "select", "left", options=["left", "center"]),
+            _param("x_tick_angle", "X tick angle", "number", 0, min_value=-90, max_value=90, step=5),
+            _param("y_tick_angle", "Y tick angle", "number", 0, min_value=-90, max_value=90, step=5),
         ],
     ),
     _group(
@@ -94,6 +200,10 @@ COMMON_THEME_GROUPS = [
         [
             _param("width", "Width", "number", 1200, min_value=320, max_value=4000, step=10),
             _param("height", "Height", "number", 760, min_value=240, max_value=3000, step=10),
+            _param("margin_left", "Left margin", "number", 72, min_value=20, max_value=300, step=1),
+            _param("margin_right", "Right margin", "number", 32, min_value=10, max_value=300, step=1),
+            _param("margin_top", "Top margin", "number", 72, min_value=20, max_value=300, step=1),
+            _param("margin_bottom", "Bottom margin", "number", 64, min_value=20, max_value=300, step=1),
             _param("dpi", "DPI", "select", "300", options=["150", "300", "600"]),
             _param("format", "Format", "select", "svg", options=["svg", "png", "pdf", "html"]),
         ],
@@ -132,6 +242,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                 "Statistics and fit",
                 [
                     _param("trendline", "Trend line", "select", "none", options=["none", "linear", "loess"]),
+                    _param("loess_fraction", "LOESS span", "number", 0.35, min_value=0.15, max_value=0.9, step=0.05),
                     _param("confidence_ellipse", "Confidence ellipse", "boolean", False),
                     _param("ellipse_level", "Ellipse level", "number", 0.95, min_value=0.5, max_value=0.99, step=0.01),
                 ],
@@ -271,7 +382,14 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         "label": "Line",
         "engine": "echarts",
         "description": "Time-course or ordered series plot with optional grouping and smoothing.",
-        "default_params": {"line_shape": "linear", "show_points": True, "smooth": False},
+        "default_params": {
+            "line_shape": "linear",
+            "line_width": 2.4,
+            "show_points": True,
+            "marker_size": 6,
+            "marker_symbol": "circle",
+            "smooth": False,
+        },
         "parameter_groups": [
             _group(
                 "mapping",
@@ -287,7 +405,10 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                 "Series display",
                 [
                     _param("line_shape", "Line shape", "select", "linear", options=["linear", "spline", "hv", "vh"]),
+                    _param("line_width", "Line width", "number", 2.4, min_value=0.5, max_value=10, step=0.1),
                     _param("show_points", "Show points", "boolean", True),
+                    _param("marker_size", "Marker size", "number", 6, min_value=0, max_value=30, step=1),
+                    _param("marker_symbol", "Marker symbol", "select", "circle", options=["circle", "square", "diamond", "cross", "x"]),
                     _param("smooth", "Smooth line", "boolean", False),
                     _param("connect_gaps", "Connect missing values", "boolean", False),
                 ],
@@ -683,8 +804,19 @@ RECOMMENDATIONS_BY_OUTPUT = {
 }
 
 
+def _enrich_plot_preset(preset: dict[str, Any]) -> dict[str, Any]:
+    enriched = deepcopy(preset)
+    metadata = PLOT_UI_METADATA.get(enriched["id"], {})
+    enriched["category"] = metadata.get("category", "Other")
+    enriched["thumbnail"] = metadata.get("thumbnail", enriched["id"])
+    enriched["use_case"] = metadata.get("use_case", enriched.get("description", ""))
+    for group in enriched.get("parameter_groups", []):
+        group["advanced"] = group.get("id") in ADVANCED_PARAMETER_GROUP_IDS
+    return enriched
+
+
 def list_plot_presets() -> list[dict[str, Any]]:
-    return deepcopy(PLOT_PRESETS)
+    return [_enrich_plot_preset(preset) for preset in PLOT_PRESETS]
 
 
 def get_plot_studio_manifest() -> dict[str, Any]:

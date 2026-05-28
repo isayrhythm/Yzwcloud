@@ -224,13 +224,13 @@ pdm run dev
 默认开发端口在 `pyproject.toml` 里是：
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1:8010
 ```
 
-当前本地调试通常也会手动起在：
+清理本地服务日志：
 
-```text
-http://127.0.0.1:8010
+```bash
+pdm run clean-logs
 ```
 
 ## 主要 API

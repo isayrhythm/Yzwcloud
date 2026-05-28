@@ -7,7 +7,7 @@ from typing import Any
 
 from yzwcloud.plot_studio_presets import PLOT_PRESETS, PLOT_STUDIO_VERSION, recommend_plot_types
 from yzwcloud.plot_studio_source import _select_source_table, _source_summary
-from yzwcloud.plot_studio_specs import _select_plot_id
+from yzwcloud.plot_studio_specs import _plot_requirements, _select_plot_id
 from yzwcloud.plot_studio_tables import _load_table_records, inspect_table
 from yzwcloud.plot_studio_utils import _parse_float, _round_number
 
@@ -547,6 +547,14 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"box fill opacity={params.get('box_fill_alpha')}")
         if params.get("box_line_width") is not None:
             summary["display"].append(f"box line width={params.get('box_line_width')}")
+        if "show_n_labels" in params:
+            summary["display"].append(f"n labels shown={bool(params.get('show_n_labels'))}")
+        if params.get("n_label_position"):
+            summary["display"].append(f"n label position={params.get('n_label_position')}")
+        if params.get("n_label_font_size"):
+            summary["display"].append(f"n label font size={params.get('n_label_font_size')}")
+        if params.get("n_label_color"):
+            summary["display"].append(f"n label color={params.get('n_label_color')}")
     if plot_id == "violin":
         if "show_box" in params:
             summary["display"].append(f"box overlay={bool(params.get('show_box'))}")
@@ -574,6 +582,14 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"fill opacity={params.get('fill_alpha')}")
         if params.get("line_width"):
             summary["display"].append(f"line width={params.get('line_width')}")
+        if "show_n_labels" in params:
+            summary["display"].append(f"n labels shown={bool(params.get('show_n_labels'))}")
+        if params.get("n_label_position"):
+            summary["display"].append(f"n label position={params.get('n_label_position')}")
+        if params.get("n_label_font_size"):
+            summary["display"].append(f"n label font size={params.get('n_label_font_size')}")
+        if params.get("n_label_color"):
+            summary["display"].append(f"n label color={params.get('n_label_color')}")
     if plot_id == "grouped_dotplot":
         if params.get("y"):
             summary["statistics"].append(f"value={params.get('y')}")
@@ -624,6 +640,12 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
         trendline = str(params.get("trendline") or "none")
         if trendline != "none":
             summary["statistics"].append(f"trendline={trendline}")
+        if "show_fit_stats" in params:
+            summary["statistics"].append(f"fit statistics shown={bool(params.get('show_fit_stats'))}")
+        if params.get("fit_stats_position"):
+            summary["display"].append(f"fit statistics position={params.get('fit_stats_position')}")
+        if params.get("fit_stats_precision") is not None:
+            summary["statistics"].append(f"fit statistics precision={params.get('fit_stats_precision')}")
         if params.get("confidence_ellipse"):
             summary["statistics"].append(f"confidence ellipse={params.get('ellipse_level') or 0.95}")
         if params.get("color"):
@@ -686,6 +708,14 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"marker symbol={params.get('marker_symbol')}")
         if params.get("connect_gaps"):
             summary["display"].append("missing values connected")
+        if "aggregate_replicates" in params:
+            summary["statistics"].append(f"repeated x aggregated={bool(params.get('aggregate_replicates'))}")
+        if params.get("summary_stat"):
+            summary["statistics"].append(f"summary statistic={params.get('summary_stat')}")
+        if params.get("error_bar"):
+            summary["statistics"].append(f"error bar={params.get('error_bar')}")
+        if params.get("error_cap_width") is not None:
+            summary["display"].append(f"error cap width={params.get('error_cap_width')}")
     if plot_id == "histogram":
         if params.get("bins"):
             summary["display"].append(f"bins={params.get('bins')}")
@@ -1505,13 +1535,26 @@ def _plot_suitability_context(
     data_profile: dict[str, Any] | None,
     table_summary: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    numeric_columns = list((table_summary or {}).get("numeric_columns") or [])
+    categorical_columns = list((table_summary or {}).get("categorical_columns") or [])
+    matrix_profile = ((table_summary or {}).get("signals") or {}).get("matrix_profile") or {}
+    profile_value_columns = list(matrix_profile.get("value_columns") or [])
+    current_data = [
+        {"label": "Rows", "value": int((table_summary or {}).get("scanned_rows") or 0)},
+        {"label": "Numeric columns", "value": len(numeric_columns)},
+        {"label": "Categorical columns", "value": len(categorical_columns)},
+    ]
+    if profile_value_columns:
+        current_data.append({"label": "Sample-like columns", "value": len(profile_value_columns)})
     context: dict[str, Any] = {
         "recommended_plot_ids": recommended_plot_ids,
         "selected_is_recommended": selected_plot_id in recommended_plot_ids,
         "not_recommended_plot_ids": [],
+        "selected_requirements": _plot_requirements(selected_plot_id),
+        "current_data": current_data,
         "reason": "Use the recommended list as the first-pass chart plan for this source.",
     }
-    row_count = int((table_summary or {}).get("scanned_rows") or 0)
+    row_count = current_data[0]["value"]
     if data_profile:
         not_recommended = [
             "scatter",

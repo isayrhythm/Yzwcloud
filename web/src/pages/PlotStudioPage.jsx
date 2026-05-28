@@ -510,6 +510,9 @@ function PlotMappingSummary({ preset, params, tableSummary }) {
 
 function PlotPreviewEmpty({ selectedPreset, plotSpec, recommendedPresets, onSelectPlot, t }) {
   const message = plotSpec?.warnings?.[0] || t("noRenderableChart");
+  const renderability = plotSpec?.renderability || null;
+  const currentData = renderability?.current_data || [];
+  const requirements = renderability?.requirements || [];
   const alternatives = recommendedPresets.filter((preset) => preset.id !== selectedPreset?.id).slice(0, 4);
   return (
     <div className="plot-preview-empty">
@@ -518,6 +521,31 @@ function PlotPreviewEmpty({ selectedPreset, plotSpec, recommendedPresets, onSele
         <strong>{selectedPreset?.label || t("plotStudio")}</strong>
         <p>{message}</p>
       </div>
+      {currentData.length || requirements.length ? (
+        <div className="plot-renderability-grid">
+          {currentData.length ? (
+            <section>
+              <small>{t("currentData")}</small>
+              <div>
+                {currentData.map((item) => (
+                  <span key={item.label}>
+                    <em>{item.label}</em>
+                    <strong>{item.value}</strong>
+                  </span>
+                ))}
+              </div>
+            </section>
+          ) : null}
+          {requirements.length ? (
+            <section>
+              <small>{t("chartRequirements")}</small>
+              <ul>
+                {requirements.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </section>
+          ) : null}
+        </div>
+      ) : null}
       {alternatives.length ? (
         <div className="plot-preview-recommendations" aria-label={t("tryRecommendedPlot")}>
           <small>{t("tryRecommendedPlot")}</small>
@@ -536,10 +564,10 @@ function PlotPreviewEmpty({ selectedPreset, plotSpec, recommendedPresets, onSele
 }
 
 function clampPreviewMargin(margin, width, height) {
-  const fallback = { l: 72, r: 36, t: 72, b: 64 };
+  const fallback = { l: 72, r: 42, t: 62, b: 64 };
   const source = margin || {};
-  const maxHorizontal = Math.max(28, Math.floor(width * 0.22));
-  const maxVertical = Math.max(28, Math.floor(height * 0.24));
+  const maxHorizontal = Math.max(42, Math.floor(width * 0.26));
+  const maxVertical = Math.max(40, Math.floor(height * 0.26));
   const fit = (value, defaultValue, maxValue) => {
     const numericValue = Number(value);
     return Math.min(Number.isFinite(numericValue) ? numericValue : defaultValue, maxValue);
@@ -553,24 +581,60 @@ function clampPreviewMargin(margin, width, height) {
 }
 
 function fitPlotlyLayoutToPreview(layout, width, height) {
+  const fittedWidth = Math.max(260, Math.min(Math.floor(width), 1120));
+  const fittedHeight = Math.max(300, Math.min(Math.floor(height), 640));
+  const margin = clampPreviewMargin(layout?.margin, fittedWidth, fittedHeight);
   const previewLayout = {
     ...(layout || {}),
     autosize: false,
-    width,
-    height,
-    margin: clampPreviewMargin(layout?.margin, width, height),
+    width: fittedWidth,
+    height: fittedHeight,
+    margin,
   };
+  Object.keys(previewLayout)
+    .filter((key) => /^xaxis\d*$|^yaxis\d*$/.test(key))
+    .forEach((key) => {
+      previewLayout[key] = {
+        ...(previewLayout[key] || {}),
+        automargin: true,
+      };
+    });
   if (layout?.polar) {
+    const aspectPadding = Math.max(0, (fittedWidth - fittedHeight) / Math.max(fittedWidth, fittedHeight, 1)) * 0.18;
+    const horizontalPad = Math.min(0.3, (fittedWidth < 720 ? 0.24 : 0.2) + aspectPadding);
+    const verticalPad = fittedHeight < 520 ? 0.24 : 0.2;
     previewLayout.polar = {
       ...layout.polar,
       domain: {
         ...(layout.polar.domain || {}),
-        x: [0.06, 0.94],
-        y: [0.08, 0.92],
+        x: [horizontalPad, 1 - horizontalPad],
+        y: [verticalPad, 1 - verticalPad],
       },
     };
   }
+  if (layout?.scene) {
+    previewLayout.scene = {
+      ...layout.scene,
+      domain: { ...(layout.scene.domain || {}), x: [0.04, 0.96], y: [0.05, 0.95] },
+    };
+  }
+  if (layout?.ternary) {
+    previewLayout.ternary = {
+      ...layout.ternary,
+      domain: { ...(layout.ternary.domain || {}), x: [0.08, 0.92], y: [0.08, 0.92] },
+    };
+  }
   return previewLayout;
+}
+
+function fitPlotlyConfigToPreview(config) {
+  return {
+    ...(config || {}),
+    responsive: true,
+    displaylogo: false,
+    displayModeBar: false,
+    scrollZoom: false,
+  };
 }
 
 function InteractivePlot({ spec }) {
@@ -593,7 +657,7 @@ function InteractivePlot({ spec }) {
         if (!force && width === lastSize.width && height === lastSize.height) return;
         lastSize = { width, height };
         const previewLayout = fitPlotlyLayoutToPreview(spec.layout, width, height);
-        Plotly.react(plotElement, spec.data || [], previewLayout, spec.config || {});
+        Plotly.react(plotElement, spec.data || [], previewLayout, fitPlotlyConfigToPreview(spec.config));
         Plotly.Plots.resize(plotElement);
       };
       renderPlot(true);

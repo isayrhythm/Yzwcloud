@@ -116,6 +116,10 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "whisker_width",
         "box_fill_alpha",
         "box_line_width",
+        "show_n_labels",
+        "n_label_position",
+        "n_label_font_size",
+        "n_label_color",
     }
     violin_distribution = next(group for group in presets["violin"]["parameter_groups"] if group["id"] == "distribution")
     assert {param["id"] for param in violin_distribution["parameters"]} >= {
@@ -127,6 +131,10 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "violin_width",
         "fill_alpha",
         "line_width",
+        "show_n_labels",
+        "n_label_position",
+        "n_label_font_size",
+        "n_label_color",
     }
     grouped_dot_points = next(group for group in presets["grouped_dotplot"]["parameter_groups"] if group["id"] == "points")
     assert presets["grouped_dotplot"]["thumbnail"] == "grouped_dotplot"
@@ -270,6 +278,9 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert {param["id"] for param in scatter_statistics["parameters"]} >= {
         "trendline",
         "loess_fraction",
+        "show_fit_stats",
+        "fit_stats_position",
+        "fit_stats_precision",
         "confidence_ellipse",
         "ellipse_level",
         "marker_line_width",
@@ -284,6 +295,10 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "line_dash",
         "marker_size",
         "marker_symbol",
+        "aggregate_replicates",
+        "summary_stat",
+        "error_bar",
+        "error_cap_width",
     }
 
     bar = presets["bar"]
@@ -2425,6 +2440,10 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
                 "whisker_width": 0.25,
                 "box_fill_alpha": 0.4,
                 "box_line_width": 2.2,
+                "show_n_labels": True,
+                "n_label_position": "bottom",
+                "n_label_font_size": 13,
+                "n_label_color": "#123456",
             },
         },
     )
@@ -2441,6 +2460,10 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
     assert "whisker width=0.25" in boxplot_summary
     assert "box fill opacity=0.4" in boxplot_summary
     assert "box line width=2.2" in boxplot_summary
+    assert "n labels shown=True" in boxplot_summary
+    assert "n label position=bottom" in boxplot_summary
+    assert "n label font size=13" in boxplot_summary
+    assert "n label color=#123456" in boxplot_summary
     assert "quartile method=inclusive" in boxplot_report["agent_context"]["parameter_summary"]["statistics"]
 
     violin_report = _request(
@@ -2466,6 +2489,10 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
                 "violin_width": 0.8,
                 "fill_alpha": 0.3,
                 "line_width": 2.0,
+                "show_n_labels": False,
+                "n_label_position": "top",
+                "n_label_font_size": 12,
+                "n_label_color": "#654321",
             },
         },
     )
@@ -2483,6 +2510,10 @@ def test_plot_studio_report_summarizes_distribution_display_parameters(tmp_path:
     assert "violin width=0.8" in violin_summary["display"]
     assert "fill opacity=0.3" in violin_summary["display"]
     assert "line width=2.0" in violin_summary["display"]
+    assert "n labels shown=False" in violin_summary["display"]
+    assert "n label position=top" in violin_summary["display"]
+    assert "n label font size=12" in violin_summary["display"]
+    assert "n label color=#654321" in violin_summary["display"]
 
 
 def test_plot_studio_report_summarizes_scatter_axis_transforms(tmp_path: Path) -> None:
@@ -2514,6 +2545,10 @@ def test_plot_studio_report_summarizes_scatter_axis_transforms(tmp_path: Path) -
                 "point_alpha": 0.53,
                 "marker_line_width": 1.4,
                 "marker_line_color": "#111827",
+                "trendline": "linear",
+                "show_fit_stats": True,
+                "fit_stats_position": "bottom_right",
+                "fit_stats_precision": 4,
                 "x_log": True,
                 "y_log": True,
             },
@@ -2528,6 +2563,10 @@ def test_plot_studio_report_summarizes_scatter_axis_transforms(tmp_path: Path) -
     assert "point opacity=0.53" in sections["Parameter notes"]
     assert "marker line width=1.4" in sections["Parameter notes"]
     assert "marker line color=#111827" in sections["Parameter notes"]
+    assert "trendline=linear" in sections["Parameter notes"]
+    assert "fit statistics shown=True" in sections["Parameter notes"]
+    assert "fit statistics precision=4" in report["agent_context"]["parameter_summary"]["statistics"]
+    assert "fit statistics position=bottom_right" in report["agent_context"]["parameter_summary"]["display"]
     assert "log x-axis" in sections["Parameter notes"]
     assert "log y-axis" in report["agent_context"]["parameter_summary"]["display"]
 
@@ -2563,6 +2602,10 @@ def test_plot_studio_report_summarizes_line_display_parameters(tmp_path: Path) -
                 "marker_size": 9,
                 "marker_symbol": "diamond",
                 "connect_gaps": True,
+                "aggregate_replicates": True,
+                "summary_stat": "mean",
+                "error_bar": "sem",
+                "error_cap_width": 6,
             },
         },
     )
@@ -2574,6 +2617,10 @@ def test_plot_studio_report_summarizes_line_display_parameters(tmp_path: Path) -
     assert "markers shown=False" in report["agent_context"]["parameter_summary"]["display"]
     assert "marker symbol=diamond" in report["agent_context"]["parameter_summary"]["display"]
     assert "missing values connected" in report["agent_context"]["parameter_summary"]["display"]
+    assert "repeated x aggregated=True" in report["agent_context"]["parameter_summary"]["statistics"]
+    assert "summary statistic=mean" in report["agent_context"]["parameter_summary"]["statistics"]
+    assert "error bar=sem" in report["agent_context"]["parameter_summary"]["statistics"]
+    assert "error cap width=6" in report["agent_context"]["parameter_summary"]["display"]
 
 
 def test_plot_studio_report_summarizes_density_contour_parameters(tmp_path: Path) -> None:
@@ -3006,6 +3053,93 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
     assert spec["config"]["displaylogo"] is False
 
 
+def test_plot_studio_distribution_specs_can_show_group_sample_sizes(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_distribution_n_labels.csv"
+    table_file.write_text(
+        "\n".join(
+            [
+                "condition,value",
+                "Control,1.0",
+                "Control,1.1",
+                "Control,1.2",
+                "Treatment,2.2",
+                "Treatment,2.6",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "Grouped values",
+        "type": "unknown_table",
+        "dataPath": str(table_file),
+    }
+    client = TestClient(app)
+
+    boxplot = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": source,
+            "plotType": "boxplot",
+            "params": {
+                "group": "condition",
+                "y": "value",
+                "show_n_labels": True,
+                "n_label_position": "bottom",
+                "n_label_font_size": 13,
+                "n_label_color": "#123456",
+            },
+        },
+    )
+    violin = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": source,
+            "plotType": "violin",
+            "params": {
+                "group": "condition",
+                "y": "value",
+                "show_n_labels": True,
+                "n_label_position": "top",
+                "n_label_font_size": 14,
+                "n_label_color": "#654321",
+            },
+        },
+    )
+
+    boxplot_n_annotations = [
+        annotation for annotation in boxplot["layout"]["annotations"] if annotation.get("text", "").startswith("n=")
+    ]
+    assert [(annotation["x"], annotation["text"]) for annotation in boxplot_n_annotations] == [
+        ("Control", "n=3"),
+        ("Treatment", "n=2"),
+    ]
+    assert all(annotation["xref"] == "x" for annotation in boxplot_n_annotations)
+    assert all(annotation["yref"] == "paper" for annotation in boxplot_n_annotations)
+    assert all(annotation["y"] == -0.14 for annotation in boxplot_n_annotations)
+    assert all(annotation["yanchor"] == "top" for annotation in boxplot_n_annotations)
+    assert all(annotation["font"] == {"size": 13, "color": "#123456"} for annotation in boxplot_n_annotations)
+    assert boxplot["layout"]["margin"]["b"] >= 84
+
+    violin_n_annotations = [
+        annotation for annotation in violin["layout"]["annotations"] if annotation.get("text", "").startswith("n=")
+    ]
+    assert [(annotation["x"], annotation["text"]) for annotation in violin_n_annotations] == [
+        ("Control", "n=3"),
+        ("Treatment", "n=2"),
+    ]
+    assert all(annotation["y"] == 1.02 for annotation in violin_n_annotations)
+    assert all(annotation["yanchor"] == "bottom" for annotation in violin_n_annotations)
+    assert all(annotation["font"] == {"size": 14, "color": "#654321"} for annotation in violin_n_annotations)
+    assert violin["layout"]["margin"]["t"] >= 88
+
+
 def test_plot_studio_default_toolbar_stays_unobtrusive() -> None:
     client = TestClient(app)
 
@@ -3102,6 +3236,9 @@ def test_plot_studio_scatter_statistics_controls_render_overlays(tmp_path: Path)
                 "marker_line_width": 1.2,
                 "marker_line_color": "#111827",
                 "trendline": "linear",
+                "show_fit_stats": True,
+                "fit_stats_position": "top_left",
+                "fit_stats_precision": 3,
                 "confidence_ellipse": True,
                 "ellipse_level": 0.9,
             },
@@ -3117,6 +3254,13 @@ def test_plot_studio_scatter_statistics_controls_render_overlays(tmp_path: Path)
     assert "size=%{customdata[0]}" in group_trace["hovertemplate"]
     assert [trace for trace in linear["data"] if trace["name"] == "A linear fit"][0]["line"]["dash"] == "dash"
     assert [trace for trace in linear["data"] if trace["name"] == "A 90% ellipse"][0]["line"]["dash"] == "dot"
+    fit_annotations = [
+        annotation for annotation in linear["layout"]["annotations"] if "R2 =" in annotation["text"]
+    ]
+    assert len(fit_annotations) == 2
+    assert fit_annotations[0]["x"] == 0.02
+    assert fit_annotations[0]["xanchor"] == "left"
+    assert "A: y =" in fit_annotations[0]["text"]
 
     loess = _request(
         client,
@@ -3198,6 +3342,62 @@ def test_plot_studio_line_style_controls_are_rendered(tmp_path: Path) -> None:
     assert all(trace["marker"]["size"] == 11 for trace in spec["data"])
     assert all(trace["marker"]["symbol"] == "diamond" for trace in spec["data"])
     assert all(trace["connectgaps"] is True for trace in spec["data"])
+
+
+def test_plot_studio_line_plot_aggregates_replicates_with_error_bars(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_line_replicates.csv"
+    table_file.write_text(
+        "\n".join(
+            [
+                "time,condition,value",
+                "T0,A,1.0",
+                "T0,A,1.4",
+                "T1,A,2.0",
+                "T1,A,2.8",
+                "T0,B,0.8",
+                "T0,B,1.2",
+                "T1,B,1.8",
+                "T1,B,2.2",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Replicate time course",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "line",
+            "params": {
+                "x": "time",
+                "y": "value",
+                "series": "condition",
+                "aggregate_replicates": True,
+                "summary_stat": "mean",
+                "error_bar": "sd",
+                "error_cap_width": 7,
+            },
+        },
+    )
+
+    traces = {trace["name"]: trace for trace in spec["data"]}
+    assert traces["A"]["x"] == ["T0", "T1"]
+    assert traces["A"]["y"] == [1.2, 2.4]
+    assert traces["A"]["customdata"] == [[2], [2]]
+    assert traces["A"]["error_y"]["visible"] is True
+    assert [round(value, 3) for value in traces["A"]["error_y"]["array"]] == [0.2, 0.4]
+    assert traces["A"]["error_y"]["width"] == 7.0
+    assert traces["B"]["y"] == [1.0, 2.0]
 
 
 def test_plot_studio_spec_builds_prism_style_violin_and_bar(tmp_path: Path) -> None:
@@ -3367,8 +3567,10 @@ def test_plot_studio_boxplot_pairwise_p_values_render_brackets(tmp_path: Path) -
     assert all(trace["whiskerwidth"] == 0.2 for trace in spec["data"])
     assert all(trace["fillcolor"].endswith(", 0.42)") for trace in spec["data"])
     assert all(trace["line"]["width"] == 2.6 for trace in spec["data"])
-    assert len(spec["layout"]["annotations"]) == 3
-    assert all(annotation["text"].startswith("p") for annotation in spec["layout"]["annotations"])
+    p_value_annotations = [
+        annotation for annotation in spec["layout"]["annotations"] if str(annotation.get("text", "")).startswith("p")
+    ]
+    assert len(p_value_annotations) == 3
     assert len(spec["layout"]["shapes"]) == 9
     assert spec["layout"]["yaxis"]["range"][1] > 3.7
 
@@ -5120,6 +5322,15 @@ def test_plot_studio_rejects_multisample_plots_for_single_row_tables(tmp_path: P
     assert report["selected_plot"]["id"] == "bar"
     assert "scatter" not in report["recommended_plot_ids"]
     assert "radar" not in report["recommended_plot_ids"]
+    report_suitability = report["agent_context"]["plot_suitability"]
+    assert report_suitability["current_data"] == [
+        {"label": "Rows", "value": 1},
+        {"label": "Numeric columns", "value": 4},
+        {"label": "Categorical columns", "value": 2},
+    ]
+    assert report_suitability["selected_requirements"] == [
+        "Compatible numeric/categorical mappings for this chart type"
+    ]
 
     scatter = _request(
         client,
@@ -5140,8 +5351,17 @@ def test_plot_studio_rejects_multisample_plots_for_single_row_tables(tmp_path: P
 
     assert scatter["data"] == []
     assert any("at least two complete x/y" in warning for warning in scatter["warnings"])
+    assert scatter["renderability"]["status"] == "blocked"
+    assert scatter["renderability"]["current_data"] == [
+        {"label": "Rows", "value": 1},
+        {"label": "Numeric columns", "value": 4},
+        {"label": "Categorical columns", "value": 2},
+    ]
+    assert "At least two complete x/y observation rows" in scatter["renderability"]["requirements"]
+    assert scatter["renderability"]["recommended_plot_ids"][:2] == ["bar", "histogram"]
     assert radar["data"] == []
     assert any("at least two sample or group profiles" in warning for warning in radar["warnings"])
+    assert "At least two sample or group profiles" in radar["renderability"]["requirements"]
 
     for plot_type, expected in [
         ("bubble", "x/y/size"),
@@ -5159,6 +5379,8 @@ def test_plot_studio_rejects_multisample_plots_for_single_row_tables(tmp_path: P
         assert blocked["plot_type"] == plot_type
         assert blocked["data"] == []
         assert any(expected in warning for warning in blocked["warnings"])
+        assert blocked["renderability"]["status"] == "blocked"
+        assert blocked["renderability"]["requirements"]
 
 
 def test_plot_studio_recommends_profile_charts_for_single_gene_matrices(tmp_path: Path) -> None:
@@ -5208,7 +5430,11 @@ def test_plot_studio_single_gene_matrix_profile_charts_use_sample_columns(tmp_pa
         client,
         "POST",
         "/api/plot-studio/spec",
-        json={"source": source, "plotType": "histogram"},
+        json={
+            "source": source,
+            "plotType": "histogram",
+            "params": {"show_rug": True, "cumulative": True},
+        },
     )
     boxplot = _request(
         client,
@@ -5267,11 +5493,16 @@ def test_plot_studio_single_gene_matrix_profile_charts_use_sample_columns(tmp_pa
     assert histogram["plot_type"] == "histogram"
     assert histogram["layout"]["title"]["text"] == "Histogram profile: AL590714.1"
     assert histogram["layout"]["xaxis"]["title"]["text"] == "sample-like value"
-    assert [trace["name"] for trace in histogram["data"]] == ["Group A", "Group B", "Group C"]
+    histogram_traces = [trace for trace in histogram["data"] if trace["type"] == "histogram"]
+    rug_traces = [trace for trace in histogram["data"] if trace["type"] == "scattergl"]
+    assert [trace["name"] for trace in histogram_traces] == ["Group A", "Group B", "Group C"]
+    assert [trace["name"] for trace in rug_traces] == ["Group A rug", "Group B rug", "Group C rug"]
+    assert all(trace["cumulative"]["enabled"] is True for trace in histogram_traces)
     assert histogram["data"][0]["x"] == [8.2, 8.6]
     assert histogram["data"][0]["customdata"] == ["Group A-1", "Group A-2"]
-    assert histogram["data"][1]["x"] == [3.1, 3.5]
-    assert histogram["data"][1]["customdata"] == ["Group B-1", "Group B-2"]
+    assert histogram_traces[1]["x"] == [3.1, 3.5]
+    assert histogram_traces[1]["customdata"] == ["Group B-1", "Group B-2"]
+    assert rug_traces[0]["text"] == ["Group A-1", "Group A-2"]
     assert histogram["layout"]["legend"]["title"]["text"] == "Inferred group"
     assert len(histogram["layout"]["shapes"]) == 3
     assert any(
@@ -5401,6 +5632,15 @@ def test_plot_studio_report_summarizes_single_gene_profile_values(tmp_path: Path
     assert "Group means are Group A=8.4, Group B=3.3, Group C=6.55" in sections["Figure interpretation"]
     assert suitability["recommended_plot_ids"][:6] == ["bar", "grouped_dotplot", "boxplot", "raincloud", "histogram", "violin"]
     assert suitability["selected_is_recommended"] is True
+    assert suitability["current_data"] == [
+        {"label": "Rows", "value": 1},
+        {"label": "Numeric columns", "value": 7},
+        {"label": "Categorical columns", "value": 2},
+        {"label": "Sample-like columns", "value": 6},
+    ]
+    assert suitability["selected_requirements"] == [
+        "Compatible numeric/categorical mappings for this chart type"
+    ]
     assert {"scatter", "radar", "correlation"}.issubset(set(suitability["not_recommended_plot_ids"]))
     assert "Single-row expression profiles" in suitability["reason"]
     assert "grouped dot plots" in suitability["reason"]

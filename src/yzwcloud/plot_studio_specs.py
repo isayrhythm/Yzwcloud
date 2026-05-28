@@ -175,7 +175,7 @@ def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
         marker_line_color=str(params.get("marker_line_color") or "#ffffff"),
     )
     warnings = []
-    overlays, overlay_warnings = _scatter_statistical_overlays(traces, params)
+    overlays, overlay_warnings, overlay_annotations = _scatter_statistical_overlays(traces, params)
     traces.extend(overlays)
     warnings.extend(overlay_warnings)
     layout = _base_layout(
@@ -188,6 +188,8 @@ def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
         layout["xaxis"]["type"] = "log"
     if _truthy(params.get("y_log"), False):
         layout["yaxis"]["type"] = "log"
+    if overlay_annotations:
+        layout.setdefault("annotations", []).extend(overlay_annotations)
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
@@ -881,6 +883,12 @@ def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dic
     )
     layout["boxmode"] = "group"
     layout["violingap"] = 0.18
+    if _truthy(params.get("show_n_labels"), True):
+        layout.setdefault("annotations", []).extend(_distribution_n_annotations(grouped_values, params))
+        if str(params.get("n_label_position") or "top") == "bottom":
+            layout["margin"]["b"] = max(layout["margin"]["b"], 84)
+        else:
+            layout["margin"]["t"] = max(layout["margin"]["t"], 88)
     if trace_type == "box" and _truthy(params.get("show_p_values"), False):
         comparison_result = _pairwise_comparison_overlays(grouped_values, params)
         layout.setdefault("shapes", []).extend(comparison_result["shapes"])
@@ -889,6 +897,28 @@ def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dic
             layout["yaxis"]["range"] = comparison_result["y_range"]
         warnings.extend(comparison_result["warnings"])
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _distribution_n_annotations(grouped_values: list[tuple[str, list[float]]], params: dict[str, Any]) -> list[dict[str, Any]]:
+    position = str(params.get("n_label_position") or "top")
+    is_bottom = position == "bottom"
+    font_size = _bounded_int(params.get("n_label_font_size"), 11, 8, 22)
+    font_color = str(params.get("n_label_color") or "#617383")
+    annotations = []
+    for group_name, values in grouped_values:
+        annotations.append(
+            {
+                "xref": "x",
+                "yref": "paper",
+                "x": group_name,
+                "y": -0.14 if is_bottom else 1.02,
+                "text": f"n={len(values)}",
+                "showarrow": False,
+                "yanchor": "top" if is_bottom else "bottom",
+                "font": {"size": font_size, "color": font_color},
+            }
+        )
+    return annotations
 
 
 def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -1171,12 +1201,27 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
                         "color": color,
                         "line": {"color": bar_line_color, "width": bar_line_width},
                     },
+                    "cumulative": {"enabled": _truthy(params.get("cumulative"), False)},
                     "hovertemplate": (
                         "value=%{x:.4g}<br>sample=%{customdata}"
                         + ("<extra>%{fullData.name}</extra>" if multiple_groups else "<extra></extra>")
                     ),
                 }
             )
+            if _truthy(params.get("show_rug"), False):
+                traces.append(
+                    {
+                        "type": "scattergl",
+                        "mode": "markers",
+                        "name": f"{group} rug",
+                        "x": group_values,
+                        "y": [0 for _ in group_values],
+                        "text": bucket["labels"],
+                        "marker": {"symbol": "line-ns-open", "size": 10, "color": color, "opacity": 0.72},
+                        "hovertemplate": "%{text}<br>value=%{x:.4g}<extra>rug</extra>",
+                        "showlegend": False,
+                    }
+                )
             if _truthy(params.get("show_mean"), True):
                 mean_value = fmean(group_values)
                 shapes.append(_x_reference_line(mean_value, color, dash="dash", width=reference_line_width))
@@ -5154,8 +5199,57 @@ def _empty_plot_spec(
         "config": _plotly_config({}),
         "warnings": [message],
         "table_summary": table_summary,
+        "renderability": _renderability_context(plot_type, message, table_summary),
         "supported_plot_types": sorted(SUPPORTED_PLOTLY_SPEC_TYPES),
     }
+
+
+def _renderability_context(
+    plot_type: str,
+    message: str,
+    table_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    row_count = int((table_summary or {}).get("scanned_rows") or (table_summary or {}).get("row_count") or 0)
+    numeric_columns = list((table_summary or {}).get("numeric_columns") or [])
+    categorical_columns = list((table_summary or {}).get("categorical_columns") or [])
+    matrix_profile = ((table_summary or {}).get("signals") or {}).get("matrix_profile") or {}
+    profile_value_columns = list(matrix_profile.get("value_columns") or [])
+    current_data = [
+        {"label": "Rows", "value": row_count},
+        {"label": "Numeric columns", "value": len(numeric_columns)},
+        {"label": "Categorical columns", "value": len(categorical_columns)},
+    ]
+    if profile_value_columns:
+        current_data.append({"label": "Sample-like columns", "value": len(profile_value_columns)})
+
+    return {
+        "status": "blocked",
+        "message": message,
+        "current_data": current_data,
+        "requirements": _plot_requirements(plot_type),
+        "recommended_plot_ids": recommend_plot_types("", table_summary) if table_summary else [],
+    }
+
+
+def _plot_requirements(plot_type: str) -> list[str]:
+    requirements_by_plot = {
+        "scatter": ["At least two numeric columns", "At least two complete x/y observation rows"],
+        "density_contour": ["At least two numeric columns", "At least three paired numeric rows for density estimation"],
+        "bubble": ["At least three numeric columns", "At least two complete x/y/size rows"],
+        "scatter_3d": ["At least three numeric columns", "At least two complete x/y/z rows"],
+        "radar": ["At least three numeric metric columns", "At least two sample or group profiles"],
+        "parallel_coordinates": ["At least three numeric dimensions", "At least two rows to compare profile paths"],
+        "correlation": ["At least two numeric columns", "At least two observation rows"],
+        "calendar_heatmap": ["One date column", "One numeric value column unless aggregation is count"],
+        "roc_curve": ["One numeric score column", "One binary label column with positive and negative labels"],
+        "pr_curve": ["One numeric score column", "One binary label column with positive and negative labels"],
+        "kaplan_meier": ["One time column", "One event/censor column"],
+        "paired_dot": ["One subject column", "One condition column", "At least two paired conditions"],
+        "upset": ["One item ID column", "At least two set membership columns"],
+        "venn": ["One item ID column", "Two to four set membership columns"],
+        "sankey": ["Source column", "Target column", "Positive flow value column"],
+    }
+    return requirements_by_plot.get(plot_type, ["Compatible numeric/categorical mappings for this chart type"])
 
 
 def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -6193,12 +6287,14 @@ def _grouped_marker_traces(
 def _scatter_statistical_overlays(
     traces: list[dict[str, Any]],
     params: dict[str, Any],
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
     trendline = str(params.get("trendline") or "none")
     show_ellipse = bool(params.get("confidence_ellipse", False))
     ellipse_level = _bounded_float(params.get("ellipse_level"), 0.95, 0.5, 0.99)
+    show_fit_stats = _truthy(params.get("show_fit_stats"), True)
     overlays: list[dict[str, Any]] = []
     warnings: list[str] = []
+    annotations: list[dict[str, Any]] = []
     for trace in traces:
         points = _trace_numeric_points(trace)
         if len(points) < 3:
@@ -6213,6 +6309,16 @@ def _scatter_statistical_overlays(
             fit_trace = _linear_fit_trace(name, x_values, y_values, color)
             if fit_trace:
                 overlays.append(fit_trace)
+                if show_fit_stats:
+                    annotations.append(
+                        _linear_fit_annotation(
+                            name,
+                            fit_trace.get("meta", {}).get("fit_stats", {}),
+                            color,
+                            len(annotations),
+                            params,
+                        )
+                    )
         elif trendline == "loess":
             smooth_trace = _loess_fit_trace(name, x_values, y_values, color, params)
             if smooth_trace:
@@ -6225,7 +6331,7 @@ def _scatter_statistical_overlays(
                 overlays.append(ellipse_trace)
             else:
                 warnings.append(f"Skipping confidence ellipse for {name}: covariance is degenerate.")
-    return overlays, warnings
+    return overlays, warnings, annotations
 
 
 def _trace_numeric_points(trace: dict[str, Any]) -> list[tuple[float, float]]:
@@ -6266,7 +6372,70 @@ def _linear_fit_trace(name: str, x_values: list[float], y_values: list[float], c
             f"y={_round_number(slope)}x+{_round_number(intercept)}<br>"
             f"R2={_round_number(r_squared)}<extra>{name} linear fit</extra>"
         ),
+        "meta": {
+            "fit_stats": {
+                "slope": slope,
+                "intercept": intercept,
+                "r_squared": r_squared,
+                "n": len(x_values),
+            }
+        },
     }
+
+
+def _linear_fit_annotation(
+    name: str,
+    stats: dict[str, Any],
+    color: str,
+    index: int,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    precision = _bounded_int(params.get("fit_stats_precision"), 3, 1, 6)
+    slope = _format_fit_number(stats.get("slope"), precision)
+    intercept = _format_fit_intercept(stats.get("intercept"), precision)
+    r_squared = _format_fit_number(stats.get("r_squared"), precision)
+    position = str(params.get("fit_stats_position") or "top_right")
+    if position not in {"top_right", "top_left", "bottom_right", "bottom_left"}:
+        position = "top_right"
+    x = 0.98 if position.endswith("right") else 0.02
+    xanchor = "right" if position.endswith("right") else "left"
+    if position.startswith("top"):
+        y = max(0.02, 0.98 - index * 0.075)
+        yanchor = "top"
+    else:
+        y = min(0.98, 0.02 + index * 0.075)
+        yanchor = "bottom"
+    return {
+        "xref": "paper",
+        "yref": "paper",
+        "x": x,
+        "y": y,
+        "xanchor": xanchor,
+        "yanchor": yanchor,
+        "showarrow": False,
+        "align": xanchor,
+        "text": f"{name}: y = {slope}x {intercept}<br>R2 = {r_squared}",
+        "font": {"size": _bounded_int(params.get("subtitle_font_size"), 12, 8, 28), "color": color},
+        "bgcolor": "rgba(255,255,255,0.78)",
+        "bordercolor": color,
+        "borderwidth": 1,
+        "borderpad": 5,
+    }
+
+
+def _format_fit_number(value: Any, precision: int) -> str:
+    numeric = _number_or_none(value)
+    if numeric is None:
+        return "NA"
+    return f"{numeric:.{precision}g}"
+
+
+def _format_fit_intercept(value: Any, precision: int) -> str:
+    numeric = _number_or_none(value)
+    if numeric is None:
+        return "+ NA"
+    sign = "+" if numeric >= 0 else "-"
+    return f"{sign} {abs(numeric):.{precision}g}"
 
 
 def _loess_fit_trace(
@@ -6810,12 +6979,41 @@ def _line_trace(
 ) -> dict[str, Any]:
     x_values = []
     y_values = []
-    for index, row in enumerate(records):
-        y_value = _number_or_none(row.get(y_column))
-        if y_value is None:
-            continue
-        x_values.append(row.get(x_column) if x_column else index + 1)
-        y_values.append(y_value)
+    error_values = []
+    customdata = []
+    aggregate_replicates = bool(params.get("aggregate_replicates", True)) and bool(x_column)
+    if aggregate_replicates:
+        grouped_values: dict[Any, list[float]] = {}
+        grouped_order: list[Any] = []
+        for row in records:
+            y_value = _number_or_none(row.get(y_column))
+            if y_value is None:
+                continue
+            x_value = row.get(x_column) if x_column else len(grouped_order) + 1
+            if x_value not in grouped_values:
+                grouped_values[x_value] = []
+                grouped_order.append(x_value)
+            grouped_values[x_value].append(y_value)
+        summary_stat = str(params.get("summary_stat") or "mean")
+        if summary_stat not in {"mean", "median"}:
+            summary_stat = "mean"
+        error_bar = str(params.get("error_bar") or "sem")
+        if error_bar not in {"none", "sd", "sem", "ci95"}:
+            error_bar = "sem"
+        for x_value in grouped_order:
+            values = grouped_values[x_value]
+            x_values.append(x_value)
+            y_values.append(_aggregate_values(values, summary_stat))
+            error_values.append(_error_bar_value(values, error_bar))
+            customdata.append([len(values)])
+    else:
+        for index, row in enumerate(records):
+            y_value = _number_or_none(row.get(y_column))
+            if y_value is None:
+                continue
+            x_values.append(row.get(x_column) if x_column else index + 1)
+            y_values.append(y_value)
+            customdata.append([1])
     line_shape = str(params.get("line_shape") or "linear")
     if bool(params.get("smooth")):
         line_shape = "spline"
@@ -6825,12 +7023,13 @@ def _line_trace(
     if line_dash not in {"solid", "dash", "dot", "dashdot"}:
         line_dash = "solid"
     show_points = bool(params.get("show_points", True))
-    return {
+    trace = {
         "type": "scatter",
         "mode": "lines+markers" if show_points else "lines",
         "name": name,
         "x": x_values,
         "y": y_values,
+        "customdata": customdata,
         "line": {
             "color": color,
             "shape": line_shape,
@@ -6842,9 +7041,18 @@ def _line_trace(
             "size": _bounded_float(params.get("marker_size"), 6, 0, 30),
             "symbol": str(params.get("marker_symbol") or "circle"),
         },
-        "hovertemplate": "%{x}<br>value=%{y:.4g}<extra>%{fullData.name}</extra>",
+        "hovertemplate": "%{x}<br>value=%{y:.4g}<br>n=%{customdata[0]}<extra>%{fullData.name}</extra>",
         "connectgaps": bool(params.get("connect_gaps", False)),
     }
+    if aggregate_replicates and any(value > 0 for value in error_values):
+        trace["error_y"] = {
+            "type": "data",
+            "array": error_values,
+            "visible": True,
+            "thickness": 1.2,
+            "width": _bounded_float(params.get("error_cap_width"), 4, 0, 16),
+        }
+    return trace
 
 
 def _vertical_line(x_value: float, *, line: dict[str, Any] | None = None) -> dict[str, Any]:

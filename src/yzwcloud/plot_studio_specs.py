@@ -82,6 +82,11 @@ def create_plot_studio_spec(
         "heatmap": _build_heatmap_spec,
         "correlation": _build_correlation_spec,
         "enrichment_dot": _build_enrichment_dot_spec,
+        "enrichment_bar": _build_enrichment_bar_spec,
+        "sankey": _build_sankey_spec,
+        "treemap": _build_treemap_spec,
+        "sunburst": _build_sunburst_spec,
+        "wordcloud": _build_wordcloud_spec,
     }
     builder = builders.get(selected_plot_id)
     if builder is None:
@@ -3027,6 +3032,593 @@ def _build_enrichment_dot_spec(context: dict[str, Any]) -> dict[str, Any]:
     return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
+def _build_enrichment_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    term_column = _requested_column(params.get("term_column"), columns) or _find_column(
+        columns, ["term", "description", "pathway", "name"]
+    )
+    ratio_column = _requested_column(params.get("value_column"), columns) or _find_column(
+        columns, ["gene_ratio", "ratio", "rich_factor", "enrichment_score"]
+    )
+    count_column = _find_column(columns, ["count", "gene_count", "size", "number"])
+    color_column = _requested_column(params.get("color_column"), columns) or _find_column(
+        columns, ["adjusted_p", "padj", "p_adjust", "p_value", "pvalue", "score"]
+    )
+    bar_mode = str(params.get("bar_value") or "count")
+    if bar_mode == "count" and count_column:
+        value_column = count_column
+    elif bar_mode == "score" and color_column:
+        value_column = color_column
+    else:
+        value_column = ratio_column
+    if not term_column or not value_column:
+        return _empty_plot_spec("enrichment_bar", "Enrichment bar plot requires term and numeric value columns.", context["table_summary"])
+
+    color_transform = str(params.get("color_transform") or "minus_log10")
+    rows = []
+    for row in context["records"]:
+        term = str(row.get(term_column) or "").strip()
+        value = _number_or_ratio(row.get(value_column))
+        if not term or value is None:
+            continue
+        ratio = _number_or_ratio(row.get(ratio_column)) if ratio_column else None
+        count = _number_or_none(row.get(count_column)) if count_column else None
+        raw_color = _number_or_none(row.get(color_column)) if color_column else None
+        rows.append(
+            {
+                "term": term,
+                "value": value,
+                "ratio": ratio if ratio is not None else value,
+                "count": count if count is not None else value,
+                "raw_color": raw_color if raw_color is not None else value,
+                "display_color": _enrichment_color_value(raw_color, color_transform) if raw_color is not None else value,
+            }
+        )
+    if not rows:
+        return _empty_plot_spec("enrichment_bar", "No valid enrichment bar rows were available.", context["table_summary"])
+
+    sort_by = str(params.get("sort_by") or "adjusted_p")
+    if "p" in sort_by.lower() and color_column:
+        rows.sort(key=lambda item: item["raw_color"])
+    elif sort_by == "count":
+        rows.sort(key=lambda item: item["count"], reverse=True)
+    elif sort_by in {"gene_ratio", "value"}:
+        rows.sort(key=lambda item: item["value"], reverse=True)
+    else:
+        rows.sort(key=lambda item: item["value"], reverse=True)
+    top_n = _bounded_int(params.get("top_n"), 20, 5, 200)
+    rows = rows[:top_n]
+
+    wrap_labels = _truthy(params.get("wrap_term_label"), True)
+    label_width = _bounded_int(params.get("term_label_width"), 28, 8, 100)
+    labels = [
+        _wrap_text_label(row["term"], label_width) if wrap_labels else row["term"]
+        for row in rows
+    ]
+    values = [row["value"] for row in rows]
+    precision = _bounded_int(params.get("value_precision"), 2, 0, 6)
+    text = [f"{value:.{precision}f}" for value in values] if _truthy(params.get("show_value_labels"), True) else []
+    colorbar_title = f"-log10({color_column})" if color_transform == "minus_log10" and color_column else color_column or value_column
+    orientation = str(params.get("orientation") or "horizontal")
+    trace: dict[str, Any] = {
+        "type": "bar",
+        "orientation": "h" if orientation == "horizontal" else "v",
+        "marker": {
+            "color": [row["display_color"] for row in rows],
+            "colorscale": _colorscale(str(params.get("color_scale") or "viridis")),
+            "showscale": True,
+            "colorbar": {"title": colorbar_title},
+            "opacity": _bounded_float(params.get("bar_opacity"), 0.88, 0.05, 1),
+            "line": {
+                "color": str(params.get("bar_line_color") or "#ffffff"),
+                "width": _bounded_float(params.get("bar_line_width"), 0.6, 0, 4),
+            },
+        },
+        "text": text,
+        "textposition": "outside",
+        "customdata": [[row["term"], row["ratio"], row["count"], row["raw_color"]] for row in rows],
+        "hovertemplate": "%{customdata[0]}<br>value=%{x:.4g}<br>ratio=%{customdata[1]:.4g}<br>count=%{customdata[2]:.4g}<br>raw color=%{customdata[3]:.4g}<extra></extra>",
+    }
+    if orientation == "horizontal":
+        trace["x"] = values
+        trace["y"] = labels
+        layout = _base_layout(
+            title=f"Enrichment bar plot: top {len(rows)} terms",
+            x_title=value_column,
+            y_title=term_column,
+            params=params,
+        )
+        layout["yaxis"]["automargin"] = True
+        layout["yaxis"]["autorange"] = "reversed"
+    else:
+        trace["x"] = labels
+        trace["y"] = values
+        trace["hovertemplate"] = "%{customdata[0]}<br>value=%{y:.4g}<br>ratio=%{customdata[1]:.4g}<br>count=%{customdata[2]:.4g}<br>raw color=%{customdata[3]:.4g}<extra></extra>"
+        layout = _base_layout(
+            title=f"Enrichment bar plot: top {len(rows)} terms",
+            x_title=term_column,
+            y_title=value_column,
+            params=params,
+        )
+        layout["xaxis"]["automargin"] = True
+    if params.get("height") in {None, ""}:
+        layout["height"] = max(520, min(1600, 180 + len(rows) * 24))
+    layout["bargap"] = 0.24
+    warnings = []
+    if len(context["records"]) > len(rows):
+        warnings.append(f"Showing top {len(rows)} enrichment bars.")
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _build_treemap_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    label_column = _requested_column(params.get("label_column"), columns) or _find_column(
+        columns, ["term", "description", "pathway", "name", "label"]
+    )
+    value_column = _requested_column(params.get("value_column"), columns) or _find_column(
+        columns, ["count", "gene_count", "size", "value", "number"]
+    )
+    parent_column = _requested_column(params.get("parent_column"), columns) or _find_column(
+        columns, ["category", "ontology", "class", "parent", "group"]
+    )
+    color_column = _requested_column(params.get("color_column"), columns) or _find_column(
+        columns, ["adjusted_p", "padj", "p_adjust", "p_value", "pvalue", "score"]
+    )
+    if not label_column or not value_column:
+        return _empty_plot_spec("treemap", "Treemap requires label and positive value columns.", context["table_summary"])
+
+    color_transform = str(params.get("color_transform") or "minus_log10")
+    rows = []
+    for row in context["records"]:
+        label = str(row.get(label_column) or "").strip()
+        value = _number_or_ratio(row.get(value_column))
+        if not label or value is None or value <= 0:
+            continue
+        parent = str(row.get(parent_column) or "").strip() if parent_column else ""
+        raw_color = _number_or_none(row.get(color_column)) if color_column else None
+        rows.append(
+            {
+                "label": label,
+                "value": value,
+                "parent": parent,
+                "raw_color": raw_color if raw_color is not None else value,
+            }
+        )
+    if not rows:
+        return _empty_plot_spec("treemap", "No valid treemap rows were available.", context["table_summary"])
+
+    sort_by = str(params.get("sort_by") or "value")
+    if sort_by == "color" and color_column:
+        rows.sort(key=lambda item: item["raw_color"])
+    else:
+        rows.sort(key=lambda item: item["value"], reverse=True)
+    top_n = _bounded_int(params.get("top_n"), 30, 5, 200)
+    rows = rows[:top_n]
+    wrap_labels = _truthy(params.get("wrap_term_label"), True)
+    label_width = _bounded_int(params.get("term_label_width"), 22, 8, 100)
+
+    ids: list[str] = []
+    labels: list[str] = []
+    parents: list[str] = []
+    values: list[float] = []
+    colors: list[float] = []
+    hover_rows: list[list[Any]] = []
+    parent_nodes: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        parent = row["parent"]
+        if parent:
+            parent_id = f"parent::{parent}"
+            parent_payload = parent_nodes.setdefault(parent_id, {"label": parent, "value": 0.0, "colors": []})
+            parent_payload["value"] += row["value"]
+            parent_payload["colors"].append(_enrichment_color_value(row["raw_color"], color_transform))
+
+    for parent_id, payload in parent_nodes.items():
+        ids.append(parent_id)
+        labels.append(payload["label"])
+        parents.append("")
+        values.append(payload["value"])
+        colors.append(fmean(payload["colors"]) if payload["colors"] else payload["value"])
+        hover_rows.append([payload["label"], payload["value"], "parent"])
+
+    for index, row in enumerate(rows):
+        parent_id = f"parent::{row['parent']}" if row["parent"] else ""
+        display_label = _wrap_text_label(row["label"], label_width) if wrap_labels else row["label"]
+        ids.append(f"leaf::{index}::{row['label']}")
+        labels.append(display_label)
+        parents.append(parent_id)
+        values.append(row["value"])
+        colors.append(_enrichment_color_value(row["raw_color"], color_transform))
+        hover_rows.append([row["label"], row["value"], row["parent"] or "root"])
+
+    trace = {
+        "type": "treemap",
+        "ids": ids,
+        "labels": labels,
+        "parents": parents,
+        "values": values,
+        "branchvalues": str(params.get("branchvalues") or "total"),
+        "textinfo": str(params.get("textinfo") or "label+value"),
+        "tiling": {"packing": str(params.get("tiling") or "squarify")},
+        "marker": {
+            "colors": colors,
+            "colorscale": _colorscale(str(params.get("color_scale") or "viridis")),
+            "showscale": True,
+            "colorbar": {
+                "title": f"-log10({color_column})" if color_transform == "minus_log10" and color_column else color_column or value_column
+            },
+            "line": {"color": "#ffffff", "width": 1.2},
+        },
+        "customdata": hover_rows,
+        "hovertemplate": "%{customdata[0]}<br>value=%{customdata[1]:.4g}<br>parent=%{customdata[2]}<extra></extra>",
+    }
+    layout = _base_layout(
+        title=f"Treemap: top {len(rows)} terms",
+        x_title="",
+        y_title="",
+        params=params,
+    )
+    layout.pop("xaxis", None)
+    layout.pop("yaxis", None)
+    layout["uniformtext"] = {"minsize": 10, "mode": "hide"}
+    warnings = []
+    if len(context["records"]) > len(rows):
+        warnings.append(f"Showing top {len(rows)} treemap leaves.")
+    if parent_nodes:
+        warnings.append(f"Grouped into {len(parent_nodes)} parent categories.")
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _build_sankey_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    source_column = _requested_column(params.get("source_column"), columns) or _find_column(
+        columns, ["source", "from", "parent", "class", "category"]
+    )
+    target_column = _requested_column(params.get("target_column"), columns) or _find_column(
+        columns, ["target", "to", "child", "term", "description", "pathway"]
+    )
+    value_column = _requested_column(params.get("value_column"), columns) or _find_column(
+        columns, ["value", "count", "gene_count", "size", "weight", "number"]
+    )
+    group_column = _requested_column(params.get("group_column"), columns)
+    if not source_column or not target_column or not value_column:
+        return _empty_plot_spec("sankey", "Sankey requires source, target, and positive value columns.", context["table_summary"])
+
+    min_value = _bounded_float(params.get("min_value"), 0, 0, 1_000_000_000)
+    links = []
+    for row in context["records"]:
+        source = str(row.get(source_column) or "").strip()
+        target = str(row.get(target_column) or "").strip()
+        value = _number_or_ratio(row.get(value_column))
+        if not source or not target or value is None or value <= min_value:
+            continue
+        group = str(row.get(group_column) or source).strip() if group_column else source
+        links.append({"source": source, "target": target, "value": value, "group": group})
+    if not links:
+        return _empty_plot_spec("sankey", "No valid Sankey links were available.", context["table_summary"])
+
+    sort_by = str(params.get("sort_by") or "value")
+    if sort_by == "source":
+        links.sort(key=lambda item: (item["source"], item["target"]))
+    elif sort_by == "target":
+        links.sort(key=lambda item: (item["target"], item["source"]))
+    else:
+        links.sort(key=lambda item: item["value"], reverse=True)
+    top_n = _bounded_int(params.get("top_n"), 80, 5, 500)
+    links = links[:top_n]
+
+    node_labels: list[str] = []
+    node_index: dict[str, int] = {}
+    for link in links:
+        for label in (link["source"], link["target"]):
+            if label not in node_index:
+                node_index[label] = len(node_labels)
+                node_labels.append(label)
+    group_palette: dict[str, str] = {}
+    for link in links:
+        if link["group"] not in group_palette:
+            group_palette[link["group"]] = PLOTLY_PALETTE[len(group_palette) % len(PLOTLY_PALETTE)]
+    node_colors = [PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)] for index in range(len(node_labels))]
+    link_colors = [_rgba_from_hex(group_palette[link["group"]], _bounded_float(params.get("link_opacity"), 0.38, 0.05, 1)) for link in links]
+
+    trace = {
+        "type": "sankey",
+        "arrangement": _sankey_arrangement(params.get("arrangement")),
+        "node": {
+            "label": node_labels,
+            "color": node_colors,
+            "pad": _bounded_int(params.get("node_pad"), 16, 4, 80),
+            "thickness": _bounded_int(params.get("node_thickness"), 18, 4, 80),
+            "line": {
+                "color": str(params.get("node_line_color") or "#ffffff"),
+                "width": _bounded_float(params.get("node_line_width"), 0.6, 0, 6),
+            },
+        },
+        "link": {
+            "source": [node_index[link["source"]] for link in links],
+            "target": [node_index[link["target"]] for link in links],
+            "value": [link["value"] for link in links],
+            "color": link_colors,
+            "customdata": [[link["source"], link["target"], link["group"]] for link in links],
+            "hovertemplate": "%{customdata[0]} -> %{customdata[1]}<br>value=%{value:.4g}<br>group=%{customdata[2]}<extra></extra>",
+        },
+        "textfont": {"size": _bounded_int(params.get("label_font_size"), 12, 6, 28)},
+    }
+    layout = _base_layout(title=f"Sankey: {len(links)} links", x_title="", y_title="", params=params)
+    layout.pop("xaxis", None)
+    layout.pop("yaxis", None)
+    warnings = []
+    if len(context["records"]) > len(links):
+        warnings.append(f"Showing top {len(links)} Sankey links.")
+    warnings.append(f"Resolved {len(node_labels)} unique Sankey nodes.")
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _build_sunburst_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    hierarchy = _hierarchy_rows_for_area_chart(context, params=params, plot_type="sunburst")
+    if "error" in hierarchy:
+        return _empty_plot_spec("sunburst", hierarchy["error"], context["table_summary"])
+
+    trace = {
+        "type": "sunburst",
+        "ids": hierarchy["ids"],
+        "labels": hierarchy["labels"],
+        "parents": hierarchy["parents"],
+        "values": hierarchy["values"],
+        "branchvalues": str(params.get("branchvalues") or "total"),
+        "maxdepth": _bounded_int(params.get("maxdepth"), 3, 2, 8),
+        "textinfo": str(params.get("textinfo") or "label+percent parent"),
+        "marker": {
+            "colors": hierarchy["colors"],
+            "colorscale": _colorscale(str(params.get("color_scale") or "viridis")),
+            "showscale": True,
+            "colorbar": {"title": hierarchy["colorbar_title"]},
+            "line": {"color": "#ffffff", "width": 1.2},
+        },
+        "customdata": hierarchy["hover_rows"],
+        "hovertemplate": "%{customdata[0]}<br>value=%{customdata[1]:.4g}<br>parent=%{customdata[2]}<extra></extra>",
+    }
+    layout = _base_layout(
+        title=f"Sunburst: top {hierarchy['leaf_count']} terms",
+        x_title="",
+        y_title="",
+        params=params,
+    )
+    layout.pop("xaxis", None)
+    layout.pop("yaxis", None)
+    layout["uniformtext"] = {"minsize": 10, "mode": "hide"}
+    return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": hierarchy["warnings"]}
+
+
+def _build_wordcloud_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    columns = context["columns"]
+    term_column = _requested_column(params.get("term_column"), columns) or _find_column(
+        columns, ["term", "description", "pathway", "keyword", "word", "name", "label"]
+    )
+    weight_column = _requested_column(params.get("weight_column"), columns) or _find_column(
+        columns, ["count", "gene_count", "size", "frequency", "freq", "weight", "value", "score"]
+    )
+    color_column = _requested_column(params.get("color_column"), columns) or _find_column(
+        columns, ["adjusted_p", "padj", "p_adjust", "p_value", "pvalue", "score"]
+    )
+    if not term_column or not weight_column:
+        return _empty_plot_spec("wordcloud", "Word cloud requires term and positive weight columns.", context["table_summary"])
+
+    rows = []
+    color_transform = str(params.get("color_transform") or "minus_log10")
+    for row in context["records"]:
+        term = str(row.get(term_column) or "").strip()
+        weight = _number_or_ratio(row.get(weight_column))
+        if not term or weight is None or weight <= 0:
+            continue
+        raw_color = _number_or_none(row.get(color_column)) if color_column else None
+        rows.append(
+            {
+                "term": term,
+                "weight": weight,
+                "color_value": _enrichment_color_value(raw_color, color_transform) if raw_color is not None else weight,
+                "raw_color": raw_color if raw_color is not None else weight,
+            }
+        )
+    if not rows:
+        return _empty_plot_spec("wordcloud", "No valid word cloud rows were available.", context["table_summary"])
+
+    sort_by = str(params.get("sort_by") or "weight")
+    if sort_by == "alphabetical":
+        rows.sort(key=lambda item: item["term"].lower())
+    elif sort_by == "color" and color_column:
+        rows.sort(key=lambda item: item["raw_color"])
+    else:
+        rows.sort(key=lambda item: item["weight"], reverse=True)
+    top_n = _bounded_int(params.get("top_n"), 60, 10, 300)
+    rows = rows[:top_n]
+
+    min_font = _bounded_float(params.get("min_font_size"), 12, 6, 80)
+    max_font = _bounded_float(params.get("max_font_size"), 52, min_font, 140)
+    weights = [row["weight"] for row in rows]
+    min_weight = min(weights)
+    max_weight = max(weights)
+    span = max(max_weight - min_weight, 1e-9)
+    cloud_width = _bounded_float(params.get("cloud_width"), 10, 4, 30)
+    cloud_height = _bounded_float(params.get("cloud_height"), 6, 3, 20)
+    rotate_fraction = _bounded_float(params.get("rotate_fraction"), 0.18, 0, 0.8)
+    wrap_labels = _truthy(params.get("wrap_term_label"), False)
+    label_width = _bounded_int(params.get("term_label_width"), 18, 8, 100)
+
+    flat_points: list[dict[str, Any]] = []
+    rotated_points: list[dict[str, Any]] = []
+    denominator = max(len(rows) - 1, 1)
+    for index, row in enumerate(rows):
+        angle = index * 2.399963229728653
+        radius = math.sqrt(index / denominator)
+        x_value = math.cos(angle) * radius * cloud_width / 2
+        y_value = math.sin(angle) * radius * cloud_height / 2
+        size = min_font + ((row["weight"] - min_weight) / span) * (max_font - min_font)
+        label = _wrap_text_label(row["term"], label_width) if wrap_labels else row["term"]
+        color_rank = index / denominator
+        point = {
+            "x": x_value,
+            "y": y_value,
+            "text": label,
+            "size": size,
+            "color": PLOTLY_PALETTE[int(color_rank * (len(PLOTLY_PALETTE) - 1))],
+            "custom": [row["term"], row["weight"], row["raw_color"], row["color_value"]],
+        }
+        if rotate_fraction > 0 and (index / max(len(rows), 1)) < rotate_fraction and index % 2 == 1:
+            rotated_points.append(point)
+        else:
+            flat_points.append(point)
+
+    traces = [
+        _wordcloud_trace(flat_points, name="Horizontal labels", textangle=0),
+        _wordcloud_trace(rotated_points, name="Rotated labels", textangle=-90),
+    ]
+    traces = [trace for trace in traces if trace["text"]]
+    layout = _base_layout(
+        title=f"Word cloud: top {len(rows)} terms",
+        x_title="",
+        y_title="",
+        params=params,
+    )
+    layout["xaxis"].update({"visible": False, "range": [-cloud_width / 2 - 1, cloud_width / 2 + 1], "fixedrange": False})
+    layout["yaxis"].update({"visible": False, "range": [-cloud_height / 2 - 1, cloud_height / 2 + 1], "scaleanchor": "x", "fixedrange": False})
+    layout["showlegend"] = False
+    layout["annotations"] = []
+    warnings = []
+    if len(context["records"]) > len(rows):
+        warnings.append(f"Showing top {len(rows)} word cloud terms.")
+    if color_column:
+        warnings.append(f"Text color ranking uses {color_column}; hover keeps the raw value.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _wordcloud_trace(points: list[dict[str, Any]], *, name: str, textangle: int) -> dict[str, Any]:
+    return {
+        "type": "scatter",
+        "mode": "text",
+        "name": name,
+        "x": [point["x"] for point in points],
+        "y": [point["y"] for point in points],
+        "text": [point["text"] for point in points],
+        "textangle": textangle,
+        "textfont": {
+            "size": [point["size"] for point in points],
+            "color": [point["color"] for point in points],
+        },
+        "customdata": [point["custom"] for point in points],
+        "hovertemplate": "%{customdata[0]}<br>weight=%{customdata[1]:.4g}<br>raw color=%{customdata[2]:.4g}<br>display score=%{customdata[3]:.4g}<extra></extra>",
+    }
+
+
+def _hierarchy_rows_for_area_chart(
+    context: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    plot_type: str,
+) -> dict[str, Any]:
+    columns = context["columns"]
+    label_column = _requested_column(params.get("label_column"), columns) or _find_column(
+        columns, ["term", "description", "pathway", "name", "label"]
+    )
+    value_column = _requested_column(params.get("value_column"), columns) or _find_column(
+        columns, ["count", "gene_count", "size", "value", "number"]
+    )
+    parent_column = _requested_column(params.get("parent_column"), columns) or _find_column(
+        columns, ["category", "ontology", "class", "parent", "group"]
+    )
+    color_column = _requested_column(params.get("color_column"), columns) or _find_column(
+        columns, ["adjusted_p", "padj", "p_adjust", "p_value", "pvalue", "score"]
+    )
+    if not label_column or not value_column:
+        return {"error": f"{plot_type.title()} requires label and positive value columns."}
+
+    color_transform = str(params.get("color_transform") or "minus_log10")
+    rows = []
+    for row in context["records"]:
+        label = str(row.get(label_column) or "").strip()
+        value = _number_or_ratio(row.get(value_column))
+        if not label or value is None or value <= 0:
+            continue
+        parent = str(row.get(parent_column) or "").strip() if parent_column else ""
+        raw_color = _number_or_none(row.get(color_column)) if color_column else None
+        rows.append(
+            {
+                "label": label,
+                "value": value,
+                "parent": parent,
+                "raw_color": raw_color if raw_color is not None else value,
+            }
+        )
+    if not rows:
+        return {"error": f"No valid {plot_type} rows were available."}
+
+    sort_by = str(params.get("sort_by") or "value")
+    if sort_by == "color" and color_column:
+        rows.sort(key=lambda item: item["raw_color"])
+    else:
+        rows.sort(key=lambda item: item["value"], reverse=True)
+    top_n = _bounded_int(params.get("top_n"), 30, 5, 200)
+    rows = rows[:top_n]
+    wrap_labels = _truthy(params.get("wrap_term_label"), True)
+    label_width = _bounded_int(params.get("term_label_width"), 22, 8, 100)
+
+    ids: list[str] = []
+    labels: list[str] = []
+    parents: list[str] = []
+    values: list[float] = []
+    colors: list[float] = []
+    hover_rows: list[list[Any]] = []
+    parent_nodes: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        parent = row["parent"]
+        if parent:
+            parent_id = f"parent::{parent}"
+            parent_payload = parent_nodes.setdefault(parent_id, {"label": parent, "value": 0.0, "colors": []})
+            parent_payload["value"] += row["value"]
+            parent_payload["colors"].append(_enrichment_color_value(row["raw_color"], color_transform))
+
+    for parent_id, payload in parent_nodes.items():
+        ids.append(parent_id)
+        labels.append(payload["label"])
+        parents.append("")
+        values.append(payload["value"])
+        colors.append(fmean(payload["colors"]) if payload["colors"] else payload["value"])
+        hover_rows.append([payload["label"], payload["value"], "parent"])
+
+    for index, row in enumerate(rows):
+        parent_id = f"parent::{row['parent']}" if row["parent"] else ""
+        display_label = _wrap_text_label(row["label"], label_width) if wrap_labels else row["label"]
+        ids.append(f"leaf::{index}::{row['label']}")
+        labels.append(display_label)
+        parents.append(parent_id)
+        values.append(row["value"])
+        colors.append(_enrichment_color_value(row["raw_color"], color_transform))
+        hover_rows.append([row["label"], row["value"], row["parent"] or "root"])
+
+    warnings = []
+    if len(context["records"]) > len(rows):
+        warnings.append(f"Showing top {len(rows)} {plot_type} leaves.")
+    if parent_nodes:
+        warnings.append(f"Grouped into {len(parent_nodes)} parent categories.")
+    return {
+        "ids": ids,
+        "labels": labels,
+        "parents": parents,
+        "values": values,
+        "colors": colors,
+        "hover_rows": hover_rows,
+        "leaf_count": len(rows),
+        "warnings": warnings,
+        "colorbar_title": f"-log10({color_column})" if color_transform == "minus_log10" and color_column else color_column or value_column,
+    }
+
+
 def _empty_plot_spec(
     plot_type: str,
     message: str,
@@ -3830,6 +4422,26 @@ def _colorscale(name: str) -> str | list[list[Any]]:
     if normalized in {"prism_muted", "group"}:
         return [[0, "#315fd6"], [0.5, "#ffffff"], [1, "#c44f3a"]]
     return [[0, "#315fd6"], [0.5, "#ffffff"], [1, "#c44f3a"]]
+
+
+def _rgba_from_hex(color: str, alpha: float) -> str:
+    text = str(color or "").strip().lstrip("#")
+    if len(text) != 6:
+        return f"rgba(49, 95, 214, {alpha:.3g})"
+    try:
+        red = int(text[0:2], 16)
+        green = int(text[2:4], 16)
+        blue = int(text[4:6], 16)
+    except ValueError:
+        return f"rgba(49, 95, 214, {alpha:.3g})"
+    return f"rgba({red}, {green}, {blue}, {alpha:.3g})"
+
+
+def _sankey_arrangement(value: Any) -> str:
+    text = str(value or "snap")
+    if text in {"snap", "perpendicular", "freeform", "fixed"}:
+        return text
+    return "snap"
 
 
 def _camera_eye(camera: str) -> dict[str, float]:

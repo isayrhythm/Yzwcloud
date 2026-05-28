@@ -122,6 +122,26 @@ PLOT_REPORT_GUIDANCE = {
         "focus": "top enriched terms, gene ratio, term size, adjusted significance, and redundant pathway labels",
         "parameter_hint": "Sort by adjusted p-value first, cap top terms, and use count/ratio encodings consistently.",
     },
+    "enrichment_bar": {
+        "focus": "ranked enriched terms, dominant categories, bar-value meaning, adjusted significance coloring, and long labels that may need wrapping",
+        "parameter_hint": "Use enrichment bars when exact term ranking matters; choose count or ratio deliberately, sort by adjusted p-value first, and keep horizontal labels readable.",
+    },
+    "treemap": {
+        "focus": "hierarchical category composition, dominant branches, large terms, and whether area encodes a biologically meaningful count or score",
+        "parameter_hint": "Use a parent/category column when available, cap top leaves for readability, and avoid interpreting area without checking the mapped value column.",
+    },
+    "sunburst": {
+        "focus": "radial hierarchy, parent-child category balance, dominant arcs, and whether outer-ring terms overstate small branches",
+        "parameter_hint": "Use Sunburst when hierarchy matters more than exact rectangle area comparison; cap top leaves and check parent/category mapping first.",
+    },
+    "wordcloud": {
+        "focus": "dominant terms, repeated pathway or keyword themes, whether one label overwhelms the cloud, and whether weights reflect a meaningful count or score",
+        "parameter_hint": "Use Word cloud for fast qualitative screening; verify the weight column, cap top words, and switch to dot/bar plots when exact ranking matters.",
+    },
+    "sankey": {
+        "focus": "dominant source-target flows, bottleneck nodes, category allocation, and whether link values represent counts, abundance, or scores",
+        "parameter_hint": "Use Sankey only when rows truly describe source-target relationships; filter weak links first, then tune node padding and link opacity for readability.",
+    },
 }
 
 
@@ -852,6 +872,107 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"color scale={params.get('color_scale')}")
         if params.get("point_alpha"):
             summary["display"].append(f"point opacity={params.get('point_alpha')}")
+    if plot_id == "enrichment_bar":
+        if params.get("top_n"):
+            summary["display"].append(f"top bars={params.get('top_n')}")
+        if params.get("bar_value"):
+            summary["statistics"].append(f"bar value={params.get('bar_value')}")
+        if params.get("sort_by"):
+            summary["statistics"].append(f"sort by={params.get('sort_by')}")
+        if params.get("color_transform"):
+            summary["statistics"].append(f"color transform={params.get('color_transform')}")
+        if params.get("orientation"):
+            summary["display"].append(f"orientation={params.get('orientation')}")
+        if params.get("bar_opacity") is not None:
+            summary["display"].append(f"bar opacity={params.get('bar_opacity')}")
+        if params.get("bar_line_width") is not None:
+            summary["display"].append(f"bar line width={params.get('bar_line_width')}")
+        if params.get("bar_line_color"):
+            summary["display"].append(f"bar line color={params.get('bar_line_color')}")
+        if "show_value_labels" in params:
+            summary["display"].append(f"value labels shown={bool(params.get('show_value_labels'))}")
+        if params.get("value_precision") is not None:
+            summary["display"].append(f"value precision={params.get('value_precision')}")
+        if params.get("wrap_term_label"):
+            summary["display"].append("wrapped term labels")
+        if params.get("term_label_width"):
+            summary["display"].append(f"term label width={params.get('term_label_width')}")
+        if params.get("color_scale"):
+            summary["display"].append(f"color scale={params.get('color_scale')}")
+    if plot_id == "treemap":
+        if params.get("top_n"):
+            summary["display"].append(f"top leaves={params.get('top_n')}")
+        if params.get("parent_column"):
+            summary["display"].append(f"parent column={params.get('parent_column')}")
+        if params.get("branchvalues"):
+            summary["statistics"].append(f"branch values={params.get('branchvalues')}")
+        if params.get("sort_by"):
+            summary["statistics"].append(f"sort by={params.get('sort_by')}")
+        if params.get("color_transform"):
+            summary["statistics"].append(f"color transform={params.get('color_transform')}")
+        if params.get("textinfo"):
+            summary["display"].append(f"text={params.get('textinfo')}")
+        if params.get("tiling"):
+            summary["display"].append(f"tiling={params.get('tiling')}")
+        if params.get("color_scale"):
+            summary["display"].append(f"color scale={params.get('color_scale')}")
+    if plot_id == "sunburst":
+        if params.get("top_n"):
+            summary["display"].append(f"top leaves={params.get('top_n')}")
+        if params.get("parent_column"):
+            summary["display"].append(f"parent column={params.get('parent_column')}")
+        if params.get("branchvalues"):
+            summary["statistics"].append(f"branch values={params.get('branchvalues')}")
+        if params.get("maxdepth"):
+            summary["display"].append(f"max depth={params.get('maxdepth')}")
+        if params.get("sort_by"):
+            summary["statistics"].append(f"sort by={params.get('sort_by')}")
+        if params.get("color_transform"):
+            summary["statistics"].append(f"color transform={params.get('color_transform')}")
+        if params.get("textinfo"):
+            summary["display"].append(f"text={params.get('textinfo')}")
+        if params.get("color_scale"):
+            summary["display"].append(f"color scale={params.get('color_scale')}")
+    if plot_id == "wordcloud":
+        if params.get("top_n"):
+            summary["display"].append(f"top words={params.get('top_n')}")
+        if params.get("sort_by"):
+            summary["statistics"].append(f"sort by={params.get('sort_by')}")
+        if params.get("weight_column"):
+            summary["statistics"].append(f"weight column={params.get('weight_column')}")
+        if params.get("color_transform"):
+            summary["statistics"].append(f"color transform={params.get('color_transform')}")
+        if params.get("min_font_size") or params.get("max_font_size"):
+            summary["display"].append(
+                f"font size range={params.get('min_font_size', 'auto')}-{params.get('max_font_size', 'auto')}"
+            )
+        if params.get("cloud_width") or params.get("cloud_height"):
+            summary["display"].append(
+                f"cloud canvas={params.get('cloud_width', 'auto')}x{params.get('cloud_height', 'auto')}"
+            )
+        if params.get("rotate_fraction") is not None:
+            summary["display"].append(f"rotated fraction={params.get('rotate_fraction')}")
+        if params.get("color_scale"):
+            summary["display"].append(f"color scale={params.get('color_scale')}")
+    if plot_id == "sankey":
+        if params.get("top_n"):
+            summary["display"].append(f"top links={params.get('top_n')}")
+        if params.get("min_value") is not None:
+            summary["statistics"].append(f"minimum value={params.get('min_value')}")
+        if params.get("sort_by"):
+            summary["statistics"].append(f"sort by={params.get('sort_by')}")
+        if params.get("arrangement"):
+            summary["display"].append(f"arrangement={params.get('arrangement')}")
+        if params.get("node_pad"):
+            summary["display"].append(f"node padding={params.get('node_pad')}")
+        if params.get("node_thickness"):
+            summary["display"].append(f"node thickness={params.get('node_thickness')}")
+        if params.get("node_line_width") is not None:
+            summary["display"].append(f"node border width={params.get('node_line_width')}")
+        if params.get("link_opacity") is not None:
+            summary["display"].append(f"link opacity={params.get('link_opacity')}")
+        if params.get("label_font_size"):
+            summary["display"].append(f"label font size={params.get('label_font_size')}")
     if params.get("width") or params.get("height"):
         summary["export"].append(f"canvas={params.get('width', 'auto')}x{params.get('height', 'auto')}")
     if params.get("format") or params.get("dpi"):

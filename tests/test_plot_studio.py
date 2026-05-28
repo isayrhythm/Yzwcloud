@@ -42,6 +42,13 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "report",
     ]
     assert "report agent" in manifest["workflow_stages"][-1]["description"]
+    recipes = {item["id"]: item for item in manifest["style_recipes"]}
+    assert {"publication", "presentation", "exploration"} <= set(recipes)
+    assert recipes["publication"]["params"]["format"] == "svg"
+    assert recipes["publication"]["params"]["show_grid"] is False
+    assert recipes["presentation"]["params"]["title_font_size"] > recipes["publication"]["params"]["title_font_size"]
+    assert recipes["exploration"]["params"]["display_modebar"] == "always"
+    assert recipes["exploration"]["params"]["selection_tools"] is True
     presets = {item["id"]: item for item in manifest["presets"]}
     assert {
         "boxplot",
@@ -66,6 +73,11 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "bland_altman",
         "dose_response",
         "paired_dot",
+        "enrichment_bar",
+        "sankey",
+        "treemap",
+        "sunburst",
+        "wordcloud",
     } <= set(presets)
 
     boxplot = presets["boxplot"]
@@ -342,6 +354,60 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "max_dot_size",
         "color_scale",
         "point_alpha",
+    }
+    enrichment_bar_terms = next(group for group in presets["enrichment_bar"]["parameter_groups"] if group["id"] == "terms")
+    assert presets["enrichment_bar"]["thumbnail"] == "enrichment_bar"
+    assert {param["id"] for param in enrichment_bar_terms["parameters"]} >= {
+        "top_n",
+        "sort_by",
+        "orientation",
+        "bar_opacity",
+        "bar_line_width",
+        "show_value_labels",
+        "value_precision",
+        "color_scale",
+    }
+    sankey_flow = next(group for group in presets["sankey"]["parameter_groups"] if group["id"] == "flow")
+    assert presets["sankey"]["thumbnail"] == "sankey"
+    assert {param["id"] for param in sankey_flow["parameters"]} >= {
+        "top_n",
+        "min_value",
+        "sort_by",
+        "arrangement",
+        "node_pad",
+        "node_thickness",
+        "link_opacity",
+        "label_font_size",
+    }
+    treemap_terms = next(group for group in presets["treemap"]["parameter_groups"] if group["id"] == "terms")
+    assert presets["treemap"]["thumbnail"] == "treemap"
+    assert {param["id"] for param in treemap_terms["parameters"]} >= {
+        "top_n",
+        "branchvalues",
+        "textinfo",
+        "tiling",
+        "color_scale",
+    }
+    sunburst_terms = next(group for group in presets["sunburst"]["parameter_groups"] if group["id"] == "terms")
+    assert presets["sunburst"]["thumbnail"] == "sunburst"
+    assert {param["id"] for param in sunburst_terms["parameters"]} >= {
+        "top_n",
+        "branchvalues",
+        "maxdepth",
+        "textinfo",
+        "color_scale",
+    }
+    wordcloud_terms = next(group for group in presets["wordcloud"]["parameter_groups"] if group["id"] == "terms")
+    assert presets["wordcloud"]["thumbnail"] == "wordcloud"
+    assert {param["id"] for param in wordcloud_terms["parameters"]} >= {
+        "top_n",
+        "sort_by",
+        "min_font_size",
+        "max_font_size",
+        "cloud_width",
+        "cloud_height",
+        "rotate_fraction",
+        "color_scale",
     }
     bubble_style = next(group for group in presets["bubble"]["parameter_groups"] if group["id"] == "bubble")
     assert {param["id"] for param in bubble_style["parameters"]} >= {
@@ -1432,6 +1498,256 @@ def test_plot_studio_report_summarizes_enrichment_parameters(tmp_path: Path) -> 
     assert "point opacity=0.64" in enrichment_display_summary
 
 
+def test_plot_studio_report_summarizes_enrichment_bar_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_enrichment_bar.csv"
+    table_file.write_text(
+        "term,gene_ratio,count,adjusted_p\n"
+        "cell cycle,0.12,12,0.001\n"
+        "immune response,0.08,8,0.004\n"
+        "ribosome,0.06,6,0.02\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Enrichment bars",
+                "type": "enrichment_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "enrichment_bar",
+            "params": {
+                "top_n": 12,
+                "bar_value": "ratio",
+                "sort_by": "gene_ratio",
+                "color_transform": "minus_log10",
+                "orientation": "horizontal",
+                "bar_opacity": 0.72,
+                "bar_line_width": 1.2,
+                "bar_line_color": "#111827",
+                "show_value_labels": True,
+                "value_precision": 3,
+                "wrap_term_label": True,
+                "term_label_width": 18,
+                "color_scale": "cividis",
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "top bars=12" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "bar value=ratio" in summary["statistics"]
+    assert "sort by=gene_ratio" in summary["statistics"]
+    assert "orientation=horizontal" in summary["display"]
+    assert "bar opacity=0.72" in summary["display"]
+    assert "bar line width=1.2" in summary["display"]
+    assert "value labels shown=True" in summary["display"]
+    assert "value precision=3" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_treemap_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_treemap.csv"
+    table_file.write_text(
+        "term,category,count,adjusted_p\n"
+        "cell cycle,GOBP,12,0.001\n"
+        "immune response,GOBP,8,0.004\n"
+        "ribosome,KEGG,6,0.02\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Functional classes",
+                "type": "enrichment_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "treemap",
+            "params": {
+                "top_n": 12,
+                "parent_column": "category",
+                "branchvalues": "total",
+                "sort_by": "color",
+                "color_transform": "minus_log10",
+                "textinfo": "label+percent root",
+                "tiling": "binary",
+                "color_scale": "cividis",
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "top leaves=12" in sections["Parameter notes"]
+    assert "parent column=category" in sections["Parameter notes"]
+    assert "branch values=total" in report["agent_context"]["parameter_summary"]["statistics"]
+    assert "sort by=color" in report["agent_context"]["parameter_summary"]["statistics"]
+    assert "text=label+percent root" in report["agent_context"]["parameter_summary"]["display"]
+    assert "tiling=binary" in report["agent_context"]["parameter_summary"]["display"]
+    assert "color scale=cividis" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_sunburst_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_sunburst.csv"
+    table_file.write_text(
+        "term,category,count,adjusted_p\n"
+        "cell cycle,GOBP,12,0.001\n"
+        "immune response,GOBP,8,0.004\n"
+        "ribosome,KEGG,6,0.02\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Functional classes",
+                "type": "enrichment_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "sunburst",
+            "params": {
+                "top_n": 12,
+                "parent_column": "category",
+                "branchvalues": "remainder",
+                "maxdepth": 4,
+                "sort_by": "color",
+                "color_transform": "minus_log10",
+                "textinfo": "label+percent root",
+                "color_scale": "cividis",
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "top leaves=12" in sections["Parameter notes"]
+    assert "parent column=category" in sections["Parameter notes"]
+    assert "branch values=remainder" in report["agent_context"]["parameter_summary"]["statistics"]
+    assert "sort by=color" in report["agent_context"]["parameter_summary"]["statistics"]
+    assert "max depth=4" in report["agent_context"]["parameter_summary"]["display"]
+    assert "text=label+percent root" in report["agent_context"]["parameter_summary"]["display"]
+    assert "color scale=cividis" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_wordcloud_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_wordcloud.csv"
+    table_file.write_text(
+        "term,count,adjusted_p\n"
+        "cell cycle,12,0.001\n"
+        "immune response,8,0.004\n"
+        "ribosome,6,0.02\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Functional words",
+                "type": "enrichment_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "wordcloud",
+            "params": {
+                "top_n": 24,
+                "weight_column": "count",
+                "sort_by": "color",
+                "color_transform": "minus_log10",
+                "min_font_size": 10,
+                "max_font_size": 64,
+                "cloud_width": 12,
+                "cloud_height": 7,
+                "rotate_fraction": 0.25,
+                "color_scale": "plasma",
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "top words=24" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "weight column=count" in summary["statistics"]
+    assert "sort by=color" in summary["statistics"]
+    assert "font size range=10-64" in summary["display"]
+    assert "cloud canvas=12x7" in summary["display"]
+    assert "rotated fraction=0.25" in summary["display"]
+
+
+def test_plot_studio_report_summarizes_sankey_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_sankey.csv"
+    table_file.write_text(
+        "source,target,value,group\n"
+        "GO,cell cycle,12,BP\n"
+        "GO,immune response,8,BP\n"
+        "KEGG,ribosome,6,pathway\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Functional flow",
+                "type": "enrichment_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "sankey",
+            "params": {
+                "top_n": 24,
+                "min_value": 2,
+                "sort_by": "source",
+                "arrangement": "freeform",
+                "node_pad": 22,
+                "node_thickness": 16,
+                "node_line_width": 1.2,
+                "link_opacity": 0.44,
+                "label_font_size": 13,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "top links=24" in sections["Parameter notes"]
+    summary = report["agent_context"]["parameter_summary"]
+    assert "minimum value=2" in summary["statistics"]
+    assert "sort by=source" in summary["statistics"]
+    assert "arrangement=freeform" in summary["display"]
+    assert "node padding=22" in summary["display"]
+    assert "link opacity=0.44" in summary["display"]
+
+
 def test_plot_studio_report_summarizes_bubble_parameters(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
     allowed_tmp.mkdir(parents=True, exist_ok=True)
@@ -1842,6 +2158,11 @@ def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> Non
         "venn": "small-set overlaps",
         "correlation": "similarity blocks",
         "enrichment_dot": "top enriched terms",
+        "enrichment_bar": "ranked enriched terms",
+        "treemap": "hierarchical category composition",
+        "sunburst": "radial hierarchy",
+        "wordcloud": "dominant terms",
+        "sankey": "dominant source-target flows",
     }
     source = {
         "sourceKind": "analysis_output",
@@ -3219,6 +3540,303 @@ def test_plot_studio_spec_builds_enrichment_dot_plot(tmp_path: Path) -> None:
     assert spec["data"][0]["marker"]["color"][0] == 3.0
     assert max(spec["data"][0]["marker"]["size"]) == 24
     assert any("<br>" in label for label in spec["data"][0]["y"])
+
+
+def test_plot_studio_spec_builds_enrichment_bar_plot(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    enrichment_file = allowed_tmp / f"{tmp_path.name}_enrichment_bar.csv"
+    enrichment_file.write_text(
+        "term,gene_ratio,count,adjusted_p\n"
+        "cell cycle checkpoint regulation,3/100,3,0.001\n"
+        "apoptosis,8/200,8,0.02\n"
+        "immune response,5/120,5,0.004\n"
+        "ribosome biogenesis,9/180,9,0.03\n"
+        "stress response,4/90,4,0.05\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Enrichment result",
+                "type": "enrichment_result",
+                "dataPath": str(enrichment_file),
+            },
+            "plotType": "enrichment_bar",
+            "params": {
+                "term_column": "term",
+                "value_column": "gene_ratio",
+                "bar_value": "ratio",
+                "color_column": "adjusted_p",
+                "color_transform": "minus_log10",
+                "top_n": 5,
+                "sort_by": "gene_ratio",
+                "orientation": "horizontal",
+                "bar_opacity": 0.7,
+                "bar_line_width": 1.3,
+                "bar_line_color": "#111827",
+                "show_value_labels": True,
+                "value_precision": 3,
+                "color_scale": "green_white_purple",
+                "wrap_term_label": True,
+                "term_label_width": 12,
+            },
+        },
+    )
+
+    trace = spec["data"][0]
+    assert spec["plot_type"] == "enrichment_bar"
+    assert trace["type"] == "bar"
+    assert trace["orientation"] == "h"
+    assert trace["marker"]["colorscale"][0][1] == "#20804f"
+    assert trace["marker"]["colorbar"]["title"] == "-log10(adjusted_p)"
+    assert trace["marker"]["opacity"] == 0.7
+    assert trace["marker"]["line"] == {"color": "#111827", "width": 1.3}
+    assert trace["text"][0] == "0.050"
+    assert spec["layout"]["yaxis"]["autorange"] == "reversed"
+    assert any("<br>" in label for label in trace["y"])
+
+
+def test_plot_studio_spec_builds_treemap(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    tree_file = allowed_tmp / f"{tmp_path.name}_treemap.csv"
+    tree_file.write_text(
+        "term,category,count,adjusted_p\n"
+        "cell cycle checkpoint regulation,GOBP,12,0.001\n"
+        "immune response,GOBP,8,0.004\n"
+        "ribosome biogenesis,KEGG,6,0.02\n"
+        "photosynthesis,KEGG,4,0.03\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Functional classes",
+                "type": "enrichment_result",
+                "dataPath": str(tree_file),
+            },
+            "plotType": "treemap",
+            "params": {
+                "label_column": "term",
+                "parent_column": "category",
+                "value_column": "count",
+                "color_column": "adjusted_p",
+                "color_transform": "minus_log10",
+                "top_n": 4,
+                "branchvalues": "total",
+                "textinfo": "label+value",
+                "tiling": "binary",
+                "color_scale": "green_white_purple",
+                "wrap_term_label": True,
+                "term_label_width": 12,
+            },
+        },
+    )
+
+    trace = spec["data"][0]
+    assert spec["plot_type"] == "treemap"
+    assert trace["type"] == "treemap"
+    assert trace["branchvalues"] == "total"
+    assert trace["tiling"] == {"packing": "binary"}
+    assert trace["marker"]["colorscale"][0][1] == "#20804f"
+    assert trace["marker"]["colorbar"]["title"] == "-log10(adjusted_p)"
+    assert any(parent == "parent::GOBP" for parent in trace["parents"])
+    assert any("<br>" in label for label in trace["labels"])
+    assert any("Grouped into 2 parent categories." == warning for warning in spec["warnings"])
+
+
+def test_plot_studio_spec_builds_sunburst(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    tree_file = allowed_tmp / f"{tmp_path.name}_sunburst.csv"
+    tree_file.write_text(
+        "term,category,count,adjusted_p\n"
+        "cell cycle checkpoint regulation,GOBP,12,0.001\n"
+        "immune response,GOBP,8,0.004\n"
+        "ribosome biogenesis,KEGG,6,0.02\n"
+        "photosynthesis,KEGG,4,0.03\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Functional classes",
+                "type": "enrichment_result",
+                "dataPath": str(tree_file),
+            },
+            "plotType": "sunburst",
+            "params": {
+                "label_column": "term",
+                "parent_column": "category",
+                "value_column": "count",
+                "color_column": "adjusted_p",
+                "color_transform": "minus_log10",
+                "top_n": 4,
+                "branchvalues": "total",
+                "maxdepth": 3,
+                "textinfo": "label+percent parent",
+                "color_scale": "green_white_purple",
+                "wrap_term_label": True,
+                "term_label_width": 12,
+            },
+        },
+    )
+
+    trace = spec["data"][0]
+    assert spec["plot_type"] == "sunburst"
+    assert trace["type"] == "sunburst"
+    assert trace["branchvalues"] == "total"
+    assert trace["maxdepth"] == 3
+    assert trace["marker"]["colorscale"][0][1] == "#20804f"
+    assert trace["marker"]["colorbar"]["title"] == "-log10(adjusted_p)"
+    assert any(parent == "parent::GOBP" for parent in trace["parents"])
+    assert any("<br>" in label for label in trace["labels"])
+    assert any("Grouped into 2 parent categories." == warning for warning in spec["warnings"])
+
+
+def test_plot_studio_spec_builds_wordcloud(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    cloud_file = allowed_tmp / f"{tmp_path.name}_wordcloud.csv"
+    cloud_file.write_text(
+        "term,count,adjusted_p\n"
+        "cell cycle checkpoint regulation,12,0.001\n"
+        "immune response,8,0.004\n"
+        "ribosome biogenesis,6,0.02\n"
+        "photosynthesis,4,0.03\n"
+        "stress signal,3,0.04\n"
+        "protein folding,2,0.05\n"
+        "membrane transport,1,0.08\n"
+        "secondary metabolism,1,0.09\n"
+        "hormone response,1,0.10\n"
+        "chromatin,1,0.12\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Functional words",
+                "type": "enrichment_result",
+                "dataPath": str(cloud_file),
+            },
+            "plotType": "wordcloud",
+            "params": {
+                "term_column": "term",
+                "weight_column": "count",
+                "color_column": "adjusted_p",
+                "color_transform": "minus_log10",
+                "top_n": 10,
+                "sort_by": "weight",
+                "min_font_size": 10,
+                "max_font_size": 44,
+                "cloud_width": 12,
+                "cloud_height": 7,
+                "rotate_fraction": 0.3,
+                "wrap_term_label": True,
+                "term_label_width": 12,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "wordcloud"
+    assert [trace["type"] for trace in spec["data"]] == ["scatter", "scatter"]
+    assert all(trace["mode"] == "text" for trace in spec["data"])
+    assert spec["layout"]["showlegend"] is False
+    assert spec["layout"]["xaxis"]["visible"] is False
+    assert spec["layout"]["yaxis"]["visible"] is False
+    all_sizes = [size for trace in spec["data"] for size in trace["textfont"]["size"]]
+    assert min(all_sizes) == 10
+    assert max(all_sizes) == 44
+    all_labels = [label for trace in spec["data"] for label in trace["text"]]
+    assert any("<br>" in label for label in all_labels)
+    assert any(trace["textangle"] == -90 for trace in spec["data"])
+    assert any("Text color ranking uses adjusted_p" in warning for warning in spec["warnings"])
+
+
+def test_plot_studio_spec_builds_sankey(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    flow_file = allowed_tmp / f"{tmp_path.name}_sankey.csv"
+    flow_file.write_text(
+        "source,target,value,group\n"
+        "GO,cell cycle,12,BP\n"
+        "GO,immune response,8,BP\n"
+        "KEGG,ribosome,6,pathway\n"
+        "KEGG,photosynthesis,4,pathway\n"
+        "Reactome,apoptosis,3,pathway\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Functional flow",
+                "type": "enrichment_result",
+                "dataPath": str(flow_file),
+            },
+            "plotType": "sankey",
+            "params": {
+                "source_column": "source",
+                "target_column": "target",
+                "value_column": "value",
+                "group_column": "group",
+                "top_n": 4,
+                "min_value": 3,
+                "sort_by": "value",
+                "arrangement": "freeform",
+                "node_pad": 20,
+                "node_thickness": 14,
+                "node_line_width": 1.1,
+                "node_line_color": "#111827",
+                "link_opacity": 0.42,
+                "label_font_size": 13,
+            },
+        },
+    )
+
+    trace = spec["data"][0]
+    assert spec["plot_type"] == "sankey"
+    assert trace["type"] == "sankey"
+    assert trace["arrangement"] == "freeform"
+    assert trace["node"]["pad"] == 20
+    assert trace["node"]["thickness"] == 14
+    assert trace["node"]["line"] == {"color": "#111827", "width": 1.1}
+    assert trace["textfont"]["size"] == 13
+    assert len(trace["link"]["value"]) == 4
+    assert trace["link"]["value"][0] == 12.0
+    assert trace["link"]["color"][0].startswith("rgba(")
+    assert "xaxis" not in spec["layout"]
+    assert any("Resolved" in warning for warning in spec["warnings"])
 
 
 def test_plot_studio_spec_builds_radar_and_parallel_coordinates(tmp_path: Path) -> None:

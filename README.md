@@ -163,20 +163,22 @@ src/yzwcloud/
 
 前端后续仍值得继续拆，但这轮先优先收后端分析模块和文档，不额外扩大改动面。
 
-## Planned: Plot Studio
+## Plot Studio
 
-Plot Studio is planned as a standalone visualization workspace, separate from Molecular Lab.
-It is currently a design note only; do not implement the full plotting engine until the core
-analysis workflow is stable.
+Plot Studio is the standalone visualization workspace for downstream figures and analysis-node outputs.
+It is separate from Molecular Lab: Molecular Lab remains the wet-lab utility area for primers, sequence tools, restriction scans, and cloning-related helpers.
 
-Target positioning:
+Current positioning:
 
-- Agent-first data intake: upload a table or send an upstream node output into Plot Studio, then let an agent infer columns, variable types, grouping columns, and candidate plots.
-- Reusable visualization layer: prefer mature interactive JavaScript plotting libraries such as Plotly.js and ECharts instead of hand-written SVG for complex charts.
-- Prism-like parameter depth: each plot should eventually expose fine-grained controls for axis mapping, grouping, color palette, jitter, summary statistics, error bars, labels, themes, export size, and output format.
-- Plot library presets: scatter, boxplot, violin, bar, line, heatmap, bubble, volcano, UpSet, Venn, correlation plot, and enrichment-style dot/bar plots.
-- Workflow integration: analysis nodes can keep their default plots, while polished custom figures can be sent to Plot Studio for deeper editing.
-- Boundary: Plot Studio belongs to analysis and visualization, not Molecular Lab. Molecular Lab remains the wet-lab utility area for primers, sequence tools, restriction scans, and cloning-related helpers.
+- Agent-first data intake: upload a table or send an upstream node output into Plot Studio, then let the system infer columns, variable types, grouping columns, and candidate plots.
+- Interactive plotting stack: use mature JavaScript plotting libraries such as Plotly.js and ECharts for charts that need hover, zoom, export, and rich parameter control.
+- Prism-like parameter depth: each plot type should expose controls for axis mapping, grouping, color palette, jitter, summary statistics, error bars, labels, themes, export size, and output format.
+- Searchable plot toolbox: Plot Studio presents plot types as clickable thumbnails, with search and recommended-only filtering so users can quickly find the right chart.
+- Style recipes: `Publication`, `Presentation`, and `Exploration` presets provide reusable visual defaults for common output contexts.
+- Plot library presets: scatter, boxplot, violin, bar, line, histogram, heatmap, correlation heatmap, bubble, volcano, UpSet, Venn, enrichment dot plot, enrichment bar plot, Sankey, treemap, sunburst, and word cloud are included in the current preset family.
+- Hierarchy plots: Treemap and Sunburst are intended for enrichment categories, pathway hierarchies, taxonomic composition, and other parent-child summaries.
+- Term overview plots: Word cloud provides a quick interactive overview for enriched terms, genes, taxa, and keyword-frequency tables, with hover details and adjustable font/layout controls.
+- Workflow integration: analysis nodes keep their default diagnostic plots, while polished custom figures can be sent to Plot Studio for deeper editing and report reuse.
 
 ## Development And Test Notes
 

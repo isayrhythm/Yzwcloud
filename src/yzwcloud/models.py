@@ -115,7 +115,7 @@ class PlotStudioSpecRequest(PlotStudioReportRequest):
 class CreateDiffAnalysisRequest(BaseModel):
     case_condition: str
     control_condition: str
-    method: str = "demo_ttest"
+    method: str = "r_transcriptomics"
     p_value: float = 0.05
     log2fc: float = 1.0
 

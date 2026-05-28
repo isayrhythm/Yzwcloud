@@ -313,6 +313,48 @@ button {
   background-size: 28px 28px;
 }
 
+.demo-data-packet {
+  position: absolute;
+  left: 4%;
+  top: 15%;
+  z-index: 2;
+  display: grid;
+  gap: 3px;
+  min-width: 172px;
+  padding: 10px 12px;
+  border: 1px solid rgba(121, 243, 242, 0.4);
+  border-radius: 12px;
+  background: rgba(235, 252, 255, 0.94);
+  color: #07131f;
+  box-shadow: 0 18px 48px rgba(4, 14, 24, 0.3);
+  animation: data-packet-drop 4.05s ease-in-out infinite;
+}
+
+.demo-data-packet::after {
+  content: "";
+  position: absolute;
+  left: 42%;
+  top: 100%;
+  width: 1px;
+  height: 92px;
+  background: linear-gradient(180deg, rgba(121, 243, 242, 0.9), rgba(121, 243, 242, 0));
+}
+
+.demo-data-packet span {
+  color: #0f6b57;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.demo-data-packet strong {
+  overflow: hidden;
+  color: #07131f;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workflow-edges {
   position: absolute;
   inset: 0;
@@ -476,6 +518,22 @@ button {
 @keyframes workflow-edge-flow {
   to {
     stroke-dashoffset: -22;
+  }
+}
+
+@keyframes data-packet-drop {
+  0% {
+    opacity: 0;
+    transform: translate(-12px, -22px) scale(0.94);
+  }
+  18%,
+  72% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0.68;
+    transform: translate(26px, 108px) scale(0.82);
   }
 }
 
@@ -3072,6 +3130,135 @@ h2 {
 .mini-enrichment span:nth-child(4) { width: 12px; height: 12px; background: #20804f; }
 .mini-enrichment span:nth-child(5) { width: 20px; height: 20px; background: #0f8a8f; }
 
+.mini-enrichment-bar span {
+  position: absolute;
+  left: 12%;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0f8a8f, #315fd6);
+}
+
+.mini-enrichment-bar span:nth-child(2) { background: linear-gradient(90deg, #315fd6, #7a4fb3); }
+.mini-enrichment-bar span:nth-child(3) { background: linear-gradient(90deg, #c44f3a, #b7791f); }
+.mini-enrichment-bar span:nth-child(4) { background: linear-gradient(90deg, #20804f, #0f8a8f); }
+.mini-enrichment-bar span:nth-child(5) { background: linear-gradient(90deg, #7a4fb3, #9a3f6f); }
+
+.mini-treemap .tile {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 4px;
+}
+
+.mini-treemap .t1 { left: 8%; top: 12%; width: 40%; height: 74%; background: #0f8a8f; }
+.mini-treemap .t2 { left: 50%; top: 12%; width: 18%; height: 36%; background: #315fd6; }
+.mini-treemap .t3 { left: 70%; top: 12%; width: 22%; height: 36%; background: #c44f3a; }
+.mini-treemap .t4 { left: 50%; top: 51%; width: 24%; height: 35%; background: #20804f; }
+.mini-treemap .t5 { left: 76%; top: 51%; width: 16%; height: 35%; background: #7a4fb3; }
+
+.mini-sunburst .ring,
+.mini-sunburst .wedge {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.mini-sunburst .ring {
+  inset: 13%;
+  border: 11px solid rgba(15, 138, 143, 0.22);
+}
+
+.mini-sunburst .r2 {
+  inset: 27%;
+  border-color: rgba(49, 95, 214, 0.24);
+}
+
+.mini-sunburst .r3 {
+  inset: 41%;
+  border-color: #ffffff;
+  background: #0f8a8f;
+}
+
+.mini-sunburst .wedge {
+  left: 50%;
+  top: 8%;
+  width: 32px;
+  height: 32px;
+  transform-origin: 0 42px;
+  border-radius: 32px 4px 32px 4px;
+  opacity: 0.88;
+}
+
+.mini-sunburst .w1 { background: #315fd6; transform: rotate(18deg); }
+.mini-sunburst .w2 { background: #c44f3a; transform: rotate(112deg); }
+.mini-sunburst .w3 { background: #20804f; transform: rotate(232deg); }
+
+.mini-wordcloud span {
+  position: absolute;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mini-wordcloud .w1 {
+  left: 9%;
+  top: 46%;
+  color: #0f8a8f;
+  font-size: 24px;
+}
+
+.mini-wordcloud .w2 {
+  left: 32%;
+  top: 23%;
+  color: #315fd6;
+  font-size: 21px;
+}
+
+.mini-wordcloud .w3 {
+  left: 46%;
+  top: 51%;
+  color: #c44f3a;
+  font-size: 17px;
+}
+
+.mini-wordcloud .w4 {
+  left: 18%;
+  top: 22%;
+  color: #20804f;
+  font-size: 13px;
+}
+
+.mini-wordcloud .w5 {
+  left: 58%;
+  top: 31%;
+  color: #7a4fb3;
+  font-size: 12px;
+  transform: rotate(-90deg);
+}
+
+.mini-sankey .node {
+  position: absolute;
+  width: 9px;
+  border-radius: 999px;
+  background: #0f8a8f;
+  z-index: 2;
+}
+
+.mini-sankey .n1 { left: 13%; top: 18%; height: 48%; }
+.mini-sankey .n2 { left: 48%; top: 12%; height: 34%; background: #315fd6; }
+.mini-sankey .n3 { left: 48%; top: 55%; height: 28%; background: #c44f3a; }
+.mini-sankey .n4 { left: 80%; top: 28%; height: 48%; background: #20804f; }
+
+.mini-sankey .flow {
+  position: absolute;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(49, 95, 214, 0.32);
+  transform-origin: left center;
+}
+
+.mini-sankey .f1 { left: 21%; top: 28%; width: 32%; transform: rotate(-9deg); }
+.mini-sankey .f2 { left: 21%; top: 53%; width: 33%; transform: rotate(14deg); background: rgba(196, 79, 58, 0.32); }
+.mini-sankey .f3 { left: 56%; top: 43%; width: 28%; transform: rotate(10deg); background: rgba(32, 128, 79, 0.32); }
+
 .plot-source-list {
   display: grid;
   gap: 12px;
@@ -3247,6 +3434,58 @@ h2 {
 .plot-param-groups {
   display: grid;
   gap: 12px;
+}
+
+.plot-recipe-strip {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(49, 95, 214, 0.16);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+}
+
+.plot-recipe-strip > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.plot-recipe-strip strong {
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
+.plot-recipe-strip small,
+.plot-recipe-list span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.plot-recipe-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.plot-recipe-list button {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  min-height: 78px;
+  padding: 9px;
+  border: 1px solid rgba(15, 138, 143, 0.18);
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.plot-recipe-list button.active {
+  border-color: rgba(15, 138, 143, 0.62);
+  background: #eef8f6;
+  box-shadow: inset 0 0 0 1px rgba(15, 138, 143, 0.14);
 }
 
 .plot-param-stack {
@@ -4107,6 +4346,12 @@ h2 {
     font-size: 10px;
   }
 
+  .demo-data-packet {
+    left: 6%;
+    top: 8%;
+    min-width: 148px;
+  }
+
   .hero-actions {
     align-items: stretch;
     flex-direction: column;
@@ -4170,6 +4415,11 @@ h2 {
 
   .plot-type-grid.compact .plot-type-card {
     grid-template-columns: 86px minmax(0, 1fr);
+  }
+
+  .plot-type-filter,
+  .plot-recipe-list {
+    grid-template-columns: 1fr;
   }
 
   .plot-data-summary,

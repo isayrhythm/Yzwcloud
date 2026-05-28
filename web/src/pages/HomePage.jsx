@@ -203,10 +203,14 @@ export function HomePage({ onStart, onOpenPlot }) {
               {autoPlay ? t("homePauseDemo") : t("homePlayDemo")}
             </button>
           </div>
-        </div>
+          </div>
 
         <div className="hero-workflow" aria-label={t("homeWorkflowDemo")}>
           <div className="workflow-board">
+            <div className="demo-data-packet" aria-hidden="true">
+              <span>{t("homeDataPacket")}</span>
+              <strong>expression_matrix.csv</strong>
+            </div>
             <svg className="workflow-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
               {visibleEdges.map(([source, target]) => {
                 const sourceNode = NODE_GROUPS.find((node) => node.id === source);

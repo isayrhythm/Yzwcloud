@@ -115,6 +115,14 @@ function defaultParamsFromPreset(preset) {
   return { ...(preset?.default_params || {}) };
 }
 
+function parameterIdsForPreset(preset) {
+  const ids = new Set();
+  (preset?.parameter_groups || []).forEach((group) => {
+    (group.parameters || []).forEach((parameter) => ids.add(parameter.id));
+  });
+  return ids;
+}
+
 function optionsForParameter(parameter, tableSummary) {
   const columns = tableSummary?.columns || [];
   const numericColumns = tableSummary?.numeric_columns || [];
@@ -593,6 +601,62 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
       </div>
     );
   }
+  if (kind === "enrichment_bar") {
+    return (
+      <div className="mini-plot mini-enrichment-bar" aria-hidden="true">
+        {[82, 68, 54, 43, 31].map((width, row) => (
+          <span style={{ width: `${width}%`, top: `${16 + row * 14}%` }} key={row} />
+        ))}
+      </div>
+    );
+  }
+  if (kind === "treemap") {
+    return (
+      <div className="mini-plot mini-treemap" aria-hidden="true">
+        <span className="tile t1" />
+        <span className="tile t2" />
+        <span className="tile t3" />
+        <span className="tile t4" />
+        <span className="tile t5" />
+      </div>
+    );
+  }
+  if (kind === "sunburst") {
+    return (
+      <div className="mini-plot mini-sunburst" aria-hidden="true">
+        <span className="ring r1" />
+        <span className="ring r2" />
+        <span className="ring r3" />
+        <span className="wedge w1" />
+        <span className="wedge w2" />
+        <span className="wedge w3" />
+      </div>
+    );
+  }
+  if (kind === "wordcloud") {
+    return (
+      <div className="mini-plot mini-wordcloud" aria-hidden="true">
+        <span className="w1">GO</span>
+        <span className="w2">RNA</span>
+        <span className="w3">KEGG</span>
+        <span className="w4">cell</span>
+        <span className="w5">stress</span>
+      </div>
+    );
+  }
+  if (kind === "sankey") {
+    return (
+      <div className="mini-plot mini-sankey" aria-hidden="true">
+        <span className="node n1" />
+        <span className="node n2" />
+        <span className="node n3" />
+        <span className="node n4" />
+        <i className="flow f1" />
+        <i className="flow f2" />
+        <i className="flow f3" />
+      </div>
+    );
+  }
   return (
     <div className="mini-plot mini-scatter" aria-hidden="true">
       {Array.from({ length: 18 }, (_, index) => (
@@ -654,6 +718,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const [agentContextCopied, setAgentContextCopied] = useState(false);
   const [plotSearch, setPlotSearch] = useState("");
   const [recommendedOnly, setRecommendedOnly] = useState(false);
+  const [selectedRecipeId, setSelectedRecipeId] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -672,9 +737,11 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   useEffect(() => {
     setSelectedPlotId("");
     setParams({});
+    setSelectedRecipeId("");
   }, [sourceKey(selectedSource)]);
 
   const plotPresets = manifest?.presets || [];
+  const styleRecipes = manifest?.style_recipes || [];
   const workflowStages = manifest?.workflow_stages?.length ? manifest.workflow_stages : FALLBACK_WORKFLOW_STAGES;
   const tableSummary = studioReport?.table_summary || null;
   const recommendedPlotIds = studioReport?.recommended_plot_ids || [];
@@ -702,6 +769,8 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     if (!selectedPreset) return;
     setParams((current) => ({ ...defaultParamsFromPreset(selectedPreset), ...current }));
   }, [selectedPreset?.id]);
+
+  const supportedParamIds = useMemo(() => parameterIdsForPreset(selectedPreset), [selectedPreset]);
 
   useEffect(() => {
     if (!selectedSource) {
@@ -785,6 +854,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
 
   const resetParams = () => {
     if (selectedPreset) setParams(defaultParamsFromPreset(selectedPreset));
+    setSelectedRecipeId("");
   };
 
   return (
@@ -854,6 +924,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                         onClick={() => {
                           setSelectedPlotId(plot.id);
                           setParams(defaultParamsFromPreset(plot));
+                          setSelectedRecipeId("");
                         }}
                       >
                         <MiniPlotThumbnail plotId={plot.id} thumbnail={plot.thumbnail} />
@@ -999,6 +1070,34 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                 {t("runPreview")}
               </button>
             </div>
+            {styleRecipes.length ? (
+              <section className="plot-recipe-strip" aria-label={t("styleRecipes")}>
+                <div>
+                  <strong>{t("styleRecipes")}</strong>
+                  <small>{t("styleRecipesHint")}</small>
+                </div>
+                <div className="plot-recipe-list">
+                  {styleRecipes.map((recipe) => (
+                    <button
+                      className={selectedRecipeId === recipe.id ? "active" : ""}
+                      type="button"
+                      key={recipe.id}
+                      title={recipe.description}
+                      onClick={() => {
+                        const nextParams = Object.fromEntries(
+                          Object.entries(recipe.params || {}).filter(([key]) => supportedParamIds.has(key)),
+                        );
+                        setParams((current) => ({ ...current, ...nextParams }));
+                        setSelectedRecipeId(recipe.id);
+                      }}
+                    >
+                      <strong>{recipe.label}</strong>
+                      <span>{recipe.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : null}
             <div className="plot-param-groups">
               {basicParameterGroups.length ? (
                 <section className="plot-param-stack" aria-label={t("basicParameters")}>

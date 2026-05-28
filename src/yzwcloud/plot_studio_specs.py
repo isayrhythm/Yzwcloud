@@ -1386,17 +1386,28 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
     legend_position = str(params.get("legend_position") or "right")
     legend_font_size = _bounded_int(params.get("legend_font_size"), 12, 8, 24)
     legend_title = str(params.get("legend_title") or "").strip()
+    legend_background = str(params.get("legend_background") or "rgba(255,255,255,0)")
+    legend_border_color = str(params.get("legend_border_color") or "rgba(0,0,0,0)")
+    legend_border_width = _bounded_float(params.get("legend_border_width"), 0, 0, 6)
     font_size = _bounded_int(params.get("font_size"), 13, 8, 28)
     axis_line = bool(params.get("axis_line", True))
     axis_line_color = str(params.get("axis_line_color") or "#425466")
     axis_line_width = _bounded_float(params.get("axis_line_width"), 1.0, 0.5, 6)
+    axis_mirror = _axis_mirror(params.get("axis_mirror"))
     grid_color = str(params.get("grid_color") or "#e7eef4")
     grid_width = _bounded_float(params.get("grid_width"), 1.0, 0.2, 4)
+    show_zero_line = bool(params.get("show_zero_line", True))
+    zero_line_color = str(params.get("zero_line_color") or "#b8c7d4")
+    zero_line_width = _bounded_float(params.get("zero_line_width"), 1.0, 0.2, 6)
     resolved_title = _text_or_default(params.get("title"), title)
     subtitle = str(params.get("subtitle") or "").strip()
     title_position = str(params.get("title_position") or "left")
     title_x = 0.5 if title_position == "center" else 0.02
     title_anchor = "center" if title_position == "center" else "left"
+    title_font_size = _bounded_int(params.get("title_font_size"), max(16, font_size + 3), 10, 40)
+    title_color = str(params.get("title_color") or "#07131f")
+    subtitle_font_size = _bounded_int(params.get("subtitle_font_size"), max(10, font_size - 1), 8, 28)
+    subtitle_color = str(params.get("subtitle_color") or "#617383")
     width = _bounded_int(params.get("width"), 1200, 320, 4000)
     height = _bounded_int(params.get("height"), 760, 240, 3000)
     margin = {
@@ -1407,9 +1418,22 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
     }
     x_tick_angle = _bounded_float(params.get("x_tick_angle"), 0, -90, 90)
     y_tick_angle = _bounded_float(params.get("y_tick_angle"), 0, -90, 90)
+    axis_title_font_size = _bounded_int(params.get("axis_title_font_size"), font_size, 8, 32)
+    axis_title_color = str(params.get("axis_title_color") or "#07131f")
+    tick_font_size = _bounded_int(params.get("tick_font_size"), max(8, font_size - 1), 6, 28)
+    tick_color = str(params.get("tick_color") or "#324657")
+    tick_direction = _tick_direction(params.get("tick_direction"))
+    tick_length = _bounded_float(params.get("tick_length"), 5, 0, 20)
+    tick_width = _bounded_float(params.get("tick_width"), 1, 0, 6)
+    tick_line_color = str(params.get("tick_line_color") or axis_line_color)
     font_family = _font_family(str(params.get("font_family") or "inter"))
     layout: dict[str, Any] = {
-        "title": {"text": resolved_title, "x": title_x, "xanchor": title_anchor},
+        "title": {
+            "text": resolved_title,
+            "x": title_x,
+            "xanchor": title_anchor,
+            "font": {"size": title_font_size, "color": title_color},
+        },
         "font": {"family": font_family, "size": font_size, "color": "#07131f"},
         "paper_bgcolor": background,
         "plot_bgcolor": background,
@@ -1418,30 +1442,80 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
         "margin": margin,
         "hovermode": "closest",
         "xaxis": {
-            "title": _text_or_default(params.get("x_title"), x_title),
+            "title": {
+                "text": _text_or_default(params.get("x_title"), x_title),
+                "font": {"size": axis_title_font_size, "color": axis_title_color},
+            },
             "showgrid": show_grid,
             "gridcolor": grid_color,
             "gridwidth": grid_width,
-            "zerolinecolor": "#b8c7d4",
+            "zeroline": show_zero_line,
+            "zerolinecolor": zero_line_color,
+            "zerolinewidth": zero_line_width,
             "showline": axis_line,
             "linecolor": axis_line_color,
             "linewidth": axis_line_width,
-            "ticks": "outside",
+            "mirror": axis_mirror,
+            "ticks": tick_direction,
+            "ticklen": tick_length,
+            "tickwidth": tick_width,
+            "tickcolor": tick_line_color,
             "tickangle": x_tick_angle,
+            "tickfont": {"size": tick_font_size, "color": tick_color},
         },
         "yaxis": {
-            "title": _text_or_default(params.get("y_title"), y_title),
+            "title": {
+                "text": _text_or_default(params.get("y_title"), y_title),
+                "font": {"size": axis_title_font_size, "color": axis_title_color},
+            },
             "showgrid": show_grid,
             "gridcolor": grid_color,
             "gridwidth": grid_width,
-            "zerolinecolor": "#b8c7d4",
+            "zeroline": show_zero_line,
+            "zerolinecolor": zero_line_color,
+            "zerolinewidth": zero_line_width,
             "showline": axis_line,
             "linecolor": axis_line_color,
             "linewidth": axis_line_width,
-            "ticks": "outside",
+            "mirror": axis_mirror,
+            "ticks": tick_direction,
+            "ticklen": tick_length,
+            "tickwidth": tick_width,
+            "tickcolor": tick_line_color,
             "tickangle": y_tick_angle,
+            "tickfont": {"size": tick_font_size, "color": tick_color},
         },
     }
+    x_range = _axis_range(params.get("x_range_mode"), params.get("x_min"), params.get("x_max"))
+    if x_range:
+        layout["xaxis"]["range"] = x_range
+    y_range = _axis_range(params.get("y_range_mode"), params.get("y_min"), params.get("y_max"))
+    if y_range:
+        layout["yaxis"]["range"] = y_range
+    x_tick_count = _number_or_none(params.get("x_tick_count"))
+    if x_tick_count is not None:
+        layout["xaxis"]["nticks"] = _bounded_int(x_tick_count, 6, 2, 30)
+    y_tick_count = _number_or_none(params.get("y_tick_count"))
+    if y_tick_count is not None:
+        layout["yaxis"]["nticks"] = _bounded_int(y_tick_count, 6, 2, 30)
+    x_tick_format = str(params.get("x_tick_format") or "").strip()
+    if x_tick_format:
+        layout["xaxis"]["tickformat"] = x_tick_format
+    y_tick_format = str(params.get("y_tick_format") or "").strip()
+    if y_tick_format:
+        layout["yaxis"]["tickformat"] = y_tick_format
+    x_tick_prefix = str(params.get("x_tick_prefix") or "")
+    if x_tick_prefix:
+        layout["xaxis"]["tickprefix"] = x_tick_prefix
+    x_tick_suffix = str(params.get("x_tick_suffix") or "")
+    if x_tick_suffix:
+        layout["xaxis"]["ticksuffix"] = x_tick_suffix
+    y_tick_prefix = str(params.get("y_tick_prefix") or "")
+    if y_tick_prefix:
+        layout["yaxis"]["tickprefix"] = y_tick_prefix
+    y_tick_suffix = str(params.get("y_tick_suffix") or "")
+    if y_tick_suffix:
+        layout["yaxis"]["ticksuffix"] = y_tick_suffix
     if subtitle:
         layout["annotations"] = [
             {
@@ -1453,18 +1527,24 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
                 "xanchor": title_anchor,
                 "yanchor": "bottom",
                 "showarrow": False,
-                "font": {"size": max(10, font_size - 1), "color": "#617383"},
+                "font": {"size": subtitle_font_size, "color": subtitle_color},
             }
         ]
         layout["margin"]["t"] = max(layout["margin"]["t"], 92)
+    legend_style = {
+        "font": {"size": legend_font_size},
+        "bgcolor": legend_background,
+        "bordercolor": legend_border_color,
+        "borderwidth": legend_border_width,
+    }
     if legend_position == "none":
         layout["showlegend"] = False
     elif legend_position == "top":
-        layout["legend"] = {"orientation": "h", "x": 0, "y": 1.14, "font": {"size": legend_font_size}}
+        layout["legend"] = {"orientation": "h", "x": 0, "y": 1.14, **legend_style}
     elif legend_position == "bottom":
-        layout["legend"] = {"orientation": "h", "x": 0, "y": -0.22, "font": {"size": legend_font_size}}
+        layout["legend"] = {"orientation": "h", "x": 0, "y": -0.22, **legend_style}
     else:
-        layout["legend"] = {"orientation": "v", "x": 1.02, "y": 1, "font": {"size": legend_font_size}}
+        layout["legend"] = {"orientation": "v", "x": 1.02, "y": 1, **legend_style}
     if legend_title and layout.get("legend"):
         layout["legend"]["title"] = {"text": legend_title, "font": {"size": legend_font_size}}
     return layout
@@ -1476,12 +1556,56 @@ def _plotly_config(params: dict[str, Any]) -> dict[str, Any]:
         export_format = "svg"
     dpi = str(params.get("dpi") or "300")
     scale = {"150": 1, "300": 2, "600": 4}.get(dpi, 2)
+    filename = _plot_filename(params.get("export_filename"))
     return {
         "displaylogo": False,
         "responsive": True,
-        "toImageButtonOptions": {"format": export_format, "filename": "yzw_biocloud_plot", "scale": scale},
+        "toImageButtonOptions": {"format": export_format, "filename": filename, "scale": scale},
         "modeBarButtonsToRemove": ["lasso2d", "select2d"],
     }
+
+
+def _plot_filename(value: Any) -> str:
+    raw = str(value or "yzw_biocloud_plot").strip()
+    allowed = []
+    for char in raw:
+        if char.isalnum() or char in {"-", "_"}:
+            allowed.append(char)
+        elif char.isspace() or char in {".", "/", "\\"}:
+            allowed.append("_")
+    filename = "".join(allowed)
+    while "__" in filename:
+        filename = filename.replace("__", "_")
+    filename = filename.strip("_")
+    return filename[:80] or "yzw_biocloud_plot"
+
+
+def _axis_range(mode: Any, minimum: Any, maximum: Any) -> list[float] | None:
+    if str(mode or "auto") != "custom":
+        return None
+    lower = _number_or_none(minimum)
+    upper = _number_or_none(maximum)
+    if lower is None or upper is None or lower >= upper:
+        return None
+    return [lower, upper]
+
+
+def _axis_mirror(value: Any) -> bool | str:
+    mode = str(value or "none")
+    if mode == "line":
+        return True
+    if mode == "ticks":
+        return "ticks"
+    return False
+
+
+def _tick_direction(value: Any) -> str:
+    direction = str(value or "outside")
+    if direction == "inside":
+        return "inside"
+    if direction == "none":
+        return ""
+    return "outside"
 
 
 def _text_or_default(value: Any, default: str) -> str:

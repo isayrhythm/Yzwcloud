@@ -62,6 +62,36 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert any(group["id"] == "export" for group in boxplot["parameter_groups"])
     assert any(group["id"] == "labels" for group in boxplot["parameter_groups"])
     assert next(group for group in boxplot["parameter_groups"] if group["id"] == "mapping")["advanced"] is False
+    labels_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "labels")
+    assert labels_group["advanced"] is True
+    assert {param["id"] for param in labels_group["parameters"]} >= {
+        "axis_title_font_size",
+        "axis_title_color",
+        "tick_font_size",
+        "tick_color",
+        "tick_direction",
+        "tick_length",
+        "tick_width",
+        "tick_line_color",
+        "title_font_size",
+        "title_color",
+        "subtitle_font_size",
+        "subtitle_color",
+        "x_range_mode",
+        "x_min",
+        "x_max",
+        "y_range_mode",
+        "y_min",
+        "y_max",
+        "x_tick_count",
+        "y_tick_count",
+        "x_tick_format",
+        "y_tick_format",
+        "x_tick_prefix",
+        "x_tick_suffix",
+        "y_tick_prefix",
+        "y_tick_suffix",
+    }
     export_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "export")
     assert export_group["advanced"] is True
     assert {param["id"] for param in export_group["parameters"]} >= {
@@ -69,16 +99,24 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "margin_right",
         "margin_top",
         "margin_bottom",
+        "export_filename",
     }
     theme_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "theme")
     assert theme_group["advanced"] is True
     assert {param["id"] for param in theme_group["parameters"]} >= {
         "grid_color",
         "grid_width",
+        "show_zero_line",
+        "zero_line_color",
+        "zero_line_width",
         "axis_line_color",
         "axis_line_width",
+        "axis_mirror",
         "legend_title",
         "legend_font_size",
+        "legend_background",
+        "legend_border_color",
+        "legend_border_width",
     }
     scatter_statistics = next(group for group in presets["scatter"]["parameter_groups"] if group["id"] == "statistics")
     assert {param["id"] for param in scatter_statistics["parameters"]} >= {
@@ -227,11 +265,45 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
                 "show_grid": False,
                 "grid_color": "#dbeafe",
                 "grid_width": 1.8,
+                "show_zero_line": False,
+                "zero_line_color": "#94a3b8",
+                "zero_line_width": 2,
                 "axis_line": True,
                 "axis_line_color": "#0f172a",
                 "axis_line_width": 2.2,
+                "axis_mirror": "ticks",
                 "legend_title": "Sample group",
                 "legend_font_size": 15,
+                "legend_background": "rgba(255,255,255,0.8)",
+                "legend_border_color": "#cbd5e1",
+                "legend_border_width": 1.5,
+                "title_font_size": 20,
+                "title_color": "#0f172a",
+                "subtitle_font_size": 13,
+                "subtitle_color": "#64748b",
+                "axis_title_font_size": 17,
+                "axis_title_color": "#172554",
+                "tick_font_size": 11,
+                "tick_color": "#475569",
+                "tick_direction": "inside",
+                "tick_length": 8,
+                "tick_width": 1.5,
+                "tick_line_color": "#0f172a",
+                "x_range_mode": "custom",
+                "x_min": -2,
+                "x_max": 2,
+                "y_range_mode": "custom",
+                "y_min": 0,
+                "y_max": 12,
+                "x_tick_count": 7,
+                "y_tick_count": 6,
+                "x_tick_format": ".1f",
+                "y_tick_format": ".2f",
+                "x_tick_prefix": "PC",
+                "x_tick_suffix": "",
+                "y_tick_prefix": "",
+                "y_tick_suffix": "%",
+                "export_filename": "QC heatmap v1",
             },
         },
     )
@@ -252,6 +324,7 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
     assert "cell gap=2" in sections["Parameter notes"]["text"]
     assert "title='QC heatmap'" in sections["Parameter notes"]["text"]
     assert "canvas=980x640" in sections["Parameter notes"]["text"]
+    assert "filename=QC heatmap v1" in report["agent_context"]["parameter_summary"]["export"]
     assert any("Rendered images are not inspected" in item for item in report["report"]["limitations"])
     assert report["agent_context"]["purpose"].startswith("LLM-readable")
     assert report["agent_context"]["plot"]["id"] == "heatmap"
@@ -261,11 +334,38 @@ def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
     assert "grid shown=False" in report["agent_context"]["parameter_summary"]["display"]
     assert "grid color=#dbeafe" in report["agent_context"]["parameter_summary"]["display"]
     assert "grid width=1.8" in report["agent_context"]["parameter_summary"]["display"]
+    assert "zero line shown=False" in report["agent_context"]["parameter_summary"]["display"]
+    assert "zero line color=#94a3b8" in report["agent_context"]["parameter_summary"]["display"]
+    assert "zero line width=2" in report["agent_context"]["parameter_summary"]["display"]
     assert "axis line shown=True" in report["agent_context"]["parameter_summary"]["display"]
     assert "axis line color=#0f172a" in report["agent_context"]["parameter_summary"]["display"]
     assert "axis line width=2.2" in report["agent_context"]["parameter_summary"]["display"]
+    assert "axis mirror=ticks" in report["agent_context"]["parameter_summary"]["display"]
     assert "legend title='Sample group'" in report["agent_context"]["parameter_summary"]["display"]
     assert "legend font size=15" in report["agent_context"]["parameter_summary"]["display"]
+    assert "legend background=rgba(255,255,255,0.8)" in report["agent_context"]["parameter_summary"]["display"]
+    assert "legend border color=#cbd5e1" in report["agent_context"]["parameter_summary"]["display"]
+    assert "legend border width=1.5" in report["agent_context"]["parameter_summary"]["display"]
+    assert "title size=20" in report["agent_context"]["parameter_summary"]["display"]
+    assert "title color=#0f172a" in report["agent_context"]["parameter_summary"]["display"]
+    assert "subtitle size=13" in report["agent_context"]["parameter_summary"]["display"]
+    assert "subtitle color=#64748b" in report["agent_context"]["parameter_summary"]["display"]
+    assert "axis title size=17" in report["agent_context"]["parameter_summary"]["display"]
+    assert "axis title color=#172554" in report["agent_context"]["parameter_summary"]["display"]
+    assert "tick label size=11" in report["agent_context"]["parameter_summary"]["display"]
+    assert "tick label color=#475569" in report["agent_context"]["parameter_summary"]["display"]
+    assert "tick direction=inside" in report["agent_context"]["parameter_summary"]["display"]
+    assert "tick length=8" in report["agent_context"]["parameter_summary"]["display"]
+    assert "tick width=1.5" in report["agent_context"]["parameter_summary"]["display"]
+    assert "tick line color=#0f172a" in report["agent_context"]["parameter_summary"]["display"]
+    assert "x range=-2 to 2" in report["agent_context"]["parameter_summary"]["display"]
+    assert "y range=0 to 12" in report["agent_context"]["parameter_summary"]["display"]
+    assert "x tick count=7" in report["agent_context"]["parameter_summary"]["display"]
+    assert "y tick count=6" in report["agent_context"]["parameter_summary"]["display"]
+    assert "x tick format=.1f" in report["agent_context"]["parameter_summary"]["display"]
+    assert "y tick format=.2f" in report["agent_context"]["parameter_summary"]["display"]
+    assert "x tick prefix=PC" in report["agent_context"]["parameter_summary"]["display"]
+    assert "y tick suffix=%" in report["agent_context"]["parameter_summary"]["display"]
     assert "linkage=average" in report["agent_context"]["parameter_summary"]["statistics"]
     assert any("Do not infer visual details" in item for item in report["agent_context"]["interpretation_rules"])
 
@@ -1062,11 +1162,37 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
                 "axis_line": False,
                 "axis_line_color": "#111827",
                 "axis_line_width": 2.5,
+                "axis_mirror": "line",
                 "show_grid": True,
                 "grid_color": "#cbd5e1",
                 "grid_width": 1.6,
+                "show_zero_line": False,
+                "zero_line_color": "#94a3b8",
+                "zero_line_width": 2,
                 "legend_title": "Condition",
                 "legend_font_size": 14,
+                "legend_background": "rgba(255,255,255,0.9)",
+                "legend_border_color": "#94a3b8",
+                "legend_border_width": 1.2,
+                "title_font_size": 22,
+                "title_color": "#0f172a",
+                "subtitle_font_size": 12,
+                "subtitle_color": "#475569",
+                "axis_title_font_size": 18,
+                "axis_title_color": "#1e3a8a",
+                "tick_font_size": 11,
+                "tick_color": "#475569",
+                "tick_direction": "inside",
+                "tick_length": 8,
+                "tick_width": 1.5,
+                "tick_line_color": "#0f172a",
+                "y_range_mode": "custom",
+                "y_min": 0,
+                "y_max": 12,
+                "y_tick_count": 6,
+                "y_tick_format": ".2f",
+                "y_tick_prefix": "",
+                "y_tick_suffix": " TPM",
                 "x_tick_angle": -35,
                 "width": 900,
                 "height": 520,
@@ -1074,6 +1200,7 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
                 "margin_right": 44,
                 "margin_top": 120,
                 "margin_bottom": 88,
+                "export_filename": "Figure 1 / boxplot",
                 "format": "png",
                 "dpi": "600",
             },
@@ -1087,27 +1214,57 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
     assert spec["layout"]["xaxis"]["title"]
     assert spec["layout"]["title"]["text"] == "Custom expression distribution"
     assert spec["layout"]["title"]["x"] == 0.5
+    assert spec["layout"]["title"]["font"] == {"size": 22, "color": "#0f172a"}
     assert spec["layout"]["annotations"][0]["text"] == "QC-filtered samples"
-    assert spec["layout"]["xaxis"]["title"] == "Sample group"
-    assert spec["layout"]["yaxis"]["title"] == "Normalized expression"
+    assert spec["layout"]["annotations"][0]["font"] == {"size": 12, "color": "#475569"}
+    assert spec["layout"]["xaxis"]["title"]["text"] == "Sample group"
+    assert spec["layout"]["yaxis"]["title"]["text"] == "Normalized expression"
+    assert spec["layout"]["xaxis"]["title"]["font"] == {"size": 18, "color": "#1e3a8a"}
+    assert spec["layout"]["yaxis"]["title"]["font"] == {"size": 18, "color": "#1e3a8a"}
     assert spec["layout"]["xaxis"]["tickangle"] == -35
+    assert spec["layout"]["xaxis"]["tickfont"] == {"size": 11, "color": "#475569"}
+    assert spec["layout"]["xaxis"]["ticks"] == "inside"
+    assert spec["layout"]["xaxis"]["ticklen"] == 8
+    assert spec["layout"]["xaxis"]["tickwidth"] == 1.5
+    assert spec["layout"]["xaxis"]["tickcolor"] == "#0f172a"
+    assert spec["layout"]["yaxis"]["tickfont"] == {"size": 11, "color": "#475569"}
+    assert spec["layout"]["yaxis"]["ticks"] == "inside"
+    assert spec["layout"]["yaxis"]["ticklen"] == 8
+    assert spec["layout"]["yaxis"]["tickwidth"] == 1.5
+    assert spec["layout"]["yaxis"]["tickcolor"] == "#0f172a"
     assert spec["layout"]["xaxis"]["showline"] is False
     assert spec["layout"]["xaxis"]["linecolor"] == "#111827"
     assert spec["layout"]["xaxis"]["linewidth"] == 2.5
+    assert spec["layout"]["xaxis"]["mirror"] is True
     assert spec["layout"]["xaxis"]["gridcolor"] == "#cbd5e1"
     assert spec["layout"]["xaxis"]["gridwidth"] == 1.6
+    assert spec["layout"]["xaxis"]["zeroline"] is False
+    assert spec["layout"]["xaxis"]["zerolinecolor"] == "#94a3b8"
+    assert spec["layout"]["xaxis"]["zerolinewidth"] == 2
     assert spec["layout"]["yaxis"]["linecolor"] == "#111827"
     assert spec["layout"]["yaxis"]["linewidth"] == 2.5
+    assert spec["layout"]["yaxis"]["mirror"] is True
+    assert spec["layout"]["yaxis"]["range"] == [0.0, 12.0]
+    assert spec["layout"]["yaxis"]["nticks"] == 6
+    assert spec["layout"]["yaxis"]["tickformat"] == ".2f"
+    assert spec["layout"]["yaxis"]["ticksuffix"] == " TPM"
     assert spec["layout"]["yaxis"]["gridcolor"] == "#cbd5e1"
     assert spec["layout"]["yaxis"]["gridwidth"] == 1.6
+    assert spec["layout"]["yaxis"]["zeroline"] is False
+    assert spec["layout"]["yaxis"]["zerolinecolor"] == "#94a3b8"
+    assert spec["layout"]["yaxis"]["zerolinewidth"] == 2
     assert spec["layout"]["legend"]["title"]["text"] == "Condition"
     assert spec["layout"]["legend"]["font"]["size"] == 14
+    assert spec["layout"]["legend"]["bgcolor"] == "rgba(255,255,255,0.9)"
+    assert spec["layout"]["legend"]["bordercolor"] == "#94a3b8"
+    assert spec["layout"]["legend"]["borderwidth"] == 1.2
     assert spec["layout"]["font"]["family"].startswith("Georgia")
     assert spec["layout"]["font"]["size"] == 16
     assert spec["layout"]["width"] == 900
     assert spec["layout"]["height"] == 520
     assert spec["layout"]["margin"] == {"l": 96, "r": 44, "t": 120, "b": 88}
     assert spec["config"]["toImageButtonOptions"]["format"] == "png"
+    assert spec["config"]["toImageButtonOptions"]["filename"] == "Figure_1_boxplot"
     assert spec["config"]["toImageButtonOptions"]["scale"] == 4
     assert spec["config"]["displaylogo"] is False
 

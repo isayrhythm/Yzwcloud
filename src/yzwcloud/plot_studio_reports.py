@@ -578,22 +578,82 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
         summary["export"].append(f"canvas={params.get('width', 'auto')}x{params.get('height', 'auto')}")
     if params.get("format") or params.get("dpi"):
         summary["export"].append(f"export={params.get('format', 'svg')}@{params.get('dpi', '300')}dpi")
+    if params.get("export_filename"):
+        summary["export"].append(f"filename={params.get('export_filename')}")
     if "show_grid" in params:
         summary["display"].append(f"grid shown={bool(params.get('show_grid'))}")
     if params.get("grid_color"):
         summary["display"].append(f"grid color={params.get('grid_color')}")
     if params.get("grid_width") is not None:
         summary["display"].append(f"grid width={params.get('grid_width')}")
+    if "show_zero_line" in params:
+        summary["display"].append(f"zero line shown={bool(params.get('show_zero_line'))}")
+    if params.get("zero_line_color"):
+        summary["display"].append(f"zero line color={params.get('zero_line_color')}")
+    if params.get("zero_line_width") is not None:
+        summary["display"].append(f"zero line width={params.get('zero_line_width')}")
     if "axis_line" in params:
         summary["display"].append(f"axis line shown={bool(params.get('axis_line'))}")
     if params.get("axis_line_color"):
         summary["display"].append(f"axis line color={params.get('axis_line_color')}")
     if params.get("axis_line_width") is not None:
         summary["display"].append(f"axis line width={params.get('axis_line_width')}")
+    if params.get("axis_mirror"):
+        summary["display"].append(f"axis mirror={params.get('axis_mirror')}")
     if params.get("legend_title"):
         summary["display"].append(f"legend title='{params.get('legend_title')}'")
     if params.get("legend_font_size") is not None:
         summary["display"].append(f"legend font size={params.get('legend_font_size')}")
+    if params.get("legend_background"):
+        summary["display"].append(f"legend background={params.get('legend_background')}")
+    if params.get("legend_border_color"):
+        summary["display"].append(f"legend border color={params.get('legend_border_color')}")
+    if params.get("legend_border_width") is not None:
+        summary["display"].append(f"legend border width={params.get('legend_border_width')}")
+    if params.get("title_font_size") is not None:
+        summary["display"].append(f"title size={params.get('title_font_size')}")
+    if params.get("title_color"):
+        summary["display"].append(f"title color={params.get('title_color')}")
+    if params.get("subtitle_font_size") is not None:
+        summary["display"].append(f"subtitle size={params.get('subtitle_font_size')}")
+    if params.get("subtitle_color"):
+        summary["display"].append(f"subtitle color={params.get('subtitle_color')}")
+    if params.get("axis_title_font_size") is not None:
+        summary["display"].append(f"axis title size={params.get('axis_title_font_size')}")
+    if params.get("axis_title_color"):
+        summary["display"].append(f"axis title color={params.get('axis_title_color')}")
+    if params.get("tick_font_size") is not None:
+        summary["display"].append(f"tick label size={params.get('tick_font_size')}")
+    if params.get("tick_color"):
+        summary["display"].append(f"tick label color={params.get('tick_color')}")
+    if params.get("tick_direction"):
+        summary["display"].append(f"tick direction={params.get('tick_direction')}")
+    if params.get("tick_length") is not None:
+        summary["display"].append(f"tick length={params.get('tick_length')}")
+    if params.get("tick_width") is not None:
+        summary["display"].append(f"tick width={params.get('tick_width')}")
+    if params.get("tick_line_color"):
+        summary["display"].append(f"tick line color={params.get('tick_line_color')}")
+    if params.get("x_range_mode") == "custom":
+        summary["display"].append(f"x range={params.get('x_min', 'auto')} to {params.get('x_max', 'auto')}")
+    if params.get("y_range_mode") == "custom":
+        summary["display"].append(f"y range={params.get('y_min', 'auto')} to {params.get('y_max', 'auto')}")
+    if params.get("x_tick_count") not in {None, "", "auto"}:
+        summary["display"].append(f"x tick count={params.get('x_tick_count')}")
+    if params.get("y_tick_count") not in {None, "", "auto"}:
+        summary["display"].append(f"y tick count={params.get('y_tick_count')}")
+    if params.get("x_tick_format"):
+        summary["display"].append(f"x tick format={params.get('x_tick_format')}")
+    if params.get("y_tick_format"):
+        summary["display"].append(f"y tick format={params.get('y_tick_format')}")
+    if params.get("x_tick_prefix"):
+        summary["display"].append(f"x tick prefix={params.get('x_tick_prefix')}")
+    if params.get("x_tick_suffix"):
+        summary["display"].append(f"x tick suffix={params.get('x_tick_suffix')}")
+    if params.get("y_tick_prefix"):
+        summary["display"].append(f"y tick prefix={params.get('y_tick_prefix')}")
+    if params.get("y_tick_suffix"):
+        summary["display"].append(f"y tick suffix={params.get('y_tick_suffix')}")
     return {key: value for key, value in summary.items() if value}
 
 

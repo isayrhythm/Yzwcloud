@@ -125,6 +125,10 @@ def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
         y_title=y_column,
         params=params,
     )
+    if _truthy(params.get("x_log"), False):
+        layout["xaxis"]["type"] = "log"
+    if _truthy(params.get("y_log"), False):
+        layout["yaxis"]["type"] = "log"
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
@@ -143,31 +147,64 @@ def _build_bubble_spec(context: dict[str, Any]) -> dict[str, Any]:
     max_size = max(finite_sizes) if finite_sizes else 1.0
     span = max(max_size - min_size, 1e-9)
     min_marker = _bounded_float(params.get("min_bubble_size"), 4, 1, 80)
-    max_marker = _bounded_float(params.get("max_bubble_size"), 48, min_marker, 160)
-    color_column = _choose_column(params.get("color"), context["categorical_columns"])
+    size_scale = _bounded_float(params.get("size_scale"), 18, 1, 100)
+    max_marker = _bounded_float(params.get("max_bubble_size"), 48, min_marker, 160) * size_scale / 18
+    max_marker = _bounded_float(max_marker, 48, min_marker, 220)
+    requested_color = _requested_column(params.get("color"), context["columns"])
+    color_is_numeric = bool(requested_color and requested_color in numeric_columns)
+    color_column = requested_color if requested_color and requested_color in context["categorical_columns"] else None
     label_column = _choose_column(params.get("label"), context["columns"])
     traces = []
-    for trace in _grouped_marker_traces(
-        context["records"],
-        x_column=x_column,
-        y_column=y_column,
-        color_column=color_column,
-        label_column=label_column,
-        size_column=size_column,
-        mode="markers",
-        marker_size=10,
-        marker_opacity=0.72,
-    ):
+    grouped = _records_by_category(context["records"], color_column) if color_column else {"All": context["records"]}
+    for index, (group_name, rows) in enumerate(grouped.items()):
+        x_values = []
+        y_values = []
         marker_sizes = []
-        for raw_size in trace.pop("_raw_sizes", []):
-            parsed = _number_or_none(raw_size)
-            if parsed is None:
-                marker_sizes.append(min_marker)
-            else:
-                marker_sizes.append(min_marker + (parsed - min_size) / span * (max_marker - min_marker))
-        trace["marker"]["size"] = marker_sizes
-        trace["marker"]["sizemode"] = "diameter"
-        traces.append(trace)
+        labels = []
+        size_values = []
+        color_values = []
+        for row in rows:
+            x_value = _number_or_none(row.get(x_column))
+            y_value = _number_or_none(row.get(y_column))
+            size_value = _number_or_none(row.get(size_column))
+            if x_value is None or y_value is None or size_value is None:
+                continue
+            x_values.append(x_value)
+            y_values.append(y_value)
+            size_values.append(size_value)
+            marker_sizes.append(min_marker + (size_value - min_size) / span * (max_marker - min_marker))
+            labels.append(str(row.get(label_column) or "") if label_column else "")
+            if color_is_numeric and requested_color:
+                color_values.append(_number_or_none(row.get(requested_color)))
+        if not x_values:
+            continue
+        marker: dict[str, Any] = {
+            "size": marker_sizes,
+            "sizemode": "diameter",
+            "opacity": _bounded_float(params.get("point_alpha"), 0.72, 0.05, 1),
+            "line": {"color": "#ffffff", "width": 0.7},
+        }
+        if color_is_numeric and requested_color:
+            marker["color"] = [value if value is not None else 0.0 for value in color_values]
+            marker["colorscale"] = _colorscale(str(params.get("color_scale") or "viridis"))
+            marker["showscale"] = True
+            marker["colorbar"] = {"title": requested_color}
+        else:
+            marker["color"] = PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+        traces.append(
+            {
+                "type": "scattergl",
+                "mode": "markers",
+                "name": group_name if not color_is_numeric else requested_color or "All",
+                "x": x_values,
+                "y": y_values,
+                "text": labels,
+                "customdata": [[size_values[item_index]] for item_index in range(len(size_values))],
+                "marker": marker,
+                "hovertemplate": "%{text}<br>x=%{x:.4g}<br>y=%{y:.4g}<br>size=%{customdata[0]:.4g}<extra>%{fullData.name}</extra>",
+                "showlegend": not color_is_numeric,
+            }
+        )
 
     layout = _base_layout(
         title=f"Bubble: {x_column} vs {y_column}, size={size_column}",
@@ -175,7 +212,10 @@ def _build_bubble_spec(context: dict[str, Any]) -> dict[str, Any]:
         y_title=y_column,
         params=params,
     )
-    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
+    warnings = []
+    if not traces:
+        warnings.append("No complete x/y/size rows were available for bubble rendering.")
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_boxplot_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -266,6 +306,7 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
         labels = []
         values = []
         errors = []
+        grouped_values = []
         raw_point_x = []
         raw_point_y = []
         raw_point_text = []
@@ -277,11 +318,18 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
             labels.append(group_name)
             values.append(_aggregate_values(group_values, aggregation))
             errors.append(_error_bar_value(group_values, str(params.get("error_bar") or "sem")))
+            grouped_values.append((group_name, group_values))
             for index, value in enumerate(group_values):
                 raw_point_x.append(group_name)
                 raw_point_y.append(value)
                 raw_point_text.append(f"{group_name} #{index + 1}")
-        labels, values, errors = _sort_bar_values(labels, values, errors, str(params.get("sort") or "input"))
+        labels, values, errors, grouped_values = _sort_bar_values(
+            labels,
+            values,
+            errors,
+            str(params.get("sort") or "input"),
+            grouped_values=grouped_values,
+        )
         x_title = category_column
         y_title = f"{aggregation} {value_column}"
         title = f"Bar: {value_column} by {category_column}"
@@ -290,17 +338,25 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
         labels = context["numeric_columns"][:max_groups]
         values = []
         errors = []
+        grouped_values = []
         for column in labels:
             column_values = [_number_or_none(row.get(column)) for row in context["records"]]
             column_values = [value for value in column_values if value is not None]
             values.append(_aggregate_values(column_values, aggregation) if column_values else 0)
             errors.append(_error_bar_value(column_values, str(params.get("error_bar") or "sem")))
+            grouped_values.append((column, column_values))
         if len(context["numeric_columns"]) > max_groups:
             warnings.append(f"Showing first {max_groups} numeric columns to keep the chart readable.")
         raw_point_x = []
         raw_point_y = []
         raw_point_text = []
-        labels, values, errors = _sort_bar_values(labels, values, errors, str(params.get("sort") or "input"))
+        labels, values, errors, grouped_values = _sort_bar_values(
+            labels,
+            values,
+            errors,
+            str(params.get("sort") or "input"),
+            grouped_values=grouped_values,
+        )
         x_title = "numeric columns"
         y_title = aggregation
         title = "Bar summary by numeric column"
@@ -349,6 +405,16 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
 
     layout = _base_layout(title=title, x_title=x_title, y_title=y_title, params=params)
     layout["bargap"] = 0.28
+    if _truthy(params.get("show_p_values"), False):
+        if str(params.get("orientation") or "vertical") == "horizontal":
+            warnings.append("Pairwise p-value brackets are currently available for vertical bar charts.")
+        else:
+            comparison_result = _pairwise_comparison_overlays(grouped_values, params)
+            layout.setdefault("shapes", []).extend(comparison_result["shapes"])
+            layout.setdefault("annotations", []).extend(comparison_result["annotations"])
+            if comparison_result["y_range"]:
+                layout["yaxis"]["range"] = comparison_result["y_range"]
+            warnings.extend(comparison_result["warnings"])
     return {"data": data, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
@@ -409,11 +475,14 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
     histnorm = str(params.get("histnorm") or "count")
     opacity = _bounded_float(params.get("opacity"), 0.68, 0.1, 1)
     traces = []
+    reference_shapes = []
+    reference_annotations = []
     for index, (group_name, rows) in enumerate(grouped.items()):
         values = [_number_or_none(row.get(x_column)) for row in rows]
         values = [value for value in values if value is not None]
         if not values:
             continue
+        color = PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
         traces.append(
             {
                 "type": "histogram",
@@ -422,11 +491,32 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
                 "nbinsx": bins,
                 "histnorm": "" if histnorm == "count" else histnorm,
                 "opacity": opacity,
-                "marker": {"color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)], "line": {"color": "#ffffff", "width": 0.5}},
+                "marker": {"color": color, "line": {"color": "#ffffff", "width": 0.5}},
                 "cumulative": {"enabled": _truthy(params.get("cumulative"), False)},
                 "hovertemplate": "%{x}<br>count=%{y}<extra>%{fullData.name}</extra>",
             }
         )
+        if _truthy(params.get("show_rug"), False):
+            traces.append(
+                {
+                    "type": "scattergl",
+                    "mode": "markers",
+                    "name": f"{group_name} rug",
+                    "x": values,
+                    "y": [0 for _ in values],
+                    "marker": {"symbol": "line-ns-open", "size": 10, "color": color, "opacity": 0.72},
+                    "hovertemplate": "%{x:.4g}<extra>%{fullData.name}</extra>",
+                    "showlegend": False,
+                }
+            )
+        reference_specs = []
+        if _truthy(params.get("show_mean"), True):
+            reference_specs.append(("mean", fmean(values), "dash"))
+        if _truthy(params.get("show_median"), False):
+            reference_specs.append(("median", float(median(values)), "dot"))
+        for label, x_value, dash in reference_specs:
+            reference_shapes.append(_x_reference_line(x_value, color, dash=dash))
+            reference_annotations.append(_x_reference_annotation(x_value, f"{group_name} {label}", color))
     if not traces:
         return _empty_plot_spec("histogram", "No numeric values were available for histogram rendering.", context["table_summary"])
 
@@ -437,6 +527,9 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
         params=params,
     )
     layout["barmode"] = str(params.get("barmode") or "overlay")
+    if reference_shapes:
+        layout.setdefault("shapes", []).extend(reference_shapes)
+        layout.setdefault("annotations", []).extend(reference_annotations)
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
 
 
@@ -460,6 +553,18 @@ def _build_density_contour_spec(context: dict[str, Any]) -> dict[str, Any]:
     if not x_values:
         return _empty_plot_spec("density_contour", "No paired numeric values were available for contour rendering.", context["table_summary"])
 
+    contour_settings: dict[str, Any] = {
+        "coloring": str(params.get("contours_coloring") or "heatmap"),
+        "showlabels": _truthy(params.get("show_contour_labels"), False),
+    }
+    for source_key, plotly_key in {
+        "contour_start": "start",
+        "contour_end": "end",
+        "contour_size": "size",
+    }.items():
+        value = _number_or_none(params.get(source_key))
+        if value is not None:
+            contour_settings[plotly_key] = value
     traces: list[dict[str, Any]] = [
         {
             "type": "histogram2dcontour",
@@ -467,8 +572,8 @@ def _build_density_contour_spec(context: dict[str, Any]) -> dict[str, Any]:
             "x": x_values,
             "y": y_values,
             "colorscale": _colorscale(str(params.get("palette") or "viridis")),
-            "contours": {"coloring": str(params.get("contours_coloring") or "heatmap")},
-            "line": {"width": 1.2, "color": "#294452"},
+            "contours": contour_settings,
+            "line": {"width": _bounded_float(params.get("contour_line_width"), 1.2, 0.2, 8), "color": "#294452"},
             "showscale": True,
             "hovertemplate": f"{x_column}=%{{x:.4g}}<br>{y_column}=%{{y:.4g}}<extra>density</extra>",
         }
@@ -629,7 +734,7 @@ def _build_surface_3d_spec(context: dict[str, Any]) -> dict[str, Any]:
             "ticktext": labels,
         },
         "zaxis": {"title": scale},
-        "camera": {"eye": {"x": 1.45, "y": 1.65, "z": 0.9}},
+        "camera": {"eye": _camera_eye(str(params.get("camera") or "isometric"))},
     }
     layout["height"] = _bounded_int(params.get("height"), 780, 420, 3000)
     warnings = []
@@ -1072,9 +1177,11 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
             else:
                 row.append(_pearson(series[row_column], series[column]))
         z_values.append(row)
-    row_cluster = _cluster_vectors(z_values, params) if _truthy(params.get("cluster_rows"), True) else None
-    if row_cluster:
-        order = row_cluster["order"]
+    cluster_rows = _truthy(params.get("cluster_rows"), True)
+    cluster_columns = _truthy(params.get("cluster_columns"), True)
+    cluster_result = _cluster_vectors(z_values, params) if cluster_rows or cluster_columns else None
+    if cluster_result:
+        order = cluster_result["order"]
         numeric_columns = [numeric_columns[index] for index in order]
         z_values = [[row[index] for index in order] for row in [z_values[index] for index in order]]
 
@@ -1089,6 +1196,14 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
         "colorbar": {"title": "r"},
         "hovertemplate": "%{y} vs %{x}<br>r=%{z:.3f}<extra></extra>",
     }
+    warnings = []
+    if _truthy(params.get("show_values"), False):
+        if len(numeric_columns) <= 40:
+            trace["text"] = [[f"{value:.2f}" for value in row] for row in z_values]
+            trace["texttemplate"] = "%{text}"
+            trace["textfont"] = {"size": 10, "color": "#152433"}
+        else:
+            warnings.append("Correlation r-value labels were hidden because more than 40 columns are displayed.")
     layout = _base_layout(
         title=f"{method.title()} correlation heatmap",
         x_title="numeric column",
@@ -1099,8 +1214,13 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
         layout["height"] = max(560, min(1800, 220 + len(numeric_columns) * 13))
     layout["xaxis"]["automargin"] = True
     layout["yaxis"]["automargin"] = True
-    _attach_dendrogram_guides(layout, row_cluster, row_cluster, row_count=len(numeric_columns), column_count=len(numeric_columns))
-    warnings = []
+    _attach_dendrogram_guides(
+        layout,
+        cluster_result if cluster_rows else None,
+        cluster_result if cluster_columns else None,
+        row_count=len(numeric_columns),
+        column_count=len(numeric_columns),
+    )
     if len(context["numeric_columns"]) > len(numeric_columns):
         warnings.append(f"Showing first {len(numeric_columns)} numeric columns to keep correlation readable.")
     return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
@@ -1122,6 +1242,7 @@ def _build_enrichment_dot_spec(context: dict[str, Any]) -> dict[str, Any]:
     if not term_column or not x_column:
         return _empty_plot_spec("enrichment_dot", "Enrichment dot plot requires term and x-value columns.", context["table_summary"])
 
+    color_transform = str(params.get("color_transform") or "minus_log10")
     rows = []
     for row in context["records"]:
         x_value = _number_or_ratio(row.get(x_column))
@@ -1134,7 +1255,7 @@ def _build_enrichment_dot_spec(context: dict[str, Any]) -> dict[str, Any]:
                 "term": str(row.get(term_column) or ""),
                 "x": x_value,
                 "size": size_value if size_value is not None else 1.0,
-                "color": color_value if color_value is not None else x_value,
+                "raw_color": color_value if color_value is not None else x_value,
             }
         )
     if not rows:
@@ -1142,30 +1263,42 @@ def _build_enrichment_dot_spec(context: dict[str, Any]) -> dict[str, Any]:
 
     sort_by = str(params.get("sort_by") or color_column or x_column)
     if "p" in sort_by.lower() or sort_by == color_column:
-        rows.sort(key=lambda item: item["color"])
+        rows.sort(key=lambda item: item["raw_color"])
+    elif sort_by in {"count", "size"} or sort_by == size_column:
+        rows.sort(key=lambda item: item["size"], reverse=True)
     else:
         rows.sort(key=lambda item: item["x"], reverse=True)
     top_n = _bounded_int(params.get("top_n"), 20, 5, 200)
     rows = rows[:top_n]
     max_size = max(item["size"] for item in rows) or 1.0
-    marker_sizes = [8 + item["size"] / max_size * 30 for item in rows]
+    min_dot_size = _bounded_float(params.get("min_dot_size"), 8, 2, 60)
+    max_dot_size = _bounded_float(params.get("max_dot_size"), 38, min_dot_size, 120)
+    marker_sizes = [min_dot_size + item["size"] / max_size * (max_dot_size - min_dot_size) for item in rows]
+    color_values = [_enrichment_color_value(item["raw_color"], color_transform) for item in rows]
+    term_labels = [
+        _wrap_text_label(item["term"], _bounded_int(params.get("term_label_width"), 26, 8, 100))
+        if _truthy(params.get("wrap_term_label"), True)
+        else item["term"]
+        for item in rows
+    ]
+    colorbar_title = f"-log10({color_column})" if color_transform == "minus_log10" and color_column else color_column or x_column
     trace = {
         "type": "scatter",
         "mode": "markers",
         "x": [item["x"] for item in rows],
-        "y": [item["term"] for item in rows],
+        "y": term_labels,
         "marker": {
             "size": marker_sizes,
-            "color": [item["color"] for item in rows],
+            "color": color_values,
             "colorscale": "Viridis",
             "showscale": True,
-            "colorbar": {"title": color_column or x_column},
+            "colorbar": {"title": colorbar_title},
             "line": {"color": "#ffffff", "width": 1},
             "opacity": 0.86,
         },
         "text": [item["term"] for item in rows],
-        "customdata": [[item["size"], item["color"]] for item in rows],
-        "hovertemplate": "%{text}<br>x=%{x:.4g}<br>size=%{customdata[0]:.4g}<br>color=%{customdata[1]:.4g}<extra></extra>",
+        "customdata": [[item["size"], item["raw_color"], color_values[index]] for index, item in enumerate(rows)],
+        "hovertemplate": "%{text}<br>x=%{x:.4g}<br>size=%{customdata[0]:.4g}<br>raw color=%{customdata[1]:.4g}<br>display color=%{customdata[2]:.4g}<extra></extra>",
     }
     layout = _base_layout(
         title=f"Enrichment dot plot: top {len(rows)} terms",
@@ -1465,6 +1598,8 @@ def _attach_dendrogram_guides(
     row_count: int,
     column_count: int,
 ) -> None:
+    if not row_cluster and not column_cluster:
+        return
     shapes = layout.setdefault("shapes", [])
     if row_cluster:
         shapes.extend(_dendrogram_shapes(row_cluster, orientation="row", leaf_count=row_count))
@@ -1632,6 +1767,28 @@ def _number_or_ratio(value: Any) -> float | None:
     if left is None or right in {None, 0}:
         return None
     return left / right
+
+
+def _enrichment_color_value(value: float, transform: str) -> float:
+    if transform == "minus_log10":
+        return -math.log10(max(value, 1e-300))
+    return value
+
+
+def _wrap_text_label(text: str, width: int) -> str:
+    words = str(text or "").split()
+    if not words:
+        return ""
+    lines = []
+    current = words[0]
+    for word in words[1:]:
+        if len(current) + 1 + len(word) <= width:
+            current = f"{current} {word}"
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return "<br>".join(lines)
 
 
 def _colorscale(name: str) -> str | list[list[Any]]:
@@ -2074,6 +2231,34 @@ def _paper_x_line(x0: float, x1: float, y_value: float) -> dict[str, Any]:
     }
 
 
+def _x_reference_line(x_value: float, color: str, *, dash: str) -> dict[str, Any]:
+    return {
+        "type": "line",
+        "xref": "x",
+        "yref": "paper",
+        "x0": x_value,
+        "x1": x_value,
+        "y0": 0,
+        "y1": 1,
+        "line": {"color": color, "width": 1.7, "dash": dash},
+    }
+
+
+def _x_reference_annotation(x_value: float, text: str, color: str) -> dict[str, Any]:
+    return {
+        "xref": "x",
+        "yref": "paper",
+        "x": x_value,
+        "y": 1.02,
+        "text": text,
+        "showarrow": False,
+        "textangle": -90,
+        "font": {"size": 10, "color": color},
+        "xanchor": "left",
+        "yanchor": "bottom",
+    }
+
+
 def _welch_t_p_value(first_values: list[float], second_values: list[float]) -> float:
     if len(first_values) < 2 or len(second_values) < 2:
         return 1.0
@@ -2217,15 +2402,19 @@ def _sort_bar_values(
     values: list[float],
     errors: list[float],
     mode: str,
-) -> tuple[list[str], list[float], list[float]]:
+    *,
+    grouped_values: list[tuple[str, list[float]]] | None = None,
+) -> tuple[list[str], list[float], list[float], list[tuple[str, list[float]]]]:
     if mode not in {"ascending", "descending"}:
-        return labels, values, errors
+        return labels, values, errors, grouped_values or []
     reverse = mode == "descending"
+    grouped_map = {name: group_values for name, group_values in grouped_values or []}
     packed = sorted(zip(labels, values, errors, strict=False), key=lambda item: item[1], reverse=reverse)
     if not packed:
-        return labels, values, errors
+        return labels, values, errors, grouped_values or []
     sorted_labels, sorted_values, sorted_errors = zip(*packed, strict=False)
-    return list(sorted_labels), list(sorted_values), list(sorted_errors)
+    sorted_grouped_values = [(label, grouped_map.get(label, [])) for label in sorted_labels]
+    return list(sorted_labels), list(sorted_values), list(sorted_errors), sorted_grouped_values
 
 
 def _line_trace(

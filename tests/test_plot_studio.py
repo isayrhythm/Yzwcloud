@@ -72,6 +72,8 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "loess_fraction",
         "confidence_ellipse",
         "ellipse_level",
+        "x_log",
+        "y_log",
     }
     line_series = next(group for group in presets["line"]["parameter_groups"] if group["id"] == "series")
     assert {param["id"] for param in line_series["parameters"]} >= {
@@ -85,19 +87,49 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert bar["engine"] == "plotly"
     assert bar["default_params"]["show_points"] is True
     statistics_group = next(group for group in bar["parameter_groups"] if group["id"] == "statistics")
-    assert {param["id"] for param in statistics_group["parameters"]} >= {"error_cap_width", "sort"}
+    assert {param["id"] for param in statistics_group["parameters"]} >= {
+        "error_cap_width",
+        "sort",
+        "pairwise_test",
+        "multiple_testing",
+        "show_p_values",
+    }
 
     heatmap = presets["heatmap"]
     assert heatmap["default_params"]["show_dendrogram"] is True
     clustering_group = next(group for group in heatmap["parameter_groups"] if group["id"] == "clustering")
     top_n = next(param for param in clustering_group["parameters"] if param["id"] == "top_n")
     assert top_n["step"] == 1
+    histogram_distribution = next(group for group in presets["histogram"]["parameter_groups"] if group["id"] == "distribution")
+    assert {param["id"] for param in histogram_distribution["parameters"]} >= {
+        "show_mean",
+        "show_median",
+        "show_rug",
+    }
 
     upset = presets["upset"]
     upset_sets = next(group for group in upset["parameter_groups"] if group["id"] == "sets")
     assert {param["id"] for param in upset_sets["parameters"]} >= {"max_sets", "max_intersections"}
     venn = presets["venn"]
     assert venn["default_params"]["max_sets"] == 4
+    enrichment_terms = next(group for group in presets["enrichment_dot"]["parameter_groups"] if group["id"] == "terms")
+    assert {param["id"] for param in enrichment_terms["parameters"]} >= {
+        "term_label_width",
+        "min_dot_size",
+        "max_dot_size",
+    }
+    bubble_style = next(group for group in presets["bubble"]["parameter_groups"] if group["id"] == "bubble")
+    assert {param["id"] for param in bubble_style["parameters"]} >= {"color_scale", "point_alpha", "size_scale"}
+    density_group = next(group for group in presets["density_contour"]["parameter_groups"] if group["id"] == "density")
+    assert {param["id"] for param in density_group["parameters"]} >= {
+        "contour_line_width",
+        "show_contour_labels",
+        "contour_start",
+        "contour_end",
+        "contour_size",
+    }
+    surface_group = next(group for group in presets["surface_3d"]["parameter_groups"] if group["id"] == "surface")
+    assert {param["id"] for param in surface_group["parameters"]} >= {"camera", "show_contours", "colorscale"}
 
 
 def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:
@@ -226,6 +258,56 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
     assert "p-values shown on plot" in sections["Parameter notes"]
     assert "pairwise test=t_test" in report["agent_context"]["parameter_summary"]["statistics"]
 
+    bar_report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "bar",
+            "params": {
+                "category": "condition",
+                "value": "value",
+                "aggregation": "mean",
+                "error_bar": "ci95",
+                "pairwise_test": "wilcoxon",
+                "multiple_testing": "bonferroni",
+                "show_p_values": True,
+            },
+        },
+    )
+    bar_sections = {section["title"]: section["text"] for section in bar_report["report"]["sections"]}
+    assert "aggregation=mean" in bar_sections["Parameter notes"]
+    assert "error bar=ci95" in bar_sections["Parameter notes"]
+    assert "pairwise test=wilcoxon" in bar_sections["Parameter notes"]
+    assert "multiple testing=bonferroni" in bar_sections["Parameter notes"]
+    assert "p-values shown on plot" in bar_report["agent_context"]["parameter_summary"]["statistics"]
+
+    histogram_report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "histogram",
+            "params": {"x": "value", "bins": 18, "histnorm": "density", "show_mean": True, "show_median": True, "show_rug": True},
+        },
+    )
+    histogram_sections = {section["title"]: section["text"] for section in histogram_report["report"]["sections"]}
+    assert "mean reference shown" in histogram_sections["Parameter notes"]
+    assert "median reference shown" in histogram_sections["Parameter notes"]
+    assert "rug marks shown" in histogram_report["agent_context"]["parameter_summary"]["display"]
+
 
 def test_plot_studio_report_summarizes_upset_parameters(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
@@ -349,6 +431,284 @@ def test_plot_studio_report_summarizes_volcano_label_parameters(tmp_path: Path) 
     assert "abs log2FC threshold=1.2" in sections["Parameter notes"]
     assert "top labels=5" in report["agent_context"]["parameter_summary"]["display"]
     assert "label mode=top_p" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_correlation_parameters() -> None:
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Expression matrix",
+                "type": "expression_matrix",
+                "dataPath": str(DATA_FILE),
+                "meta": {"sample_count": 52, "gene_count": 2000},
+            },
+            "plotType": "correlation",
+            "params": {
+                "method": "spearman",
+                "cluster_rows": False,
+                "cluster_columns": True,
+                "show_values": True,
+                "color_scale": "green_white_purple",
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "method=spearman" in sections["Parameter notes"]
+    assert "cluster rows=False" in sections["Parameter notes"]
+    assert "cluster columns=True" in sections["Parameter notes"]
+    assert "r-value labels shown" in report["agent_context"]["parameter_summary"]["display"]
+    assert "color scale=green_white_purple" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_enrichment_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_enrichment.csv"
+    table_file.write_text(
+        "term,gene_ratio,count,adjusted_p\ncell cycle checkpoint,3/100,3,0.001\nimmune response,5/120,5,0.004\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Enrichment result",
+                "type": "enrichment_result",
+                "dataPath": str(table_file),
+            },
+            "plotType": "enrichment_dot",
+            "params": {"top_n": 10, "sort_by": "count", "color_transform": "minus_log10", "wrap_term_label": True},
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "top terms=10" in sections["Parameter notes"]
+    assert "sort by=count" in sections["Parameter notes"]
+    assert "color transform=minus_log10" in sections["Parameter notes"]
+    assert "wrapped term labels" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_bubble_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_report_bubble.csv"
+    table_file.write_text("x,y,size,score\n1,2,10,0.2\n2,3,20,0.8\n", encoding="utf-8")
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Bubble table",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "bubble",
+            "params": {
+                "x": "x",
+                "y": "y",
+                "size": "size",
+                "color": "score",
+                "size_scale": 36,
+                "min_bubble_size": 6,
+                "max_bubble_size": 30,
+                "color_scale": "plasma",
+                "point_alpha": 0.55,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "size scale=36" in sections["Parameter notes"]
+    assert "bubble size range=6-30" in sections["Parameter notes"]
+    assert "continuous color scale=plasma" in report["agent_context"]["parameter_summary"]["display"]
+    assert "point opacity=0.55" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_scatter_axis_transforms(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_scatter_report.csv"
+    table_file.write_text("x,y\n1,10\n10,100\n", encoding="utf-8")
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Scatter table",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "scatter",
+            "params": {"x": "x", "y": "y", "x_log": True, "y_log": True},
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "log x-axis" in sections["Parameter notes"]
+    assert "log y-axis" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_line_display_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_line_report.csv"
+    table_file.write_text("time,series,value\nT1,A,1\nT2,A,2\n", encoding="utf-8")
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Line table",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "line",
+            "params": {
+                "x": "time",
+                "y": "value",
+                "series": "series",
+                "line_shape": "linear",
+                "line_width": 3.2,
+                "smooth": True,
+                "show_points": False,
+                "marker_size": 9,
+                "marker_symbol": "diamond",
+                "connect_gaps": True,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "line width=3.2" in sections["Parameter notes"]
+    assert "spline smoothing enabled" in sections["Parameter notes"]
+    assert "markers shown=False" in report["agent_context"]["parameter_summary"]["display"]
+    assert "marker symbol=diamond" in report["agent_context"]["parameter_summary"]["display"]
+    assert "missing values connected" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_density_contour_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_density_report.csv"
+    table_file.write_text("x,y\n1,2\n2,4\n3,6\n4,7\n", encoding="utf-8")
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Density table",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "density_contour",
+            "params": {
+                "x": "x",
+                "y": "y",
+                "contours_coloring": "lines",
+                "contour_line_width": 2.5,
+                "show_contour_labels": True,
+                "contour_start": 0.1,
+                "contour_end": 0.9,
+                "contour_size": 0.2,
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "contour fill=lines" in sections["Parameter notes"]
+    assert "contour line width=2.5" in sections["Parameter notes"]
+    assert "contour range/step=0.1,0.9,0.2" in sections["Parameter notes"]
+    assert "contour labels shown" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_surface_parameters() -> None:
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Expression matrix",
+                "type": "expression_matrix",
+                "dataPath": str(DATA_FILE),
+                "meta": {"sample_count": 52, "gene_count": 2000},
+            },
+            "plotType": "surface_3d",
+            "params": {
+                "scale": "log2",
+                "top_n": 16,
+                "colorscale": "Plasma",
+                "show_contours": False,
+                "camera": "top",
+            },
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "scale=log2" in sections["Parameter notes"]
+    assert "top rows=16" in sections["Parameter notes"]
+    assert "surface contours=False" in report["agent_context"]["parameter_summary"]["display"]
+    assert "camera=top" in report["agent_context"]["parameter_summary"]["display"]
+
+
+def test_plot_studio_report_summarizes_scatter_3d_parameters(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_scatter3d_report.csv"
+    table_file.write_text("x,y,z\n1,2,3\n2,3,4\n", encoding="utf-8")
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "3D scatter table",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "scatter_3d",
+            "params": {"x": "x", "y": "y", "z": "z", "marker_size": 9, "point_alpha": 0.42, "camera": "front"},
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    assert "marker size=9" in sections["Parameter notes"]
+    assert "point opacity=0.42" in sections["Parameter notes"]
+    assert "camera=front" in report["agent_context"]["parameter_summary"]["display"]
 
 
 def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> None:
@@ -523,6 +883,19 @@ def test_plot_studio_scatter_statistics_controls_render_overlays(tmp_path: Path)
     )
     assert any(trace["name"] == "A LOESS smooth" for trace in loess["data"])
 
+    log_axes = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": source,
+            "plotType": "scatter",
+            "params": {"x": "x", "y": "y", "x_log": True, "y_log": True},
+        },
+    )
+    assert log_axes["layout"]["xaxis"]["type"] == "log"
+    assert log_axes["layout"]["yaxis"]["type"] == "log"
+
 
 def test_plot_studio_line_style_controls_are_rendered(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
@@ -634,6 +1007,9 @@ def test_plot_studio_spec_builds_prism_style_violin_and_bar(tmp_path: Path) -> N
                 "error_bar": "sem",
                 "sort": "descending",
                 "error_cap_width": 12,
+                "pairwise_test": "t_test",
+                "multiple_testing": "BH",
+                "show_p_values": True,
             },
         },
     )
@@ -642,6 +1018,10 @@ def test_plot_studio_spec_builds_prism_style_violin_and_bar(tmp_path: Path) -> N
     assert bar["data"][0]["x"] == ["B", "A"]
     assert bar["data"][0]["error_y"]["width"] == 12
     assert bar["data"][1]["name"] == "Raw values"
+    assert len(bar["layout"]["shapes"]) == 3
+    assert len(bar["layout"]["annotations"]) == 1
+    assert bar["layout"]["annotations"][0]["text"].startswith("p")
+    assert bar["layout"]["yaxis"]["range"][1] > max(bar["data"][0]["y"])
 
 
 def test_plot_studio_boxplot_pairwise_p_values_render_brackets(tmp_path: Path) -> None:
@@ -854,6 +1234,21 @@ def test_plot_studio_spec_builds_heatmap_and_correlation() -> None:
     assert correlation["layout"]["meta"]["dendrogram_guides"]["rows"] is True
     assert len(correlation["layout"]["shapes"]) > 0
 
+    labeled_correlation = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": source,
+            "plotType": "correlation",
+            "params": {"max_columns": 4, "cluster_rows": False, "cluster_columns": False, "show_values": True},
+        },
+    )
+    assert labeled_correlation["data"][0]["texttemplate"] == "%{text}"
+    assert labeled_correlation["data"][0]["text"][0][0] == "1.00"
+    assert "meta" not in labeled_correlation["layout"]
+    assert "shapes" not in labeled_correlation["layout"]
+
 
 def test_plot_studio_spec_builds_added_interactive_plot_types() -> None:
     client = TestClient(app)
@@ -869,20 +1264,46 @@ def test_plot_studio_spec_builds_added_interactive_plot_types() -> None:
         client,
         "POST",
         "/api/plot-studio/spec",
-        json={"source": source, "plotType": "histogram", "params": {"bins": 24}},
+        json={
+            "source": source,
+            "plotType": "histogram",
+            "params": {"bins": 24, "show_mean": True, "show_median": True, "show_rug": True},
+        },
     )
     assert histogram["plot_type"] == "histogram"
     assert histogram["data"][0]["type"] == "histogram"
     assert histogram["data"][0]["nbinsx"] == 24
+    assert any(trace["name"].endswith("rug") for trace in histogram["data"])
+    assert len(histogram["layout"]["shapes"]) >= 2
+    assert {annotation["text"].split()[-1] for annotation in histogram["layout"]["annotations"]} >= {"mean", "median"}
 
     contour = _request(
         client,
         "POST",
         "/api/plot-studio/spec",
-        json={"source": source, "plotType": "density_contour"},
+        json={
+            "source": source,
+            "plotType": "density_contour",
+            "params": {
+                "contours_coloring": "lines",
+                "contour_line_width": 2.5,
+                "show_contour_labels": True,
+                "contour_start": 0.1,
+                "contour_end": 0.9,
+                "contour_size": 0.2,
+            },
+        },
     )
     assert contour["plot_type"] == "density_contour"
     assert contour["data"][0]["type"] == "histogram2dcontour"
+    assert contour["data"][0]["contours"] == {
+        "coloring": "lines",
+        "showlabels": True,
+        "start": 0.1,
+        "end": 0.9,
+        "size": 0.2,
+    }
+    assert contour["data"][0]["line"]["width"] == 2.5
     assert any(trace["type"] == "scattergl" for trace in contour["data"])
 
     scatter_3d = _request(
@@ -899,12 +1320,74 @@ def test_plot_studio_spec_builds_added_interactive_plot_types() -> None:
         client,
         "POST",
         "/api/plot-studio/spec",
-        json={"source": source, "plotType": "surface_3d", "params": {"top_n": 10, "max_columns": 6}},
+        json={
+            "source": source,
+            "plotType": "surface_3d",
+            "params": {"top_n": 10, "max_columns": 6, "camera": "top", "show_contours": False},
+        },
     )
     assert surface["plot_type"] == "surface_3d"
     assert surface["data"][0]["type"] == "surface"
     assert len(surface["data"][0]["z"]) == 10
     assert len(surface["data"][0]["z"][0]) == 6
+    assert surface["data"][0]["contours"] == {}
+    assert surface["layout"]["scene"]["camera"]["eye"] == {"x": 0.05, "y": 0.05, "z": 2.25}
+
+
+def test_plot_studio_spec_builds_numeric_color_bubble_plot(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_bubble.csv"
+    table_file.write_text(
+        "\n".join(
+            [
+                "label,x,y,size,score",
+                "a,1,2,10,0.2",
+                "b,2,3,20,0.8",
+                "c,3,4,30,1.4",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Bubble table",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "bubble",
+            "params": {
+                "x": "x",
+                "y": "y",
+                "size": "size",
+                "color": "score",
+                "label": "label",
+                "size_scale": 36,
+                "min_bubble_size": 6,
+                "max_bubble_size": 30,
+                "color_scale": "plasma",
+                "point_alpha": 0.55,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "bubble"
+    trace = spec["data"][0]
+    assert trace["type"] == "scattergl"
+    assert trace["showlegend"] is False
+    assert trace["marker"]["color"] == [0.2, 0.8, 1.4]
+    assert trace["marker"]["colorscale"] == "Plasma"
+    assert trace["marker"]["colorbar"]["title"] == "score"
+    assert trace["marker"]["opacity"] == 0.55
+    assert min(trace["marker"]["size"]) == 6
+    assert max(trace["marker"]["size"]) == 60
 
 
 def test_plot_studio_spec_builds_enrichment_dot_plot(tmp_path: Path) -> None:
@@ -913,7 +1396,7 @@ def test_plot_studio_spec_builds_enrichment_dot_plot(tmp_path: Path) -> None:
     enrichment_file = allowed_tmp / f"{tmp_path.name}_enrichment.csv"
     enrichment_file.write_text(
         "term,gene_ratio,count,adjusted_p\n"
-        "cell cycle,3/100,3,0.001\n"
+        "cell cycle checkpoint regulation,3/100,3,0.001\n"
         "apoptosis,8/200,8,0.02\n"
         "immune response,5/120,5,0.004\n",
         encoding="utf-8",
@@ -932,7 +1415,15 @@ def test_plot_studio_spec_builds_enrichment_dot_plot(tmp_path: Path) -> None:
                 "dataPath": str(enrichment_file),
             },
             "plotType": "enrichment_dot",
-            "params": {"top_n": 5},
+            "params": {
+                "top_n": 5,
+                "sort_by": "adjusted_p",
+                "color_transform": "minus_log10",
+                "wrap_term_label": True,
+                "term_label_width": 12,
+                "min_dot_size": 6,
+                "max_dot_size": 24,
+            },
         },
     )
 
@@ -940,6 +1431,10 @@ def test_plot_studio_spec_builds_enrichment_dot_plot(tmp_path: Path) -> None:
     assert spec["data"][0]["type"] == "scatter"
     assert spec["data"][0]["mode"] == "markers"
     assert len(spec["data"][0]["x"]) == 3
+    assert spec["data"][0]["marker"]["colorbar"]["title"] == "-log10(adjusted_p)"
+    assert spec["data"][0]["marker"]["color"][0] == 3.0
+    assert max(spec["data"][0]["marker"]["size"]) == 24
+    assert any("<br>" in label for label in spec["data"][0]["y"])
 
 
 def test_table_inspection_and_recommendations_handle_numeric_tables() -> None:

@@ -247,6 +247,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("loess_fraction", "LOESS span", "number", 0.35, min_value=0.15, max_value=0.9, step=0.05),
                     _param("confidence_ellipse", "Confidence ellipse", "boolean", False),
                     _param("ellipse_level", "Ellipse level", "number", 0.95, min_value=0.5, max_value=0.99, step=0.01),
+                    _param("x_log", "Log X axis", "boolean", False),
+                    _param("y_log", "Log Y axis", "boolean", False),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -352,6 +354,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "show_points": True,
             "orientation": "vertical",
             "sort": "input",
+            "pairwise_test": "none",
+            "show_p_values": False,
         },
         "parameter_groups": [
             _group(
@@ -372,6 +376,15 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("show_points", "Overlay raw points", "boolean", True),
                     _param("point_alpha", "Point opacity", "number", 0.68, min_value=0.05, max_value=1, step=0.05),
                     _param("error_cap_width", "Error cap width", "number", 8, min_value=0, max_value=24, step=1),
+                    _param(
+                        "pairwise_test",
+                        "Pairwise test",
+                        "select",
+                        "none",
+                        options=["none", "t_test", "wilcoxon", "anova_then_tukey"],
+                    ),
+                    _param("multiple_testing", "Multiple testing", "select", "BH", options=["none", "BH", "bonferroni"]),
+                    _param("show_p_values", "Show p-values", "boolean", False),
                     _param("sort", "Sort bars", "select", "input", options=["input", "ascending", "descending"]),
                     _param("orientation", "Orientation", "select", "vertical", options=["vertical", "horizontal"]),
                 ],
@@ -429,6 +442,9 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "barmode": "overlay",
             "opacity": 0.68,
             "cumulative": False,
+            "show_mean": True,
+            "show_median": False,
+            "show_rug": False,
         },
         "parameter_groups": [
             _group(
@@ -448,6 +464,9 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("barmode", "Bar mode", "select", "overlay", options=["overlay", "group", "stack"]),
                     _param("opacity", "Opacity", "number", 0.68, min_value=0.1, max_value=1, step=0.02),
                     _param("cumulative", "Cumulative", "boolean", False),
+                    _param("show_mean", "Mean reference", "boolean", True),
+                    _param("show_median", "Median reference", "boolean", False),
+                    _param("show_rug", "Rug marks", "boolean", False),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -463,6 +482,8 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "show_points": True,
             "point_size": 5,
             "point_alpha": 0.38,
+            "contour_line_width": 1.2,
+            "show_contour_labels": False,
         },
         "parameter_groups": [
             _group(
@@ -483,6 +504,11 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("show_points", "Overlay points", "boolean", True),
                     _param("point_size", "Point size", "number", 5, min_value=1, max_value=24, step=1),
                     _param("point_alpha", "Point opacity", "number", 0.38, min_value=0.05, max_value=1, step=0.02),
+                    _param("contour_line_width", "Contour line width", "number", 1.2, min_value=0.2, max_value=6, step=0.1),
+                    _param("show_contour_labels", "Show contour labels", "boolean", False),
+                    _param("contour_start", "Contour start", "number_or_auto", "auto"),
+                    _param("contour_end", "Contour end", "number_or_auto", "auto"),
+                    _param("contour_size", "Contour step", "number_or_auto", "auto"),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -532,6 +558,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "top_n": 40,
             "colorscale": "Viridis",
             "show_contours": True,
+            "camera": "isometric",
         },
         "parameter_groups": [
             _group(
@@ -550,6 +577,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("top_n", "Top rows", "number", 40, min_value=5, max_value=2000, step=1),
                     _param("colorscale", "Colorscale", "select", "Viridis", options=["Viridis", "Plasma", "Cividis", "RdBu"]),
                     _param("show_contours", "Show contours", "boolean", True),
+                    _param("camera", "Camera", "select", "isometric", options=["isometric", "front", "top"]),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -599,7 +627,13 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         "label": "Bubble",
         "engine": "plotly",
         "description": "Scatter-like chart for x/y position plus size and color encodings.",
-        "default_params": {"size_scale": 18, "min_bubble_size": 4, "max_bubble_size": 48},
+        "default_params": {
+            "size_scale": 18,
+            "min_bubble_size": 4,
+            "max_bubble_size": 48,
+            "color_scale": "viridis",
+            "point_alpha": 0.72,
+        },
         "parameter_groups": [
             _group(
                 "mapping",
@@ -619,6 +653,14 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("size_scale", "Size scale", "number", 18, min_value=1, max_value=100, step=1),
                     _param("min_bubble_size", "Min bubble size", "number", 4, min_value=1, max_value=40, step=1),
                     _param("max_bubble_size", "Max bubble size", "number", 48, min_value=8, max_value=120, step=1),
+                    _param(
+                        "color_scale",
+                        "Continuous color scale",
+                        "select",
+                        "viridis",
+                        options=["viridis", "magma", "plasma", "cividis", "blue_white_red", "green_white_purple"],
+                    ),
+                    _param("point_alpha", "Point opacity", "number", 0.72, min_value=0.05, max_value=1, step=0.02),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -764,7 +806,10 @@ PLOT_PRESETS: list[dict[str, Any]] = [
             "x_column": "gene_ratio",
             "size_column": "count",
             "color_column": "adjusted_p",
+            "color_transform": "minus_log10",
             "top_n": 20,
+            "min_dot_size": 8,
+            "max_dot_size": 38,
         },
         "parameter_groups": [
             _group(
@@ -775,6 +820,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("x_column", "X axis", "column", "gene_ratio", required=True),
                     _param("size_column", "Point size", "column", "count"),
                     _param("color_column", "Color", "column", "adjusted_p"),
+                    _param("color_transform", "Color transform", "select", "minus_log10", options=["raw", "minus_log10"]),
                 ],
             ),
             _group(
@@ -784,6 +830,9 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                     _param("top_n", "Top terms", "number", 20, min_value=5, max_value=200, step=1),
                     _param("sort_by", "Sort by", "select", "adjusted_p", options=["adjusted_p", "count", "gene_ratio"]),
                     _param("wrap_term_label", "Wrap labels", "boolean", True),
+                    _param("term_label_width", "Label width", "number", 26, min_value=8, max_value=80, step=1),
+                    _param("min_dot_size", "Min dot size", "number", 8, min_value=2, max_value=40, step=1),
+                    _param("max_dot_size", "Max dot size", "number", 38, min_value=8, max_value=100, step=1),
                 ],
             ),
             *COMMON_THEME_GROUPS,

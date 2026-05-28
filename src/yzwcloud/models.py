@@ -75,6 +75,10 @@ class CreateTaskRequest(BaseModel):
     name: str = "生信分析任务"
 
 
+class UpdateTaskRequest(BaseModel):
+    name: str
+
+
 class RunNodeRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
@@ -94,6 +98,7 @@ class CreateAnalysisNodeRequest(BaseModel):
 
 class UpdateSampleGroupsRequest(BaseModel):
     assignments: dict[str, str] = Field(default_factory=dict)
+    condition_colors: dict[str, str] = Field(default_factory=dict)
 
 
 class ComparisonOptionsResponse(BaseModel):

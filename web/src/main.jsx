@@ -17,6 +17,7 @@ import "@xyflow/react/dist/style.css";
 import { HeatmapParamsModal } from "./components/HeatmapParamsModal.jsx";
 import { Modal } from "./components/Modal.jsx";
 import { NodeParamsModal } from "./components/NodeParamsModal.jsx";
+import { WgcnaParamsModal } from "./components/WgcnaParamsModal.jsx";
 import "./styles.css";
 
 const statusLabel = {
@@ -45,6 +46,20 @@ const defaultPositions = {
   diff_analysis: { x: 640, y: 390 },
   expression_heatmap__expression: { x: 640, y: 530 },
 };
+
+const PAGE_IDS = new Set(["home", "workbench", "docs", "lab", "reports"]);
+const PAGE_STORAGE_KEY = "yzwcloud.currentPage";
+
+function normalizePage(value) {
+  const page = String(value || "").replace(/^#\/?/, "");
+  return PAGE_IDS.has(page) ? page : "home";
+}
+
+function initialPage() {
+  const hashPage = normalizePage(window.location.hash);
+  if (hashPage !== "home" || window.location.hash) return hashPage;
+  return normalizePage(localStorage.getItem(PAGE_STORAGE_KEY));
+}
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -537,8 +552,12 @@ function App() {
   const [modal, setModal] = useState(null);
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState(initialPage);
   const [showMiniMap, setShowMiniMap] = useState(false);
+  const [taskMenuId, setTaskMenuId] = useState(null);
+  const [taskMenuPosition, setTaskMenuPosition] = useState(null);
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editingTaskName, setEditingTaskName] = useState("");
   const flowPanelRef = useRef(null);
   const miniMapTimerRef = useRef(null);   const reportModel = useMemo(() => buildReportModel(detail, logs), [detail, logs]);
 
@@ -580,6 +599,33 @@ function App() {
     }, 1800);
     return () => window.clearInterval(timer);
   }, [activeTaskId, loadDetail]);
+
+  useEffect(() => {
+    localStorage.setItem(PAGE_STORAGE_KEY, page);
+    const nextHash = `#${page}`;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, "", nextHash);
+    }
+  }, [page]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setPage(normalizePage(window.location.hash));
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  useEffect(() => {
+    if (!taskMenuId) return undefined;
+    const closeTaskMenu = (event) => {
+      if (event.target.closest?.(".task-menu-wrap, .task-menu")) return;
+      setTaskMenuId(null);
+      setTaskMenuPosition(null);
+    };
+    window.addEventListener("pointerdown", closeTaskMenu);
+    return () => window.removeEventListener("pointerdown", closeTaskMenu);
+  }, [taskMenuId]);
 
   useEffect(() => {
     if (!detail) {
@@ -635,8 +681,21 @@ function App() {
     await loadTasks();
   };
 
+  const requestDeleteTask = (task) => {
+    setTaskMenuId(null);
+    setTaskMenuPosition(null);
+    setModal({
+      kind: "confirmDelete",
+      title: "删除任务",
+      message: `确定删除「${task.name}」吗？任务数据、输出和日志都会删除。`,
+      confirmLabel: "删除任务",
+      target: { type: "task", taskId: task.task_id },
+    });
+  };
+
   const deleteTask = async (taskId) => {
-    if (!window.confirm("确定删除这个任务吗？任务数据、输出和日志都会删除。")) return;
+    setTaskMenuId(null);
+    setTaskMenuPosition(null);
     await api(`/api/tasks/${taskId}`, { method: "DELETE" });
     if (taskId === activeTaskId) {
       const nextTask = tasks.find((task) => task.task_id !== taskId);
@@ -644,6 +703,52 @@ function App() {
       setDetail(null);
     }
     await loadTasks();
+  };
+
+  const confirmDelete = async () => {
+    if (modal?.kind !== "confirmDelete") return;
+    const target = modal.target;
+    setModal(null);
+    if (target.type === "task") {
+      await deleteTask(target.taskId);
+      return;
+    }
+    if (target.type === "node" && activeTaskId) {
+      await api(`/api/tasks/${activeTaskId}/nodes/${encodeURIComponent(target.nodeId)}`, {
+        method: "DELETE",
+      });
+      removeStoredNodePosition(activeTaskId, target.nodeId);
+      await loadDetail(activeTaskId);
+    }
+  };
+
+  const startRenameTask = (task) => {
+    setTaskMenuId(null);
+    setTaskMenuPosition(null);
+    setEditingTaskId(task.task_id);
+    setEditingTaskName(task.name);
+  };
+
+  const cancelRenameTask = () => {
+    setEditingTaskId(null);
+    setEditingTaskName("");
+  };
+
+  const submitRenameTask = async (task) => {
+    const cleanName = editingTaskName.trim();
+    if (!cleanName || cleanName === task.name) {
+      cancelRenameTask();
+      return;
+    }
+    await api(`/api/tasks/${task.task_id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: cleanName }),
+    });
+    cancelRenameTask();
+    await loadTasks();
+    if (task.task_id === activeTaskId) {
+      await loadDetail(task.task_id);
+    }
   };
 
   async function runNode(nodeId) {
@@ -661,12 +766,17 @@ function App() {
       setModal({ kind: "heatmapParams", node });
       return;
     }
+    if (nodeId.startsWith("wgcna__") && node) {
+      setModal({ kind: "wgcnaParams", node });
+      return;
+    }
     if (nodeId.startsWith("gene_expression__")) {
-      const gene = window.prompt("请输入基因名或 gene_id");
-      if (!gene) return;
+      const defaultGene = node?.output?.meta?.gene_id || node?.output?.meta?.gene || node?.params?.gene || "AUTO";
+      const gene = window.prompt("请输入基因名或 gene_id；保留 AUTO 自动选择高变基因", defaultGene);
+      if (gene === null) return;
       await api(`/api/tasks/${activeTaskId}/nodes/${encodeURIComponent(nodeId)}/run`, {
         method: "POST",
-        body: JSON.stringify({ params: { gene } }),
+        body: JSON.stringify({ params: { gene: gene.trim() || "AUTO" } }),
       });
       await loadDetail(activeTaskId);
       return;
@@ -693,12 +803,13 @@ function App() {
       nodeId === "upload_expression"
         ? "确定清空表达矩阵结果，并删除所有下游节点吗？"
         : "确定删除这个节点及所有下游子节点吗？";
-    if (!window.confirm(message)) return;
-    await api(`/api/tasks/${activeTaskId}/nodes/${encodeURIComponent(nodeId)}`, {
-      method: "DELETE",
+    setModal({
+      kind: "confirmDelete",
+      title: nodeId === "upload_expression" ? "清空表达矩阵" : "删除流程节点",
+      message,
+      confirmLabel: nodeId === "upload_expression" ? "清空并删除下游" : "删除节点",
+      target: { type: "node", nodeId },
     });
-    removeStoredNodePosition(activeTaskId, nodeId);
-    await loadDetail(activeTaskId);
   }
 
   function openNextModal(nodeId) {
@@ -742,11 +853,62 @@ function App() {
     }
   }
 
+  const keepNewNodesInView = (sourceNodeId, updatedDetail) => {
+    if (!activeTaskId || !detail || !updatedDetail) return;
+    const panel = flowPanelRef.current;
+    if (!panel) return;
+
+    const previousVisible = new Set(visibleGraphNodes(detail.graph.nodes, detail.graph.edges).map((node) => node.id));
+    const updatedVisibleNodes = visibleGraphNodes(updatedDetail.graph.nodes, updatedDetail.graph.edges);
+    const createdIds = updatedVisibleNodes
+      .filter((node) => !previousVisible.has(node.id))
+      .map((node) => node.id);
+    const newlyLinkedIds = updatedDetail.graph.edges
+      .filter((edge) => edge.source === sourceNodeId && !previousVisible.has(edge.target))
+      .map((edge) => edge.target);
+    const targetIds = Array.from(new Set([...createdIds, ...newlyLinkedIds]));
+    if (!targetIds.length) return;
+
+    const viewport = getViewport();
+    const width = panel.clientWidth || 1000;
+    const height = panel.clientHeight || 700;
+    const zoom = viewport.zoom || 1;
+    const bounds = {
+      left: (-viewport.x / zoom) + 24,
+      top: (-viewport.y / zoom) + 24,
+      right: ((width - viewport.x) / zoom) - 300,
+      bottom: ((height - viewport.y) / zoom) - 190,
+    };
+    const sourcePosition =
+      nodes.find((node) => node.id === sourceNodeId)?.position ||
+      readNodePosition(activeTaskId, sourceNodeId) ||
+      fallbackPosition(
+        updatedVisibleNodes.find((node) => node.id === sourceNodeId) || { id: sourceNodeId },
+        0,
+        updatedVisibleNodes,
+      );
+
+    targetIds.forEach((nodeId, index) => {
+      const existing = readNodePosition(activeTaskId, nodeId);
+      if (existing) return;
+      const desired = {
+        x: sourcePosition.x + 320,
+        y: sourcePosition.y + index * 170,
+      };
+      saveNodePosition(activeTaskId, nodeId, {
+        x: clampNumber(desired.x, bounds.left, Math.max(bounds.left, bounds.right)),
+        y: clampNumber(desired.y, bounds.top, Math.max(bounds.top, bounds.bottom)),
+      });
+    });
+  };
+
   const createAnalysisNode = async (sourceNodeId, analysisType) => {
-    await api(`/api/tasks/${activeTaskId}/analysis-nodes`, {
+    const response = await api(`/api/tasks/${activeTaskId}/analysis-nodes`, {
       method: "POST",
       body: JSON.stringify({ source_node_id: sourceNodeId, analysis_type: analysisType }),
     });
+    const updatedDetail = await response.json();
+    keepNewNodesInView(sourceNodeId, updatedDetail);
     setModal(null);
     await loadDetail(activeTaskId);
   };
@@ -774,10 +936,10 @@ function App() {
     await loadDetail(activeTaskId);
   };
 
-  const updateSampleGroups = async (assignments) => {
+  const updateSampleGroups = async ({ assignments, condition_colors }) => {
     await api(`/api/tasks/${activeTaskId}/sample-groups`, {
       method: "PUT",
-      body: JSON.stringify({ assignments }),
+      body: JSON.stringify({ assignments, condition_colors }),
     });
     setModal(null);
     await loadDetail(activeTaskId);
@@ -816,7 +978,19 @@ function App() {
 
   const nodeTypes = useMemo(() => ({ analysisNode: AnalysisNode }), []);
 
-  const revealMiniMap = useCallback(() => {
+  const showFlowMiniMap = useCallback(() => {
+    setShowMiniMap(true);
+  }, []);
+
+  const hideFlowMiniMap = useCallback(() => {
+    if (miniMapTimerRef.current) {
+      window.clearTimeout(miniMapTimerRef.current);
+      miniMapTimerRef.current = null;
+    }
+    setShowMiniMap(false);
+  }, []);
+
+  const pulseMiniMap = useCallback(() => {
     setShowMiniMap(true);
     if (miniMapTimerRef.current) {
       window.clearTimeout(miniMapTimerRef.current);
@@ -824,7 +998,7 @@ function App() {
     miniMapTimerRef.current = window.setTimeout(() => {
       setShowMiniMap(false);
       miniMapTimerRef.current = null;
-    }, 1400);
+    }, 140);
   }, []);
 
   useEffect(() => () => {
@@ -844,7 +1018,7 @@ function App() {
 
       event.stopImmediatePropagation();
       event.preventDefault();
-      revealMiniMap();
+      pulseMiniMap();
       const viewport = getViewport();
       const nextZoom = Math.min(2, Math.max(0.2, viewport.zoom + (event.deltaY < 0 ? 0.08 : -0.08)));
       setViewport({ x: viewport.x, y: viewport.y, zoom: nextZoom }, { duration: 0 });
@@ -852,7 +1026,7 @@ function App() {
 
     panel.addEventListener("wheel", handleWheel, { capture: true, passive: false });
     return () => panel.removeEventListener("wheel", handleWheel, { capture: true });
-  }, [getViewport, page, revealMiniMap, setViewport]);
+  }, [getViewport, page, pulseMiniMap, setViewport]);
 
   const openWorkbench = () => setPage("workbench");
   const openReports = () => setPage("reports");
@@ -897,45 +1071,107 @@ function App() {
 
   return (
     <AppChrome page={page} onNavigate={setPage}>
-    <main className="shell workbench-shell">
-      <section className="hero">
-        <div>
-          <p className="eyebrow">YZW Bioinformatics Cloud</p>
-          <h1>React Flow 分析流程台</h1>
-          <p className="summary">
-            表达矩阵读取、分组差异分析、后续分析节点按需创建。节点可拖拽、缩放、删除子图。
-          </p>
-        </div>
-        <div className="hero-actions">
-          <button className="primary" onClick={createTask}>Create Task</button>
-          <button className="ghost" onClick={openReports} disabled={!detail}>View Report</button>
-        </div>
-      </section>
-
-      <section className="layout">
-        <aside className="panel">
-          <div className="panel-title">
+    <main className="workbench-shell">
+      <section className="workbench-layout">
+        <aside className="panel task-sidebar">
+          <div className="task-sidebar-top">
+            <button className="workbench-brand" onClick={() => setPage("home")}>
+              <span className="brand-mark">Y</span>
+              <span>
+                <strong>YZW BioCloud</strong>
+                <small>Home</small>
+              </span>
+            </button>
+            <button className="primary new-task-button" onClick={createTask}>+ 新建分析任务</button>
+            <div className="task-sidebar-actions">
+              <button className="ghost" onClick={loadTasks}>刷新</button>
+              <button className="ghost" onClick={openReports} disabled={!detail}>报告</button>
+            </div>
+          </div>
+          <div className="panel-title task-list-title">
             <h2>任务列表</h2>
-            <button className="ghost" onClick={loadTasks}>刷新</button>
+            <span className="muted">{tasks.length} total</span>
           </div>
           <div className="task-list">
             {tasks.length === 0 ? <p className="muted">还没有任务</p> : null}
             {tasks.map((task) => (
-              <div className={`task-item ${task.task_id === activeTaskId ? "active" : ""}`} key={task.task_id}>
-                <button className="task-select" onClick={() => setActiveTaskId(task.task_id)}>
-                  <strong>{task.name}</strong>
-                  <span className="task-id">{task.status} · {task.task_id}</span>
-                </button>
-                <button className="task-delete" onClick={() => deleteTask(task.task_id)}>删除</button>
+              <div className={`task-item ${task.task_id === activeTaskId ? "active" : ""} ${editingTaskId === task.task_id ? "editing" : ""}`} key={task.task_id}>
+                {editingTaskId === task.task_id ? (
+                  <form
+                    className="task-rename-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      submitRenameTask(task);
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      value={editingTaskName}
+                      onBlur={() => submitRenameTask(task)}
+                      onChange={(event) => setEditingTaskName(event.target.value)}
+                      onFocus={(event) => event.target.select()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelRenameTask();
+                        }
+                      }}
+                    />
+                    <span className="task-id">{task.status} · {task.task_id}</span>
+                  </form>
+                ) : (
+                  <button className="task-select" onClick={() => setActiveTaskId(task.task_id)}>
+                    <strong>{task.name}</strong>
+                    <span className="task-id">{task.status} · {task.task_id}</span>
+                  </button>
+                )}
+                <div className="task-menu-wrap">
+                  <button
+                    className="task-menu-button"
+                    type="button"
+                    aria-label="任务操作"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const menuHeight = 104;
+                      const openUp = rect.bottom + menuHeight > window.innerHeight - 12;
+                      setTaskMenuPosition({
+                        top: openUp ? rect.top - menuHeight - 6 : rect.bottom + 6,
+                        right: window.innerWidth - rect.right,
+                      });
+                      setTaskMenuId((current) => {
+                        if (current === task.task_id) {
+                          setTaskMenuPosition(null);
+                          return null;
+                        }
+                        return task.task_id;
+                      });
+                    }}
+                  >
+                    ...
+                  </button>
+                  {taskMenuId === task.task_id ? (
+                    <div
+                      className="task-menu"
+                      style={taskMenuPosition ? { top: taskMenuPosition.top, right: taskMenuPosition.right } : undefined}
+                    >
+                      <button type="button" onClick={() => startRenameTask(task)}>重命名</button>
+                      <button type="button" className="danger" onClick={() => requestDeleteTask(task)}>删除</button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
         </aside>
 
-        <section className="workspace">
-          <div className="panel-title">
-            <h2>流程节点</h2>
-            <span className="muted">{detail ? `${detail.task.status} · ${detail.task.task_id}` : "未选择任务"}</span>
+        <section className="workspace workflow-workspace">
+          <div className="workflow-topbar">
+            <div>
+              <h1>流程节点</h1>
+              <span className="muted">{detail ? `${detail.task.name} · ${detail.task.status}` : "未选择任务"}</span>
+            </div>
+            <span className="task-id">{detail ? detail.task.task_id : ""}</span>
           </div>
           <div className="flow-panel" ref={flowPanelRef}>
             {detail ? (
@@ -945,12 +1181,12 @@ function App() {
                 nodeTypes={nodeTypes}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
-                onMoveStart={revealMiniMap}
-                onMove={revealMiniMap}
-                onMoveEnd={revealMiniMap}
-                onNodeDragStart={revealMiniMap}
-                onNodeDrag={revealMiniMap}
-                onNodeDragStop={revealMiniMap}
+                onMoveStart={showFlowMiniMap}
+                onMove={showFlowMiniMap}
+                onMoveEnd={hideFlowMiniMap}
+                onNodeDragStart={showFlowMiniMap}
+                onNodeDrag={showFlowMiniMap}
+                onNodeDragStop={hideFlowMiniMap}
                 fitView
                 minZoom={0.2}
                 maxZoom={2}
@@ -969,8 +1205,10 @@ function App() {
               <div className="empty-flow">先创建或选择一个任务</div>
             )}
           </div>
-          <h2>任务日志</h2>
-          <pre className="logs">{logs}</pre>
+          <details className="log-drawer">
+            <summary>任务日志</summary>
+            <pre className="logs">{logs}</pre>
+          </details>
         </section>
       </section>
 
@@ -1009,15 +1247,46 @@ function App() {
           onSubmit={(params) => runNodeWithParams(modal.node.id, params)}
         />
       ) : null}
+      {modal?.kind === "wgcnaParams" ? (
+        <WgcnaParamsModal
+          node={modal.node}
+          onClose={() => setModal(null)}
+          onSubmit={(params) => runNodeWithParams(modal.node.id, params)}
+        />
+      ) : null}
       {modal?.kind === "groups" ? (
-        <GroupEditorModal
+        <DatasetParamsModal
           payload={modal.payload}
           onClose={() => setModal(null)}
           onSubmit={updateSampleGroups}
         />
       ) : null}
+      {modal?.kind === "confirmDelete" ? (
+        <ConfirmDeleteModal
+          title={modal.title}
+          message={modal.message}
+          confirmLabel={modal.confirmLabel}
+          onClose={() => setModal(null)}
+          onConfirm={confirmDelete}
+        />
+      ) : null}
     </main>
     </AppChrome>
+  );
+}
+
+function ConfirmDeleteModal({ title, message, confirmLabel, onClose, onConfirm }) {
+  return (
+    <div className="modal-backdrop">
+      <section className="modal confirm-modal">
+        <h2>{title}</h2>
+        <p>{message}</p>
+        <div className="modal-actions">
+          <button type="button" className="ghost" onClick={onClose}>取消</button>
+          <button type="button" className="danger-primary" onClick={onConfirm}>{confirmLabel || "删除"}</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1029,6 +1298,14 @@ function AppChrome({ page, onNavigate, children }) {
     { id: "lab", label: "Experiment Design" },
     { id: "reports", label: "Reports" },
   ];
+
+  if (page === "workbench") {
+    return (
+      <div className="app-frame workbench-frame">
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className="app-frame">
@@ -1796,29 +2073,38 @@ function AnalysisNode({ data }) {
       {node.id === "upload_expression" ? (
         <div className="upload-controls nodrag">
           {uploadedInput ? (
-            <div className="uploaded-file-card">
+            <label className="uploaded-file-card upload-file-picker">
               <span>{uploadStateLabel}</span>
               <strong title={uploadedInput.filename}>{uploadedInput.filename}</strong>
               <small>
                 {formatBytes(uploadedInput.size)}
                 {uploadedInput.uploaded_at ? ` · ${formatDateTime(uploadedInput.uploaded_at)}` : ""}
               </small>
-            </div>
-          ) : null}
-          <label className={uploadedInput ? "replace-upload" : ""}>
-            {uploadedInput ? "更换数据" : "上传数据"}
-            <input
-              type="file"
-              accept=".csv,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
-              onChange={(event) => {
-                data.onUploadInput("expression_matrix", event.target.files?.[0]);
-                event.target.value = "";
-              }}
-            />
-          </label>
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
+                onChange={(event) => {
+                  data.onUploadInput("expression_matrix", event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          ) : (
+            <label className="upload-empty-picker">
+              上传数据
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
+                onChange={(event) => {
+                  data.onUploadInput("expression_matrix", event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          )}
           {node.output?.meta?.sample_metadata_file ? (
             <button type="button" onClick={() => data.onEditGroups()}>
-              矫正分组
+              调整参数
             </button>
           ) : null}
         </div>
@@ -1987,6 +2273,147 @@ function AgentReportModal({ node, onClose }) {
           <button type="button" onClick={onClose}>关闭</button>
         </div>
       </section>
+    </Modal>
+  );
+}
+
+const CONDITION_COLOR_PRESETS = [
+  "#0f8a8f",
+  "#315fd6",
+  "#c44f3a",
+  "#7b61b5",
+  "#20804f",
+  "#c27a18",
+  "#b33d7a",
+  "#52616b",
+  "#d94f40",
+  "#3776c4",
+  "#12a36f",
+  "#aa6f19",
+];
+
+function normalizeColor(value, fallback = "#0f8a8f") {
+  const text = String(value || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(text) ? text : fallback;
+}
+
+function DatasetParamsModal({ payload, onClose, onSubmit }) {
+  const samples = payload.samples || [];
+  const [activeTab, setActiveTab] = useState("groups");
+  const [assignments, setAssignments] = useState(
+    Object.fromEntries(samples.map((sample) => [sample.sample, sample.condition || "unknown"])),
+  );
+  const [colors, setColors] = useState(payload.condition_colors || {});
+  const [busy, setBusy] = useState(false);
+  const conditions = Array.from(new Set(Object.values(assignments))).filter(Boolean);
+  const colorByCondition = Object.fromEntries(
+    conditions.map((condition, index) => [
+      condition,
+      normalizeColor(colors[condition], CONDITION_COLOR_PRESETS[index % CONDITION_COLOR_PRESETS.length]),
+    ]),
+  );
+
+  const setConditionColor = (condition, color) => {
+    setColors((current) => ({ ...current, [condition]: color }));
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await onSubmit({ assignments, condition_colors: colorByCondition });
+    } catch (error) {
+      window.alert(error.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose}>
+      <form className="modal group-modal dataset-param-modal" onSubmit={submit}>
+        <h2>调整数据参数</h2>
+        <p>这里可以修正样本分组，并设置后续 PCA、热图等图形使用的分组颜色。</p>
+        <div className="param-tabs">
+          <button
+            type="button"
+            className={activeTab === "groups" ? "active" : ""}
+            onClick={() => setActiveTab("groups")}
+          >
+            矫正分组
+          </button>
+          <button
+            type="button"
+            className={activeTab === "colors" ? "active" : ""}
+            onClick={() => setActiveTab("colors")}
+          >
+            设置颜色
+          </button>
+        </div>
+        <div className="condition-grid">
+          {conditions.map((condition) => (
+            <span key={condition}>
+              <i style={{ background: colorByCondition[condition] }} />
+              {condition} <strong>{Object.values(assignments).filter((item) => item === condition).length}</strong>
+            </span>
+          ))}
+        </div>
+        {activeTab === "groups" ? (
+          <div className="group-editor-list">
+            {samples.map((sample) => (
+              <label
+                key={sample.sample}
+                style={{
+                  "--group-row-color": colorByCondition[assignments[sample.sample] || ""] || "#0f8a8f",
+                }}
+              >
+                <span>{sample.sample}</span>
+                <input
+                  value={assignments[sample.sample] || ""}
+                  onChange={(event) =>
+                    setAssignments((current) => ({
+                      ...current,
+                      [sample.sample]: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ))}
+          </div>
+        ) : (
+          <div className="color-editor-list">
+            {conditions.map((condition) => (
+              <section className="color-editor-row" key={condition}>
+                <div>
+                  <span className="color-preview" style={{ background: colorByCondition[condition] }} />
+                  <strong>{condition}</strong>
+                </div>
+                <div className="palette-grid">
+                  {CONDITION_COLOR_PRESETS.map((color) => (
+                    <button
+                      type="button"
+                      key={`${condition}-${color}`}
+                      className={colorByCondition[condition].toLowerCase() === color.toLowerCase() ? "active" : ""}
+                      style={{ background: color }}
+                      title={color}
+                      onClick={() => setConditionColor(condition, color)}
+                    />
+                  ))}
+                </div>
+                <input
+                  type="color"
+                  value={colorByCondition[condition]}
+                  onChange={(event) => setConditionColor(condition, event.target.value)}
+                  aria-label={`${condition} color`}
+                />
+              </section>
+            ))}
+          </div>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="ghost" onClick={onClose}>取消</button>
+          <button className="primary compact" disabled={busy}>{busy ? "保存中..." : "保存参数"}</button>
+        </div>
+      </form>
     </Modal>
   );
 }
@@ -2222,11 +2649,16 @@ function nextAnalysisOptions(node, detail) {
         "gene_expression",
         "pca",
         "diff_analysis",
-        "paired_differential",
         "multigroup_differential",
         "wgcna",
       ],
     );
+    const qcPassedSampleCount = Number(node.output?.meta?.passed_sample_count || node.output?.meta?.sample_count || 0);
+    if (qcPassedSampleCount > 20) {
+      capabilities.add("wgcna");
+    } else {
+      capabilities.delete("wgcna");
+    }
     const createdFromQc = (type, matcher) => {
       if (!capabilities.has(type)) return true;
       return detail?.graph.edges.some((edge) => edge.source === node.id && matcher(edge.target));
@@ -2237,7 +2669,6 @@ function nextAnalysisOptions(node, detail) {
       target.startsWith("expression_heatmap__"),
     );
     const hasSelector = createdFromQc("diff_analysis", (target) => target === "diff_analysis");
-    const hasPaired = createdFromQc("paired_differential", (target) => target.startsWith("paired_differential__"));
     const hasMultigroup = createdFromQc("multigroup_differential", (target) =>
       target.startsWith("multigroup_differential__"),
     );
@@ -2248,9 +2679,8 @@ function nextAnalysisOptions(node, detail) {
     if (!hasExpressionHeatmap) options.push({ type: "expression_heatmap", label: "Top variable genes heatmap" });
     if (capabilities.has("gene_expression")) options.push({ type: "gene_expression", label: "Single gene expression" });
     if (!hasSelector) options.push({ type: "diff_analysis", label: "Pairwise differential analysis" });
-    if (!hasPaired) options.push({ type: "paired_differential", label: "Paired differential analysis" });
     if (!hasMultigroup) options.push({ type: "multigroup_differential", label: "Multi-group differential plan" });
-    if (!hasWgcna) options.push({ type: "wgcna", label: "WGCNA plan" });
+    if (!hasWgcna) options.push({ type: "wgcna", label: "WGCNA modules" });
     return options;
   }
   if (node.id.startsWith("diff_analysis__")) {
@@ -2296,6 +2726,9 @@ function summarizeOutput(output) {
   }
   if (output.type === "gene_expression_plot" && meta.gene) {
     return meta.gene;
+  }
+  if (output.type === "wgcna_result" && meta.module_count) {
+    return `${meta.module_count} modules / ${meta.gene_count || 0} genes`;
   }
   if (output.type === "diff_export" && meta.row_count) {
     return `${meta.row_count} 行结果`;
@@ -2350,6 +2783,9 @@ function fallbackPosition(node, index, nodes) {
     const geneIndex = Math.max(0, geneNodes.findIndex((item) => item.id === node.id));
     return { x: 640, y: 690 + geneIndex * 150 };
   }
+  if (node.id.startsWith("wgcna__")) {
+    return { x: 920, y: 690 };
+  }
   const downstreamPrefix = ["heatmap__", "volcano__", "enrichment__", "diff_export__"].find((prefix) => node.id.startsWith(prefix));
   if (downstreamPrefix) {
     const diffId = node.depends_on?.[0];
@@ -2358,6 +2794,10 @@ function fallbackPosition(node, index, nodes) {
     return { x: 1200, y: 120 + branchIndex * 190 + offset };
   }
   return { x: 100 + (index % 4) * 280, y: 120 + Math.floor(index / 4) * 180 };
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function positionKey(taskId) {

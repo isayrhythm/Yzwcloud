@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from yzwcloud.config import TASKS_DIR
+from yzwcloud.color_palette import condition_color_map
 from yzwcloud.models import Graph, GraphNode, NodeStatus, TaskState, TaskStatus
 from yzwcloud.node_registry import NODE_DEFINITIONS, build_initial_edges
 
@@ -82,7 +83,44 @@ def load_graph(task_id: str) -> Graph:
     path = get_task_dir(task_id) / "graph.json"
     if not path.exists():
         raise TaskNotFoundError(task_id)
-    return Graph.model_validate_json(path.read_text(encoding="utf-8"))
+    graph = Graph.model_validate_json(path.read_text(encoding="utf-8"))
+    if _migrate_legacy_analysis_nodes(graph):
+        save_graph(graph)
+    return graph
+
+
+def _migrate_legacy_analysis_nodes(graph: Graph) -> bool:
+    changed = False
+    for node in graph.nodes:
+        if not node.id.startswith("wgcna__"):
+            continue
+        node.name = "WGCNA"
+        node.description = "Detect co-expression modules from top-variable genes and summarize module-condition correlations."
+        node.output_type = "wgcna_result"
+        defaults = {
+            "gene_selection_mode": "fixed",
+            "max_genes": 2000,
+            "top_gene_percent": 25,
+            "min_module_size": 20,
+            "soft_power": 0,
+            "merge_cut_height": 0.25,
+            "network_type": "signed",
+        }
+        if node.default_params != defaults:
+            node.default_params = defaults.copy()
+            changed = True
+        if node.output and node.output.type == "planned_analysis":
+            node.output = None
+            node.status = NodeStatus.READY
+            node.error = None
+            node.params = defaults.copy()
+            node.started_at = None
+            node.completed_at = None
+            changed = True
+        elif node.params.keys() <= {"min_samples", "network"}:
+            node.params = defaults.copy()
+            changed = True
+    return changed
 
 
 def read_sample_groups(task_id: str) -> list[dict[str, str]]:
@@ -103,6 +141,7 @@ def read_sample_groups(task_id: str) -> list[dict[str, str]]:
 def update_sample_groups(
     task_id: str,
     assignments: dict[str, str],
+    condition_colors: dict[str, str] | None = None,
 ) -> tuple[TaskState, Graph]:
     task = load_task(task_id)
     graph = load_graph(task_id)
@@ -137,22 +176,26 @@ def update_sample_groups(
     conditions = _count_values(row["condition"] for row in rows)
     groups = _count_values(row["group"] for row in rows)
     capabilities = ["qc", "sample_correlation", "expression_heatmap", "gene_expression", "pca"]
-    if sum(conditions.values()) >= 15:
+    if sum(conditions.values()) > 20:
         capabilities.append("wgcna")
     if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()):
         capabilities.append("diff_analysis")
-        capabilities.append("paired_differential")
     if len(conditions) >= 3:
         capabilities.append("multigroup_differential")
     upload_node.output.meta["conditions"] = conditions
     upload_node.output.meta["condition_options"] = sorted(conditions)
+    uploaded_colors = {key: value for key, value in (condition_colors or {}).items() if value}
+    upload_node.output.meta["condition_colors"] = condition_color_map(
+        conditions,
+        uploaded_colors or upload_node.output.meta.get("condition_colors") or {},
+    )
     upload_node.output.meta["sample_groups"] = groups
     upload_node.output.meta["capabilities"] = capabilities
     upload_node.output.meta["next_analyses"] = _next_analyses_for_capabilities(capabilities)
     _reset_upload_node_for_new_input(graph, keep_upload_output=True)
     upload_node.status = NodeStatus.COMPLETED
     save_graph(graph)
-    append_log(task_id, "Sample groups corrected manually")
+    append_log(task_id, "Sample groups and display colors updated manually")
     return task, graph
 
 
@@ -289,7 +332,6 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
         "sample_correlation",
         "expression_heatmap",
         "gene_expression",
-        "paired_differential",
         "multigroup_differential",
         "wgcna",
     }:
@@ -298,10 +340,17 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
             "sample_correlation",
             "expression_heatmap",
             "gene_expression",
-            "paired_differential",
             "multigroup_differential",
             "wgcna",
         }:
+            if analysis_type == "wgcna":
+                sample_count = int(
+                    source.output.meta.get("passed_sample_count")
+                    or source.output.meta.get("sample_count")
+                    or 0
+                )
+                if sample_count <= 20:
+                    raise ValueError("WGCNA requires more than 20 samples after QC")
             _add_expression_downstream_node(graph, analysis_type, source_node_id=source_node_id)
             save_graph(graph)
             append_log(task_id, f"Analysis node enabled: {analysis_type}")
@@ -469,18 +518,11 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             "单基因表达",
             "查看指定基因在不同分组中的表达分布。",
             "gene_expression_plot",
-            {"gene": ""},
+            {"gene": "AUTO"},
         ),
     }
     specs.update(
         {
-            "paired_differential": (
-                "paired_differential__expression",
-                "Paired differential analysis",
-                "Plan paired differential analysis after QC; requires pair metadata before production execution.",
-                "planned_analysis",
-                {"requires": "pair_id metadata"},
-            ),
             "multigroup_differential": (
                 "multigroup_differential__expression",
                 "Multi-group differential plan",
@@ -490,10 +532,18 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             ),
             "wgcna": (
                 "wgcna__expression",
-                "WGCNA plan",
-                "Plan co-expression module analysis after QC and sample outlier review.",
-                "planned_analysis",
-                {"min_samples": 15, "network": "signed"},
+                "WGCNA",
+                "Detect co-expression modules from top-variable genes and summarize module-condition correlations.",
+                "wgcna_result",
+                {
+                    "gene_selection_mode": "fixed",
+                    "max_genes": 2000,
+                    "top_gene_percent": 25,
+                    "min_module_size": 20,
+                    "soft_power": 0,
+                    "merge_cut_height": 0.25,
+                    "network_type": "signed",
+                },
             ),
         }
     )
@@ -503,17 +553,27 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
 
     base_id, name, description, output_type, params = specs[analysis_type]
     node_id = _unique_node_id(graph, base_id)
+    if analysis_type == "qc":
+        input_types = ["expression_matrix"]
+        depends_on = [source_node_id]
+    elif source_node_id == "upload_expression":
+        input_types = ["expression_matrix"]
+        depends_on = [source_node_id]
+    else:
+        input_types = ["expression_matrix", "qc_report"]
+        depends_on = [source_node_id, "upload_expression"]
+
     graph.nodes.append(
         GraphNode(
             id=node_id,
             name=name,
             description=description,
             status=NodeStatus.READY,
-            input_types=["expression_matrix"],
+            input_types=input_types,
             output_type=output_type,
             default_params=params,
             params=params.copy(),
-            depends_on=["upload_expression"],
+            depends_on=depends_on,
         )
     )
     graph.edges.append({"source": source_node_id, "target": node_id})
@@ -603,6 +663,17 @@ def read_log(task_id: str) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
+
+
+def rename_task(task_id: str, name: str) -> TaskState:
+    task = load_task(task_id)
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("Task name cannot be empty")
+    task.name = clean_name[:80]
+    save_task(task)
+    append_log(task_id, f"Task renamed: {task.name}")
+    return task
 
 
 def delete_task(task_id: str) -> None:

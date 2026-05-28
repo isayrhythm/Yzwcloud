@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from openpyxl import load_workbook
 
+from yzwcloud.color_palette import condition_color_map
 from yzwcloud.config import PROJECT_ROOT
 from yzwcloud.data_intake_agent import run_data_intake_agent
 from yzwcloud.models import DataObject
@@ -72,6 +73,7 @@ def prepare_expression_matrix(
     )
 
     sample_count = len(column_plan["sample_columns"])
+    conditions = _count_values(item["condition"] for item in column_plan["sample_columns"])
     metadata = {
         "source_file": str(source_path),
         "sheet_name": sheet_name,
@@ -83,7 +85,9 @@ def prepare_expression_matrix(
         "declared_sample_count": 208,
         "actual_sample_count_note": "文件说明写 208 samples；当前 sheet 表头实际解析出 104 个表达量样本列。",
         "sample_groups": _count_values(item["group"] for item in column_plan["sample_columns"]),
-        "conditions": _count_values(item["condition"] for item in column_plan["sample_columns"]),
+        "conditions": conditions,
+        "condition_options": sorted(conditions),
+        "condition_colors": condition_color_map(conditions),
         "matrix_file": str(matrix_path),
         "sample_metadata_file": str(sample_meta_path),
         "gene_annotation_file": str(annotation_path),
@@ -112,14 +116,16 @@ def _prepare_csv_expression_matrix(
     sample_count = len(sample_rows)
     gene_count = _count_csv_data_rows(matrix_path)
 
+    conditions = _count_values(row["condition"] for row in sample_rows)
     metadata = {
         "source_file": str(source_path),
         "sample_metadata_source": str(metadata_source),
         "gene_count": gene_count,
         "sample_count": sample_count,
         "sample_groups": _count_values(row["group"] for row in sample_rows),
-        "conditions": _count_values(row["condition"] for row in sample_rows),
-        "condition_options": sorted({row["condition"] for row in sample_rows}),
+        "conditions": conditions,
+        "condition_options": sorted(conditions),
+        "condition_colors": condition_color_map(conditions),
         "matrix_file": str(matrix_path),
         "sample_metadata_file": str(sample_meta_path),
         "gene_annotation_file": "",

@@ -12,6 +12,7 @@ from yzwcloud.analysis_outputs import (
     create_pca_result,
     create_qc_result,
     create_sample_correlation_result,
+    create_wgcna_result,
     create_volcano_result,
     run_differential_analysis,
 )
@@ -90,7 +91,7 @@ def execute_demo_node(
 
     if node_id.startswith("pca__"):
         return create_pca_result(
-            source=inputs["upload_expression"],
+            source=_expression_source(inputs),
             output_dir=output_dir,
             node_id=node_id,
         )
@@ -105,14 +106,14 @@ def execute_demo_node(
 
     if node_id.startswith("correlation__"):
         return create_sample_correlation_result(
-            source=inputs["upload_expression"],
+            source=_expression_source(inputs),
             output_dir=output_dir,
             node_id=node_id,
         )
 
     if node_id.startswith("expression_heatmap__"):
         return create_expression_heatmap_result(
-            source=inputs["upload_expression"],
+            source=_expression_source(inputs),
             output_dir=output_dir,
             node_id=node_id,
             params=params,
@@ -120,16 +121,23 @@ def execute_demo_node(
 
     if node_id.startswith("gene_expression__"):
         return create_gene_expression_result(
-            source=inputs["upload_expression"],
+            source=_expression_source(inputs),
             params=params,
             output_dir=output_dir,
             node_id=node_id,
         )
 
+    if node_id.startswith("wgcna__"):
+        return create_wgcna_result(
+            source=_expression_source(inputs),
+            output_dir=output_dir,
+            node_id=node_id,
+            params=params,
+        )
+
     if (
         node_id.startswith("paired_differential__")
         or node_id.startswith("multigroup_differential__")
-        or node_id.startswith("wgcna__")
     ):
         return _execute_plot_node(
             node_id=node_id,
@@ -138,7 +146,7 @@ def execute_demo_node(
             meta={
                 "analysis_family": node_id.split("__", 1)[0],
                 "ready_for_agent": True,
-                "sample_count": inputs["upload_expression"].meta.get("sample_count"),
+                "sample_count": _expression_source(inputs).meta.get("sample_count"),
             },
             params=params,
             output_dir=output_dir,
@@ -168,6 +176,33 @@ def execute_demo_node(
         )
 
     raise ValueError(f"Unknown node: {node_id}")
+
+
+def _expression_source(inputs: dict[str, DataObject]) -> DataObject:
+    for key, data_object in inputs.items():
+        if key != "upload_expression" and _has_expression_matrix_meta(data_object):
+            return _as_expression_matrix(data_object)
+    upload = inputs.get("upload_expression")
+    if upload is not None and _has_expression_matrix_meta(upload):
+        return _as_expression_matrix(upload)
+    for data_object in inputs.values():
+        if _has_expression_matrix_meta(data_object):
+            return _as_expression_matrix(data_object)
+    raise ValueError("No expression matrix input is available")
+
+
+def _has_expression_matrix_meta(data_object: DataObject) -> bool:
+    return bool(data_object.meta.get("matrix_file") and data_object.meta.get("sample_metadata_file"))
+
+
+def _as_expression_matrix(data_object: DataObject) -> DataObject:
+    if data_object.type == "expression_matrix":
+        return data_object
+    return DataObject(
+        type="expression_matrix",
+        data=str(data_object.meta["matrix_file"]),
+        meta=data_object.meta,
+    )
 
 
 def _execute_diff_node(

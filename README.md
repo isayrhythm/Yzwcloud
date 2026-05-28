@@ -1,6 +1,18 @@
-# YZWcloud
+# YZW BioCloud
 
-面向生信演示场景的轻量分析工作台。当前重点不是重调度，而是把“上传数据 -> Agent 检查 -> 按需创建分析节点 -> 生成真实可视化结果”这条链路跑通，并且让后续数据类型扩展有稳定骨架。
+下一代智能体驱动的生物信息云平台。
+
+YZW BioCloud 当前聚焦转录组表达矩阵分析，先把“上传数据 -> Agent 检查 -> 按需创建分析节点 -> 生成真实可视化结果 -> 汇总报告上下文”这条链路跑通，并为后续更多数据类型和分析模块保留扩展骨架。
+
+## 核心优势
+
+相较于 Galaxy、TBtools 和传统生信云平台，YZW BioCloud 的目标不是把大量工具简单堆成菜单，而是让智能体参与分析流程的关键决策。
+
+- 输入端由 intake agent 识别数据类型、检查文件结构、规整表达矩阵，并在失败时生成用户可读的处理报告
+- 分析方向由数据本身驱动，根据样本数、分组数量、数据质量和已完成节点动态推荐下一步分析
+- 工作流以可视化节点编排呈现，用户可以从 QC、PCA、热图、差异分析、WGCNA 到报告上下文逐步扩展，而不是一次性面对完整工具列表
+- 分析节点保留参数、输入、输出和日志，后续可以接入 report agent，把“实验设计 + 数据分析 + 结果解释”串成闭环
+- 当前首期聚焦表达矩阵和转录组分析，后续预留更多数据类型和分析模块扩展，但不在早期强行写死多组学联动
 
 ## 当前能力
 
@@ -96,7 +108,8 @@ src/yzwcloud/
 │  ├─ common.py
 │  ├─ differential.py
 │  ├─ expression.py
-│  └─ rendering.py
+│  ├─ rendering.py
+│  └─ wgcna.py
 ├─ analysis_outputs.py
 ├─ config.py
 ├─ data_intake_agent.py
@@ -125,6 +138,10 @@ src/yzwcloud/
   - PCA、矩阵 QC、样本相关性、表达热图、单基因表达
 - `analyses/rendering.py`
   - 共用的热图渲染输出
+- `analyses/wgcna.py`
+  - 调用 `Rscript + WGCNA` 做标准共表达模块计算，再由 Python 生成交互 HTML
+- `r/run_wgcna.R`
+  - R WGCNA 执行脚本，输出模块表、hub gene、module-trait correlation、soft-threshold 结果
 - `analysis_outputs.py`
   - 兼容导出层，避免调用方跟着一起改
 
@@ -152,12 +169,24 @@ src/yzwcloud/
 
 - Python `>= 3.12`
 - Node.js `>= 18`
+- R `>= 4.3`，并且命令行可找到 `Rscript`
+- R packages: `WGCNA`, `jsonlite`, `BiocManager`, `impute`, `preprocessCore`, `GO.db`, `AnnotationDbi`
 
 安装依赖：
 
 ```bash
 pdm install
 npm install
+```
+
+安装 R 依赖：
+```bash
+Rscript src/yzwcloud/r/install_wgcna_packages.R
+```
+
+如果 `Rscript` 不在 PATH，可以设置：
+```bash
+set YZWCLOUD_RSCRIPT=C:\Program Files\R\R-4.x.x\bin\Rscript.exe
 ```
 
 构建前端：

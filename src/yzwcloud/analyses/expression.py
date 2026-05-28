@@ -21,6 +21,7 @@ from yzwcloud.analyses.common import (
     write_data_output,
 )
 from yzwcloud.analyses.rendering import write_heatmap_html, write_heatmap_preview
+from yzwcloud.color_palette import condition_color_map
 from yzwcloud.models import DataObject
 
 
@@ -62,7 +63,8 @@ def create_pca_result(source: DataObject, output_dir: Path, node_id: str) -> Dat
         "pc2": round(max(pc2_value, 0.0) / total_variance * 100, 2),
     }
 
-    write_pca_html(html_path, points, explained, len(gene_vectors))
+    condition_colors = source.meta.get("condition_colors") or condition_color_map(source.meta.get("conditions") or [])
+    write_pca_html(html_path, points, explained, len(gene_vectors), condition_colors=condition_colors)
     write_pca_preview(preview_path, points)
     meta = {
         "html_file": str(html_path),
@@ -71,6 +73,7 @@ def create_pca_result(source: DataObject, output_dir: Path, node_id: str) -> Dat
         "gene_count": len(gene_vectors),
         "explained_variance": explained,
         "method": "sample_covariance_power_iteration",
+        "condition_colors": condition_colors,
     }
     return write_data_output(output_json, "pca_plot", meta)
 
@@ -119,14 +122,41 @@ def create_qc_result(
     html_path = output_dir / f"{node_id}_{run_stamp}.html"
     preview_path = output_dir / f"{node_id}_{run_stamp}_preview.svg"
     output_json = output_dir / f"{node_id}_{run_stamp}_output.json"
+    filtered_metadata_path = output_dir / f"{node_id}_{run_stamp}_passed_samples.csv"
+    passed_names = {item["sample"] for item in after_stats}
+    passed_columns = [column for column in sample_columns if column.name in passed_names]
+    with filtered_metadata_path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=["sample", "group", "condition"])
+        writer.writeheader()
+        writer.writerows(
+            {
+                "sample": column.name,
+                "group": column.group,
+                "condition": column.condition,
+            }
+            for column in passed_columns
+        )
+    passed_conditions = {}
+    for column in passed_columns:
+        passed_conditions[column.condition] = passed_conditions.get(column.condition, 0) + 1
     write_qc_html(html_path, stats, after_stats, qc_params)
     write_qc_preview(preview_path, stats, after_stats)
     meta = {
+        "matrix_file": str(matrix_path),
+        "sample_metadata_file": str(filtered_metadata_path),
+        "source_sample_metadata_file": str(metadata_path),
         "html_file": str(html_path),
         "preview_file": str(preview_path),
         "sample_count": len(stats),
         "passed_sample_count": len(after_stats),
         "failed_sample_count": len(stats) - len(after_stats),
+        "passed_samples": [column.name for column in passed_columns],
+        "conditions": passed_conditions,
+        "condition_options": sorted(passed_conditions),
+        "condition_colors": condition_color_map(
+            passed_conditions,
+            source.meta.get("condition_colors") or {},
+        ),
         "metric_count": 5,
         "run_id": run_stamp,
         "params": qc_params,
@@ -185,12 +215,25 @@ def create_sample_correlation_result(source: DataObject, output_dir: Path, node_
     sample_columns = load_sample_columns(matrix_path, metadata_path)
     series = load_sample_series(matrix_path, sample_columns)
     matrix = [[round(pearson(series[i], series[j]), 3) for j in range(len(sample_columns))] for i in range(len(sample_columns))]
+    sample_order = order_samples_by_condition_cluster(sample_columns, series)
+    sample_columns = [sample_columns[index] for index in sample_order]
+    matrix = [[matrix[row_index][column_index] for column_index in sample_order] for row_index in sample_order]
+    colors = condition_color_map(
+        [column.condition for column in sample_columns],
+        source.meta.get("condition_colors") or {},
+    )
     html_path = output_dir / f"{node_id}.html"
     preview_path = output_dir / f"{node_id}_preview.svg"
     output_json = output_dir / f"{node_id}_output.json"
-    write_correlation_html(html_path, sample_columns, matrix)
+    write_correlation_html(html_path, sample_columns, matrix, colors)
     write_correlation_preview(preview_path, matrix)
-    meta = {"html_file": str(html_path), "preview_file": str(preview_path), "sample_count": len(sample_columns)}
+    meta = {
+        "html_file": str(html_path),
+        "preview_file": str(preview_path),
+        "sample_count": len(sample_columns),
+        "condition_colors": colors,
+        "sample_ordering": "condition_blocks_within_group_clustering",
+    }
     return write_data_output(output_json, "sample_correlation_plot", meta)
 
 
@@ -212,16 +255,32 @@ def create_expression_heatmap_result(
         raise ValueError("Expression heatmap needs at least 2 selected samples")
     top_n = int(params.get("top_genes") or 40)
     genes = top_variable_heatmap_genes(matrix_path, sample_columns, top_n=top_n)
-    ordered_columns = order_samples_by_condition(sample_columns)
-    order_index = [sample_columns.index(item) for item in ordered_columns]
+    sample_cluster = hierarchical_cluster(transpose([gene["values"] for gene in genes]))
+    sample_order = sample_cluster["order"]
+    ordered_columns = [sample_columns[index] for index in sample_order]
     for gene in genes:
-        gene["values"] = [gene["values"][index] for index in order_index]
+        gene["values"] = [gene["values"][index] for index in sample_order]
+    gene_cluster = hierarchical_cluster([gene["values"] for gene in genes])
+    gene_order = gene_cluster["order"]
+    genes = [genes[index] for index in gene_order]
     run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     html_path = output_dir / f"{node_id}_{run_stamp}.html"
     preview_path = output_dir / f"{node_id}_{run_stamp}_preview.svg"
     output_json = output_dir / f"{node_id}_{run_stamp}_output.json"
-    write_heatmap_html(html_path, "表达矩阵聚类热图", ordered_columns, genes)
-    write_heatmap_preview(preview_path, "表达聚类", genes)
+    condition_label = ", ".join(selected_conditions) if selected_conditions else "all samples"
+    write_heatmap_html(
+        html_path,
+        f"Clustered top variable genes: {condition_label}",
+        ordered_columns,
+        genes,
+        row_tree=gene_cluster["tree"],
+        col_tree=sample_cluster["tree"],
+        condition_colors=condition_color_map(
+            [column.condition for column in sample_columns],
+            source.meta.get("condition_colors") or {},
+        ),
+    )
+    write_heatmap_preview(preview_path, f"Clustered {condition_label}", genes)
     meta = {
         "html_file": str(html_path),
         "preview_file": str(preview_path),
@@ -229,6 +288,12 @@ def create_expression_heatmap_result(
         "sample_count": len(ordered_columns),
         "selected_conditions": selected_conditions or sorted({column.condition for column in ordered_columns}),
         "top_genes": top_n,
+        "clustered": True,
+        "cluster_method": "average_linkage_pearson_distance",
+        "condition_colors": condition_color_map(
+            [column.condition for column in ordered_columns],
+            source.meta.get("condition_colors") or {},
+        ),
         "run_id": run_stamp,
     }
     return write_data_output(output_json, "expression_heatmap_plot", meta)
@@ -241,12 +306,18 @@ def create_gene_expression_result(
     node_id: str,
 ) -> DataObject:
     gene_query = str(params.get("gene") or "").strip()
-    if not gene_query:
-        raise ValueError("请输入要查看的基因名或 gene_id")
     matrix_path = Path(str(source.meta["matrix_file"]))
     metadata_path = Path(str(source.meta["sample_metadata_file"]))
     sample_columns = load_sample_columns(matrix_path, metadata_path)
+    auto_selected = False
+    if gene_query.lower() in {"", "auto", "__auto__"}:
+        gene_query = find_top_variable_gene(matrix_path, sample_columns)
+        auto_selected = True
     gene_payload = find_gene_expression(matrix_path, sample_columns, gene_query)
+    gene_payload["condition_colors"] = condition_color_map(
+        [column.condition for column in sample_columns],
+        source.meta.get("condition_colors") or {},
+    )
     html_path = output_dir / f"{node_id}.html"
     preview_path = output_dir / f"{node_id}_preview.svg"
     output_json = output_dir / f"{node_id}_output.json"
@@ -258,6 +329,8 @@ def create_gene_expression_result(
         "gene": gene_payload["gene"],
         "gene_id": gene_payload["gene_id"],
         "sample_count": len(gene_payload["points"]),
+        "auto_selected": auto_selected,
+        "selection_method": "top_variable_gene" if auto_selected else "manual",
     }
     return write_data_output(output_json, "gene_expression_plot", meta)
 
@@ -390,8 +463,114 @@ def top_variable_heatmap_genes(
     return [item[1] for item in ranked[:top_n]]
 
 
+def find_top_variable_gene(matrix_path: Path, columns: list[SampleColumn]) -> str:
+    best: tuple[float, str] | None = None
+    with matrix_path.open(encoding="utf-8-sig", newline="") as file:
+        reader = csv.reader(file)
+        next(reader, None)
+        for row in reader:
+            values = values_at(row, columns)
+            if len(values) != len(columns):
+                continue
+            row_variance = variance(values)
+            if row_variance <= 0:
+                continue
+            gene = (row[0] if len(row) > 0 else "") or (row[1] if len(row) > 1 else "")
+            gene = str(gene).strip()
+            if not gene:
+                continue
+            if best is None or row_variance > best[0]:
+                best = (row_variance, gene)
+    if best is None:
+        raise ValueError("表达矩阵中没有可用于单基因表达展示的变异基因")
+    return best[1]
+
+
+def transpose(rows: list[list[float]]) -> list[list[float]]:
+    if not rows:
+        return []
+    return [[row[index] for row in rows] for index in range(len(rows[0]))]
+
+
+def cluster_order(vectors: list[list[float]]) -> list[int]:
+    return hierarchical_cluster(vectors)["order"]
+
+
+def hierarchical_cluster(vectors: list[list[float]]) -> dict[str, Any]:
+    if not vectors:
+        return {"order": [], "tree": {"leaf": 0, "height": 0.0}}
+    if len(vectors) == 1:
+        return {"order": [0], "tree": {"leaf": 0, "height": 0.0}}
+    clusters = [{"items": [index], "tree": {"leaf": index, "height": 0.0}} for index in range(len(vectors))]
+    while len(clusters) > 1:
+        best_pair = (0, 1)
+        best_distance = float("inf")
+        for left_index in range(len(clusters)):
+            for right_index in range(left_index + 1, len(clusters)):
+                distance = average_cluster_distance(
+                    clusters[left_index]["items"],
+                    clusters[right_index]["items"],
+                    vectors,
+                )
+                if distance < best_distance:
+                    best_distance = distance
+                    best_pair = (left_index, right_index)
+        left_index, right_index = best_pair
+        left_cluster = clusters[left_index]
+        right_cluster = clusters[right_index]
+        merged = {
+            "items": left_cluster["items"] + right_cluster["items"],
+            "tree": {
+                "left": left_cluster["tree"],
+                "right": right_cluster["tree"],
+                "height": round(best_distance, 6),
+            },
+        }
+        clusters = [
+            cluster
+            for index, cluster in enumerate(clusters)
+            if index not in {left_index, right_index}
+        ]
+        clusters.append(merged)
+    return {"order": clusters[0]["items"], "tree": clusters[0]["tree"]}
+
+
+def average_cluster_distance(left: list[int], right: list[int], vectors: list[list[float]]) -> float:
+    distances = [
+        vector_distance(vectors[left_index], vectors[right_index])
+        for left_index in left
+        for right_index in right
+    ]
+    return sum(distances) / len(distances)
+
+
+def vector_distance(left: list[float], right: list[float]) -> float:
+    if len(left) == len(right) and len(left) >= 2:
+        correlation = pearson(left, right)
+        if math.isfinite(correlation):
+            return 1 - correlation
+    return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right)))
+
+
 def order_samples_by_condition(columns: list[SampleColumn]) -> list[SampleColumn]:
     return sorted(columns, key=lambda item: (item.condition, item.group, item.name))
+
+
+def order_samples_by_condition_cluster(columns: list[SampleColumn], series: list[list[float]]) -> list[int]:
+    condition_order: list[str] = []
+    for column in columns:
+        if column.condition not in condition_order:
+            condition_order.append(column.condition)
+
+    ordered_indices: list[int] = []
+    for condition in condition_order:
+        condition_indices = [index for index, column in enumerate(columns) if column.condition == condition]
+        if len(condition_indices) <= 2:
+            ordered_indices.extend(condition_indices)
+            continue
+        local_order = cluster_order([series[index] for index in condition_indices])
+        ordered_indices.extend(condition_indices[index] for index in local_order)
+    return ordered_indices
 
 
 def find_gene_expression(
@@ -444,8 +623,10 @@ def write_pca_html(
     points: list[dict[str, Any]],
     explained: dict[str, float],
     gene_count: int,
+    condition_colors: dict[str, str] | None = None,
 ) -> None:
     payload = json.dumps(points, ensure_ascii=False)
+    colors_payload = json.dumps(condition_colors or {}, ensure_ascii=False)
     path.write_text(
         f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>PCA</title>
@@ -464,9 +645,10 @@ canvas{{display:block;width:min(100%,1200px);height:auto;aspect-ratio:1200/640;b
 <script>
 const points = {payload};
 const explained = {json.dumps(explained)};
+const savedColors = {colors_payload};
 const palette = ['#b93d2f','#2176c9','#0f6b57','#d58b22','#7557a8','#455a64','#9f4b6b'];
 const conditions = [...new Set(points.map(p => p.condition))];
-const colorByCondition = Object.fromEntries(conditions.map((condition, index) => [condition, palette[index % palette.length]]));
+const colorByCondition = Object.fromEntries(conditions.map((condition, index) => [condition, savedColors[condition] || palette[index % palette.length]]));
 const canvas = document.getElementById('plot');
 const ctx = canvas.getContext('2d');
 const tip = document.getElementById('tip');
@@ -863,48 +1045,131 @@ renderPlot('afterPlot', after, 'After QC: samples passing current thresholds');
     )
 
 
-def write_correlation_html(path: Path, columns: list[SampleColumn], matrix: list[list[float]]) -> None:
-    payload = json.dumps({"samples": [item.name for item in columns], "matrix": matrix}, ensure_ascii=False)
+def write_correlation_html(
+    path: Path,
+    columns: list[SampleColumn],
+    matrix: list[list[float]],
+    condition_colors: dict[str, str],
+) -> None:
+    cell = 18
+    left = 158
+    top = 154
+    band = 9
+    right = 60
+    bottom = 92
+    size = len(columns)
+    width = left + size * cell + right
+    height = top + size * cell + bottom
+    values = [
+        value
+        for row_index, row in enumerate(matrix)
+        for column_index, value in enumerate(row)
+        if row_index != column_index and math.isfinite(value)
+    ]
+    min_corr = min(values, default=0.6)
+    max_corr = 1.0
+    span = max(max_corr - min_corr, 0.001)
+
+    def mix(left_rgb: tuple[int, int, int], right_rgb: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+        return tuple(round(left_rgb[index] + (right_rgb[index] - left_rgb[index]) * t) for index in range(3))
+
+    def corr_color(value: float) -> str:
+        t = max(0.0, min(1.0, (value - min_corr) / span))
+        low = (49, 95, 214)
+        mid = (246, 249, 252)
+        high = (196, 79, 58)
+        rgb = mix(low, mid, t * 2) if t < 0.5 else mix(mid, high, (t - 0.5) * 2)
+        return f"rgb({rgb[0]},{rgb[1]},{rgb[2]})"
+
+    fallback_colors = ["#0f8a8f", "#315fd6", "#c44f3a", "#7b61b5", "#20804f", "#c27a18"]
+    conditions = []
+    for column in columns:
+        if column.condition not in conditions:
+            conditions.append(column.condition)
+
+    def group_color(condition: str) -> str:
+        if condition in condition_colors:
+            return condition_colors[condition]
+        index = conditions.index(condition) if condition in conditions else 0
+        return fallback_colors[index % len(fallback_colors)]
+
+    parts = [
+        f'<rect width="{width}" height="{height}" rx="14" fill="#ffffff"/>',
+        f'<rect x="{left}" y="{top}" width="{size * cell}" height="{size * cell}" fill="#f6f9fc"/>',
+    ]
+    for row_index, column in enumerate(columns):
+        y = top + row_index * cell
+        label = html.escape(column.name[:18])
+        color = group_color(column.condition)
+        parts.append(f'<rect x="{left - band - 5}" y="{y}" width="{band}" height="{cell - 1}" fill="{color}"/>')
+        parts.append(f'<text x="12" y="{y + 13}" font-size="11" fill="#52616b">{label}</text>')
+        for column_index, value in enumerate(matrix[row_index]):
+            x = left + column_index * cell
+            fill = corr_color(value)
+            sample_x = html.escape(columns[column_index].name)
+            sample_y = html.escape(column.name)
+            parts.append(
+                f'<rect x="{x}" y="{y}" width="{cell - 1}" height="{cell - 1}" fill="{fill}">'
+                f'<title>{sample_y} vs {sample_x}: r={value:.3f}</title></rect>'
+            )
+    for column_index, column in enumerate(columns):
+        x = left + column_index * cell
+        label = html.escape(column.name[:18])
+        color = group_color(column.condition)
+        parts.append(f'<rect x="{x}" y="{top - band - 5}" width="{cell - 1}" height="{band}" fill="{color}"/>')
+        parts.append(
+            f'<text x="{x + 11}" y="{top - 20}" font-size="11" fill="#52616b" '
+            f'transform="rotate(-45 {x + 11} {top - 20})">{label}</text>'
+        )
+    parts.append(f'<rect x="{left}" y="{top}" width="{size * cell}" height="{size * cell}" fill="none" stroke="#b9cbd8"/>')
+    legend_x = left
+    legend_y = height - 46
+    legend_width = 220
+    for offset in range(legend_width):
+        value = min_corr + (offset / legend_width) * span
+        parts.append(f'<rect x="{legend_x + offset}" y="{legend_y}" width="1" height="12" fill="{corr_color(value)}"/>')
+    parts.append(f'<text x="{legend_x}" y="{legend_y + 31}" font-size="12" fill="#52616b">r min {min_corr:.2f}</text>')
+    parts.append(f'<text x="{legend_x + legend_width - 40}" y="{legend_y + 31}" font-size="12" fill="#52616b">r 1.00</text>')
+    legend_group_x = legend_x + 280
+    for index, condition in enumerate(conditions):
+        y = legend_y + index * 20
+        parts.append(f'<rect x="{legend_group_x}" y="{y}" width="12" height="12" rx="2" fill="{group_color(condition)}"/>')
+        parts.append(f'<text x="{legend_group_x + 18}" y="{y + 11}" font-size="12" fill="#52616b">{html.escape(condition)}</text>')
+
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">{"".join(parts)}</svg>'
     path.write_text(
         f"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>Correlation</title>
-<style>body{{margin:0;font-family:Georgia,'Noto Serif SC',serif;background:#fffaf0;color:#17211b}}.wrap{{padding:24px}}canvas{{border:1px solid #ded4c2;border-radius:18px;background:white;max-width:100%}}</style>
-</head><body><div class="wrap"><h1>样本相关性热图</h1><canvas id="plot"></canvas></div>
-<script>
-const data = {payload};
-const cell = 18, pad = 140;
-const canvas = document.getElementById('plot');
-canvas.width = pad + data.samples.length * cell + 24;
-canvas.height = pad + data.samples.length * cell + 24;
-const ctx = canvas.getContext('2d');
-function color(v) {{
-  const x = (Math.max(-1, Math.min(1, v)) + 1) / 2;
-  const r = Math.round(55 * (1 - x) + 217 * x);
-  const g = Math.round(118 * (1 - x) + 79 * x);
-  const b = Math.round(196 * (1 - x) + 64 * x);
-  return `rgb(${{r}},${{g}},${{b}})`;
-}}
-data.samples.forEach((sample, i) => {{
-  ctx.save(); ctx.translate(pad + i * cell + 9, 118); ctx.rotate(-Math.PI / 4); ctx.fillText(sample.slice(0,14), 0, 0); ctx.restore();
-  ctx.fillText(sample.slice(0,14), 10, pad + i * cell + 12);
-  data.matrix[i].forEach((v, j) => {{
-    ctx.fillStyle = color(v); ctx.fillRect(pad + j*cell, pad + i*cell, cell-1, cell-1);
-  }});
-}});
-</script></body></html>""",
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Sample Correlation</title>
+<style>
+body{{margin:0;font-family:Inter,'Noto Sans SC',Arial,sans-serif;background:#f4f8fb;color:#07131f}}
+.wrap{{padding:24px}}
+h1{{margin:0 0 8px;font-size:28px}}
+p{{margin:0 0 16px;color:#52616b}}
+.plot-frame{{width:min(100%, {width}px);overflow:auto;border:1px solid #d8e5ee;border-radius:14px;background:white}}
+svg{{display:block}}
+</style></head><body><div class="wrap"><h1>&#26679;&#26412;&#30456;&#20851;&#24615;&#28909;&#22270;</h1><p>&#39068;&#33394;&#25353;&#30456;&#20851;&#31995;&#25968;&#33539;&#22260;&#21160;&#24577;&#32553;&#25918;&#65307;&#39030;&#37096;&#21644;&#24038;&#20391;&#33394;&#26465;&#34920;&#31034;&#26679;&#26412;&#20998;&#32452;&#65292;&#24748;&#20572;&#21333;&#20803;&#26684;&#21487;&#26597;&#30475; r &#20540;&#12290;</p><div class="plot-frame">{svg}</div></div></body></html>""",
         encoding="utf-8",
     )
 
 
 def write_correlation_preview(path: Path, matrix: list[list[float]]) -> None:
     rects = []
+    values = [
+        value
+        for r, row in enumerate(matrix)
+        for c, value in enumerate(row)
+        if r != c and math.isfinite(value)
+    ]
+    min_corr = min(values, default=0.6)
+    span = max(1 - min_corr, 0.001)
     for r, row in enumerate(matrix[:18]):
         for c, value in enumerate(row[:18]):
-            opacity = 0.25 + abs(value) * 0.65
-            color = "#d94f40" if value >= 0 else "#3776c4"
+            t = max(0.0, min(1.0, (value - min_corr) / span))
+            color = "#c44f3a" if t >= 0.5 else "#315fd6"
+            opacity = 0.35 + abs(t - 0.5) * 1.1
             rects.append(f'<rect x="{18 + c*5}" y="{24 + r*5}" width="4" height="4" fill="{color}" opacity="{opacity:.2f}"/>')
     path.write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#fffaf0"/><text x="12" y="17" font-size="11" fill="#17211b">样本相关性</text>{"".join(rects)}</svg>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f4f8fb"/><text x="12" y="17" font-size="11" fill="#17211b">样本相关性</text>{"".join(rects)}</svg>',
         encoding="utf-8",
     )
 
@@ -914,43 +1179,107 @@ def write_gene_expression_html(path: Path, gene_payload: dict[str, Any]) -> None
     path.write_text(
         f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Gene Expression</title>
-<style>body{{margin:0;font-family:Georgia,'Noto Serif SC',serif;background:#fffaf0;color:#17211b}}.wrap{{padding:24px}}canvas{{border:1px solid #ded4c2;border-radius:18px;background:white;max-width:100%}}</style>
-</head><body><div class="wrap"><h1>单基因表达：{html.escape(str(gene_payload["gene"]))}</h1><p>{html.escape(str(gene_payload["gene_id"]))}</p><canvas id="plot" width="1200" height="620"></canvas></div>
+<script src="/static/vendor/plotly.min.js"></script>
+<style>
+body{{margin:0;font-family:Inter,'Noto Sans SC',Arial,sans-serif;background:#f4f8fb;color:#07131f}}
+.wrap{{padding:24px}}
+.head{{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:16px}}
+h1{{margin:0 0 8px;font-size:28px;line-height:1.1}}
+p{{margin:0;color:#52616b}}
+.summary{{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}}
+.summary span{{padding:7px 10px;border:1px solid #d8e5ee;border-radius:999px;background:white;font-size:12px;font-weight:800;color:#345}}
+#plot{{width:1180px;height:680px;border:1px solid #d8e5ee;border-radius:14px;background:white}}
+.plot-frame{{width:min(100%,1180px);overflow:auto}}
+.plot-error{{padding:18px;border:1px solid #efb8ae;border-radius:12px;background:#fff6f3;color:#9a352a;font-weight:800}}
+.modebar,.modebar-container,.modebar-btn--logo,.plotlyjsicon,.modebar-logo{{display:none!important}}
+</style>
+</head><body><div class="wrap"><div class="head"><div><h1>单基因表达：{html.escape(str(gene_payload["gene"]))}</h1><p>{html.escape(str(gene_payload["gene_id"]))}</p></div><div class="summary" id="summary"></div></div><div class="plot-frame"><div id="plot"></div></div></div>
 <script>
 const data = {payload};
-const canvas = document.getElementById('plot');
-const ctx = canvas.getContext('2d');
-const groups = Object.entries(data.groups);
-const pad = 80, bottom = canvas.height - 70, left = 90, width = canvas.width - 150;
-const vmax = Math.max(...data.points.map(x => x.value), 1);
-ctx.strokeStyle = '#ded4c2'; ctx.beginPath(); ctx.moveTo(left, 30); ctx.lineTo(left, bottom); ctx.lineTo(left + width, bottom); ctx.stroke();
-groups.forEach(([name, info], index) => {{
-  const x = left + (index + 0.5) / groups.length * width;
-  ctx.fillStyle = '#17211b'; ctx.fillText(name, x - 14, bottom + 20);
-  ctx.fillStyle = '#0f6b57';
-  const y = bottom - info.mean / vmax * (bottom - 40);
-  ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill();
-  data.points.filter(p => p.condition === name).forEach((point, offset) => {{
-    const sx = x - 18 + (offset % 7) * 6;
-    const sy = bottom - point.value / vmax * (bottom - 40);
-    ctx.fillStyle = 'rgba(185,61,47,.55)';
-    ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2); ctx.fill();
-  }});
+const palette = ['#0f8a8f', '#315fd6', '#c44f3a', '#7b61b5', '#20804f', '#c27a18', '#b33d7a', '#52616b'];
+const conditionColors = data.condition_colors || {{}};
+const groups = Object.keys(data.groups || {{}});
+const plotEl = document.getElementById('plot');
+function transparentColor(hex, alpha) {{
+  const match = String(hex || '').match(/^#?([0-9a-f]{{6}})$/i);
+  if (!match) return `rgba(15,138,143,${{alpha}})`;
+  const raw = match[1];
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  return `rgba(${{r}},${{g}},${{b}},${{alpha}})`;
+}}
+document.getElementById('summary').innerHTML = groups.map(name => {{
+  const info = data.groups[name] || {{}};
+  return `<span>${{name}} · n=${{info.count || 0}} · median=${{info.median ?? '-'}}</span>`;
+}}).join('');
+const traces = groups.map((name, index) => {{
+  const points = data.points.filter(point => point.condition === name);
+  const color = conditionColors[name] || palette[index % palette.length];
+  return {{
+    type: 'box',
+    name,
+    y: points.map(point => point.value),
+    x: points.map(() => name),
+    text: points.map(point => point.sample),
+    customdata: points.map(point => [point.group, data.groups[name]?.mean, data.groups[name]?.median]),
+    boxpoints: 'all',
+    jitter: 0.42,
+    pointpos: 0,
+    marker: {{color, size: 8, opacity: 0.72, line: {{color: '#ffffff', width: 1}}}},
+    line: {{color, width: 2}},
+    fillcolor: transparentColor(color, 0.2),
+    hovertemplate: '<b>%{{text}}</b><br>condition=%{{x}}<br>expression=%{{y:.4f}}<br>group=%{{customdata[0]}}<br>mean=%{{customdata[1]}}<br>median=%{{customdata[2]}}<extra></extra>',
+    boxmean: true,
+  }};
 }});
+try {{
+if (!window.Plotly) throw new Error('Plotly library did not load');
+Plotly.newPlot(plotEl, traces, {{
+  title: {{text: 'Expression distribution by condition', x: 0.02, xanchor: 'left'}},
+  width: 1180,
+  height: 680,
+  paper_bgcolor: '#ffffff',
+  plot_bgcolor: '#ffffff',
+  margin: {{l: 74, r: 28, t: 70, b: 86}},
+  xaxis: {{title: 'Condition', zeroline: false, tickangle: groups.length > 5 ? -30 : 0}},
+  yaxis: {{title: 'Expression', zeroline: false, gridcolor: '#e8f0f5'}},
+  boxmode: 'group',
+  hovermode: 'closest',
+  showlegend: groups.length <= 8,
+  font: {{family: "Inter, 'Noto Sans SC', Arial, sans-serif", color: '#07131f'}},
+}}, {{
+  responsive: false,
+  displayModeBar: false,
+  displaylogo: false,
+  toImageButtonOptions: {{format: 'png', filename: `gene-expression-${{data.gene || 'gene'}}`, height: 900, width: 1400, scale: 2}},
+}});
+}} catch (error) {{
+  plotEl.className = 'plot-error';
+  plotEl.textContent = `Plotly 渲染失败：${{error.message}}`;
+}}
 </script></body></html>""",
         encoding="utf-8",
     )
 
 
 def write_gene_expression_preview(path: Path, gene_payload: dict[str, Any]) -> None:
-    circles = []
+    boxes = []
     groups = list(gene_payload["groups"].items())
     max_mean = max((item["mean"] for _, item in groups), default=1)
+    min_mean = min((item["mean"] for _, item in groups), default=0)
+    span = max(max_mean - min_mean, 1)
     for index, (_, item) in enumerate(groups[:6]):
-        x = 36 + index * 28
-        y = 90 - item["mean"] / max_mean * 48
-        circles.append(f'<circle cx="{x}" cy="{y:.1f}" r="6" fill="#0f6b57" opacity=".72"/>')
+        x = 32 + index * 30
+        mean_y = 92 - (item["mean"] - min_mean) / span * 48
+        median_y = 92 - (item["median"] - min_mean) / span * 48
+        boxes.append(
+            f'<line x1="{x}" x2="{x}" y1="{max(28, mean_y - 18):.1f}" y2="{min(98, mean_y + 18):.1f}" stroke="#0f8a8f" stroke-width="2"/>'
+            f'<rect x="{x - 8}" y="{max(30, mean_y - 10):.1f}" width="16" height="20" rx="3" fill="#d8f0ef" stroke="#0f8a8f"/>'
+            f'<line x1="{x - 8}" x2="{x + 8}" y1="{median_y:.1f}" y2="{median_y:.1f}" stroke="#07131f" stroke-width="2"/>'
+        )
     path.write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#fffaf0"/><text x="12" y="17" font-size="11" fill="#17211b">{html.escape(str(gene_payload["gene"]))}</text>{"".join(circles)}</svg>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f4f8fb"/><text x="12" y="17" font-size="11" fill="#17211b">{html.escape(str(gene_payload["gene"]))}</text><text x="12" y="31" font-size="9" fill="#52616b">Interactive boxplot</text>{"".join(boxes)}</svg>',
         encoding="utf-8",
     )
+

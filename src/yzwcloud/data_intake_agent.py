@@ -18,6 +18,7 @@ from typing import Any, Callable
 from openpyxl import load_workbook
 
 from yzwcloud.config import PROJECT_ROOT
+from yzwcloud.color_palette import condition_color_map
 from yzwcloud.data_intake_registry import (
     DEFAULT_MAX_ITERATIONS,
     attempt_stop_reason,
@@ -161,6 +162,7 @@ def run_data_intake_agent(
         "sample_groups": validation["sample_groups"],
         "conditions": validation["conditions"],
         "condition_options": sorted(validation["conditions"]),
+        "condition_colors": condition_color_map(validation["conditions"]),
         "matrix_file": standard_result["matrix_file"],
         "sample_metadata_file": standard_result["sample_metadata_file"],
         "gene_annotation_file": standard_result.get("gene_annotation_file", ""),
@@ -719,12 +721,11 @@ def _capabilities_for_validation(validation: dict[str, Any]) -> list[str]:
     if validation["valid"] and validation["sample_count"] >= 2:
         capabilities.extend(["qc", "sample_correlation", "expression_heatmap", "gene_expression"])
         capabilities.append("pca")
-    if validation["valid"] and validation["sample_count"] >= 15:
+    if validation["valid"] and validation["sample_count"] > 20:
         capabilities.append("wgcna")
     condition_counts = validation.get("conditions", {})
     if len(condition_counts) >= 2 and all(count >= 2 for count in condition_counts.values()):
         capabilities.append("diff_analysis")
-        capabilities.append("paired_differential")
     if len(condition_counts) >= 3:
         capabilities.append("multigroup_differential")
     return capabilities

@@ -15,6 +15,7 @@ from yzwcloud.models import (
     RunNodeRequest,
     TaskDetail,
     TaskState,
+    UpdateTaskRequest,
     UpdateSampleGroupsRequest,
 )
 from yzwcloud.task_store import (
@@ -30,6 +31,7 @@ from yzwcloud.task_store import (
     load_task,
     read_log,
     read_sample_groups,
+    rename_task,
     save_task_input,
     update_sample_groups,
 )
@@ -74,6 +76,17 @@ def api_delete_task(task_id: str) -> Response:
         return Response(status_code=204)
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc
+
+
+@app.patch("/api/tasks/{task_id}", response_model=TaskDetail)
+def api_update_task(task_id: str, payload: UpdateTaskRequest) -> TaskDetail:
+    try:
+        task = rename_task(task_id, payload.name)
+        return TaskDetail(task=task, graph=load_graph(task_id))
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/tasks/{task_id}/inputs/{input_kind}", response_model=TaskDetail)
@@ -136,9 +149,14 @@ def api_create_analysis_node(task_id: str, payload: CreateAnalysisNodeRequest) -
 
 
 @app.get("/api/tasks/{task_id}/sample-groups")
-def api_get_sample_groups(task_id: str) -> dict[str, list[dict[str, str]]]:
+def api_get_sample_groups(task_id: str) -> dict[str, object]:
     try:
-        return {"samples": read_sample_groups(task_id)}
+        graph = load_graph(task_id)
+        upload_node = next((node for node in graph.nodes if node.id == "upload_expression"), None)
+        colors = {}
+        if upload_node and upload_node.output:
+            colors = upload_node.output.meta.get("condition_colors") or {}
+        return {"samples": read_sample_groups(task_id), "condition_colors": colors}
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc
     except ValueError as exc:
@@ -148,7 +166,7 @@ def api_get_sample_groups(task_id: str) -> dict[str, list[dict[str, str]]]:
 @app.put("/api/tasks/{task_id}/sample-groups", response_model=TaskDetail)
 def api_update_sample_groups(task_id: str, payload: UpdateSampleGroupsRequest) -> TaskDetail:
     try:
-        task, graph = update_sample_groups(task_id, payload.assignments)
+        task, graph = update_sample_groups(task_id, payload.assignments, payload.condition_colors)
         return TaskDetail(task=task, graph=graph)
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc

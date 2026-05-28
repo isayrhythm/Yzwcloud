@@ -15,7 +15,6 @@ DATA_TYPE_CAPABILITY_MAP = {
         "gene_expression",
         "pca",
         "diff_analysis",
-        "paired_differential",
         "multigroup_differential",
         "wgcna",
     },

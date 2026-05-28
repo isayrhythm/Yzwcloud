@@ -104,13 +104,14 @@ def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
 
     color_column = _choose_column(params.get("color"), context["categorical_columns"])
     label_column = _choose_column(params.get("label"), context["columns"])
+    size_column = _choose_column(params.get("size"), numeric_columns)
     traces = _grouped_marker_traces(
         context["records"],
         x_column=x_column,
         y_column=y_column,
         color_column=color_column,
         label_column=label_column,
-        size_column=None,
+        size_column=size_column,
         mode="markers",
         marker_size=_bounded_float(params.get("point_size"), 8, 1, 40),
         marker_opacity=_bounded_float(params.get("point_alpha"), 0.85, 0.05, 1),
@@ -365,6 +366,7 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
         "type": "bar",
         "x": labels,
         "y": values,
+        "width": _bounded_float(params.get("bar_width"), 0.72, 0.1, 1.0),
         "marker": {"color": PLOTLY_PALETTE[0], "line": {"color": "#0a4f52", "width": 1}},
         "error_y": {
             "type": "data",
@@ -375,6 +377,11 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
         },
         "hovertemplate": "%{x}<br>value=%{y:.4g}<extra></extra>",
     }
+    if _truthy(params.get("show_values"), False):
+        precision = _bounded_int(params.get("value_precision"), 2, 0, 6)
+        trace["text"] = [f"{value:.{precision}f}" for value in values]
+        trace["textposition"] = "outside"
+        trace["cliponaxis"] = False
     data = [trace]
     if category_column and value_column and bool(params.get("show_points", True)) and raw_point_x:
         data.append(
@@ -398,6 +405,8 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
         trace["orientation"] = "h"
         trace["x"], trace["y"] = trace["y"], trace["x"]
         trace["error_x"] = trace.pop("error_y")
+        if _truthy(params.get("show_values"), False):
+            trace["textposition"] = "outside"
         x_title, y_title = y_title, x_title
         if len(data) > 1:
             point_trace = data[1]
@@ -474,6 +483,8 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
     bins = _bounded_int(params.get("bins"), 30, 5, 200)
     histnorm = str(params.get("histnorm") or "count")
     opacity = _bounded_float(params.get("opacity"), 0.68, 0.1, 1)
+    bar_line_width = _bounded_float(params.get("bar_line_width"), 0.5, 0, 4)
+    bar_line_color = str(params.get("bar_line_color") or "#ffffff")
     traces = []
     reference_shapes = []
     reference_annotations = []
@@ -491,7 +502,7 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
                 "nbinsx": bins,
                 "histnorm": "" if histnorm == "count" else histnorm,
                 "opacity": opacity,
-                "marker": {"color": color, "line": {"color": "#ffffff", "width": 0.5}},
+                "marker": {"color": color, "line": {"color": bar_line_color, "width": bar_line_width}},
                 "cumulative": {"enabled": _truthy(params.get("cumulative"), False)},
                 "hovertemplate": "%{x}<br>count=%{y}<extra>%{fullData.name}</extra>",
             }
@@ -778,6 +789,8 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
             grouped["Not significant"].append(point)
 
     colors = {"Up": "#c44f3a", "Down": "#315fd6", "Not significant": "#9aaab7"}
+    marker_size = _bounded_float(params.get("point_size"), 7, 1, 30)
+    marker_opacity = _bounded_float(params.get("point_alpha"), 0.78, 0.05, 1)
     traces = []
     for name, points in grouped.items():
         if not points:
@@ -791,7 +804,7 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
                 "y": [point["y"] for point in points],
                 "text": [point["gene"] for point in points],
                 "customdata": [[point["p_value"]] for point in points],
-                "marker": {"size": 7, "opacity": 0.78, "color": colors[name]},
+                "marker": {"size": marker_size, "opacity": marker_opacity, "color": colors[name]},
                 "hovertemplate": "%{text}<br>log2FC=%{x:.3g}<br>-log10(p)=%{y:.3g}<br>p=%{customdata[0]:.3g}<extra></extra>",
             }
         )
@@ -804,21 +817,22 @@ def _build_volcano_spec(context: dict[str, Any]) -> dict[str, Any]:
         y_title="-log10(p value)",
         params=params,
     )
-    layout["shapes"] = [
-        _vertical_line(log2fc_threshold),
-        _vertical_line(-log2fc_threshold),
-        _horizontal_line(-math.log10(p_value_threshold)),
-    ]
-    layout["annotations"] = [
-        {
-            "x": 0,
-            "y": -math.log10(p_value_threshold),
-            "text": f"p = {p_value_threshold:g}",
-            "showarrow": False,
-            "yshift": 10,
-            "font": {"size": 11, "color": "#52616b"},
-        }
-    ]
+    if _truthy(params.get("show_threshold_lines"), True):
+        layout["shapes"] = [
+            _vertical_line(log2fc_threshold),
+            _vertical_line(-log2fc_threshold),
+            _horizontal_line(-math.log10(p_value_threshold)),
+        ]
+        layout["annotations"] = [
+            {
+                "x": 0,
+                "y": -math.log10(p_value_threshold),
+                "text": f"p = {p_value_threshold:g}",
+                "showarrow": False,
+                "yshift": 10,
+                "font": {"size": 11, "color": "#52616b"},
+            }
+        ]
     warnings = []
     if not traces:
         warnings.append("No valid p-value/log2FC rows were available.")
@@ -849,7 +863,10 @@ def _volcano_label_trace(grouped: dict[str, list[dict[str, Any]]], params: dict[
             "middle right" if point["x"] >= 0 else "middle left"
             for point in selected
         ],
-        "textfont": {"size": _bounded_int(params.get("font_size"), 13, 8, 28) - 1, "color": "#172331"},
+        "textfont": {
+            "size": _bounded_int(params.get("label_font_size"), _bounded_int(params.get("font_size"), 13, 8, 28) - 1, 6, 24),
+            "color": "#172331",
+        },
         "hovertemplate": "%{text}<br>log2FC=%{x:.3g}<br>-log10(p)=%{y:.3g}<extra>label</extra>",
         "showlegend": False,
     }
@@ -1135,7 +1152,18 @@ def _build_heatmap_spec(context: dict[str, Any]) -> dict[str, Any]:
         "colorscale": _colorscale(str(params.get("palette") or "blue_red")),
         "colorbar": {"title": scale},
         "hovertemplate": "row=%{y}<br>column=%{x}<br>value=%{z:.4g}<extra></extra>",
+        "xgap": _bounded_int(params.get("cell_gap"), 1, 0, 8),
+        "ygap": _bounded_int(params.get("cell_gap"), 1, 0, 8),
     }
+    warnings = []
+    if _truthy(params.get("show_values"), False):
+        if len(labels) * len(numeric_columns) <= 900:
+            precision = _bounded_int(params.get("value_precision"), 2, 0, 6)
+            trace["text"] = [[f"{value:.{precision}f}" for value in row] for row in z_values]
+            trace["texttemplate"] = "%{text}"
+            trace["textfont"] = {"size": max(8, _bounded_int(params.get("font_size"), 13, 8, 28) - 2), "color": "#172331"}
+        else:
+            warnings.append("Heatmap cell value labels were hidden because more than 900 cells are displayed.")
     layout = _base_layout(
         title=f"Heatmap: top {len(labels)} variable rows",
         x_title="sample / numeric column",
@@ -1148,7 +1176,6 @@ def _build_heatmap_spec(context: dict[str, Any]) -> dict[str, Any]:
     layout["xaxis"]["automargin"] = True
     if _truthy(params.get("show_dendrogram"), True):
         _attach_dendrogram_guides(layout, row_cluster, column_cluster, row_count=len(labels), column_count=len(numeric_columns))
-    warnings = []
     if len(context["records"]) > len(matrix_rows):
         warnings.append(f"Showing top {len(matrix_rows)} rows ranked by variance.")
     if cluster_warning:
@@ -1195,11 +1222,14 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
         "colorscale": _colorscale(str(params.get("color_scale") or "blue_white_red")),
         "colorbar": {"title": "r"},
         "hovertemplate": "%{y} vs %{x}<br>r=%{z:.3f}<extra></extra>",
+        "xgap": _bounded_int(params.get("cell_gap"), 1, 0, 8),
+        "ygap": _bounded_int(params.get("cell_gap"), 1, 0, 8),
     }
     warnings = []
     if _truthy(params.get("show_values"), False):
         if len(numeric_columns) <= 40:
-            trace["text"] = [[f"{value:.2f}" for value in row] for row in z_values]
+            precision = _bounded_int(params.get("value_precision"), 2, 0, 4)
+            trace["text"] = [[f"{value:.{precision}f}" for value in row] for row in z_values]
             trace["texttemplate"] = "%{text}"
             trace["textfont"] = {"size": 10, "color": "#152433"}
         else:
@@ -1290,11 +1320,11 @@ def _build_enrichment_dot_spec(context: dict[str, Any]) -> dict[str, Any]:
         "marker": {
             "size": marker_sizes,
             "color": color_values,
-            "colorscale": "Viridis",
+            "colorscale": _colorscale(str(params.get("color_scale") or "viridis")),
             "showscale": True,
             "colorbar": {"title": colorbar_title},
             "line": {"color": "#ffffff", "width": 1},
-            "opacity": 0.86,
+            "opacity": _bounded_float(params.get("point_alpha"), 0.86, 0.05, 1),
         },
         "text": [item["term"] for item in rows],
         "customdata": [[item["size"], item["raw_color"], color_values[index]] for index, item in enumerate(rows)],
@@ -1844,12 +1874,19 @@ def _grouped_marker_traces(
     marker_opacity: float,
 ) -> list[dict[str, Any]]:
     grouped = _records_by_category(records, color_column) if color_column else {"All": records}
+    finite_sizes = [_number_or_none(row.get(size_column)) for row in records] if size_column else []
+    finite_sizes = [value for value in finite_sizes if value is not None]
+    size_min = min(finite_sizes) if finite_sizes else 0.0
+    size_span = max((max(finite_sizes) - size_min) if finite_sizes else 0.0, 1e-9)
+    marker_min = max(3.0, marker_size * 0.55)
+    marker_max = max(marker_min, marker_size * 2.4)
     traces = []
     for index, (group_name, rows) in enumerate(grouped.items()):
         x_values = []
         y_values = []
         labels = []
         raw_sizes = []
+        marker_sizes = []
         for row in rows:
             x_value = _number_or_none(row.get(x_column))
             y_value = _number_or_none(row.get(y_column))
@@ -1858,9 +1895,26 @@ def _grouped_marker_traces(
             x_values.append(x_value)
             y_values.append(y_value)
             labels.append(str(row.get(label_column) or "") if label_column else "")
-            raw_sizes.append(row.get(size_column, "") if size_column else "")
+            size_value = _number_or_none(row.get(size_column)) if size_column else None
+            raw_sizes.append(size_value if size_value is not None else "")
+            if size_column and size_value is not None:
+                marker_sizes.append(marker_min + (size_value - size_min) / size_span * (marker_max - marker_min))
+            else:
+                marker_sizes.append(marker_size)
         if not x_values:
             continue
+        marker: dict[str, Any] = {
+            "size": marker_sizes if size_column else marker_size,
+            "opacity": marker_opacity,
+            "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
+            "line": {"color": "#ffffff", "width": 0.5},
+        }
+        hovertemplate = "%{text}<br>x=%{x:.4g}<br>y=%{y:.4g}<extra>%{fullData.name}</extra>"
+        if size_column:
+            hovertemplate = (
+                "%{text}<br>x=%{x:.4g}<br>y=%{y:.4g}"
+                f"<br>{size_column}=%{{customdata[0]}}<extra>%{{fullData.name}}</extra>"
+            )
         traces.append(
             {
                 "type": "scattergl",
@@ -1869,13 +1923,9 @@ def _grouped_marker_traces(
                 "x": x_values,
                 "y": y_values,
                 "text": labels,
-                "marker": {
-                    "size": marker_size,
-                    "opacity": marker_opacity,
-                    "color": PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)],
-                    "line": {"color": "#ffffff", "width": 0.5},
-                },
-                "hovertemplate": "%{text}<br>x=%{x:.4g}<br>y=%{y:.4g}<extra>%{fullData.name}</extra>",
+                "customdata": [[value] for value in raw_sizes],
+                "marker": marker,
+                "hovertemplate": hovertemplate,
                 "_raw_sizes": raw_sizes,
             }
         )

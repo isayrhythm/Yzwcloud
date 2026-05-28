@@ -318,14 +318,45 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"multiple testing={params.get('multiple_testing') or 'BH'}")
         if params.get("show_p_values"):
             summary["statistics"].append("p-values shown on plot")
+        if "show_points" in params:
+            summary["display"].append(f"raw points shown={bool(params.get('show_points'))}")
+        if params.get("point_jitter") is not None:
+            summary["display"].append(f"point jitter={params.get('point_jitter')}")
+        if "show_mean" in params:
+            summary["display"].append(f"mean marker={bool(params.get('show_mean'))}")
         if params.get("notched"):
             summary["display"].append("notched boxes enabled")
+        if params.get("box_width"):
+            summary["display"].append(f"box width={params.get('box_width')}")
+    if plot_id == "violin":
+        if "show_box" in params:
+            summary["display"].append(f"box overlay={bool(params.get('show_box'))}")
+        if "show_mean" in params:
+            summary["display"].append(f"mean line={bool(params.get('show_mean'))}")
+        if params.get("show_points"):
+            summary["display"].append(f"points={params.get('show_points')}")
+        if params.get("bandwidth"):
+            summary["statistics"].append(f"bandwidth={params.get('bandwidth')}")
+        if params.get("side"):
+            summary["display"].append(f"side={params.get('side')}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
     if plot_id == "scatter":
         trendline = str(params.get("trendline") or "none")
         if trendline != "none":
             summary["statistics"].append(f"trendline={trendline}")
         if params.get("confidence_ellipse"):
             summary["statistics"].append(f"confidence ellipse={params.get('ellipse_level') or 0.95}")
+        if params.get("color"):
+            summary["display"].append(f"color by={params.get('color')}")
+        if params.get("size"):
+            summary["display"].append(f"size by={params.get('size')}")
+        if params.get("label"):
+            summary["display"].append(f"point labels={params.get('label')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
         if params.get("x_log"):
             summary["display"].append("log x-axis")
         if params.get("y_log"):
@@ -335,6 +366,20 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"aggregation={params.get('aggregation')}")
         if params.get("error_bar"):
             summary["statistics"].append(f"error bar={params.get('error_bar')}")
+        if "show_points" in params:
+            summary["display"].append(f"raw points shown={bool(params.get('show_points'))}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
+        if params.get("error_cap_width") is not None:
+            summary["display"].append(f"error cap width={params.get('error_cap_width')}")
+        if params.get("show_values"):
+            summary["display"].append(f"value labels shown with {params.get('value_precision', 2)} decimals")
+        if params.get("bar_width"):
+            summary["display"].append(f"bar width={params.get('bar_width')}")
+        if params.get("sort"):
+            summary["display"].append(f"sort bars={params.get('sort')}")
+        if params.get("orientation"):
+            summary["display"].append(f"orientation={params.get('orientation')}")
         pairwise_test = str(params.get("pairwise_test") or "none")
         if pairwise_test != "none":
             summary["statistics"].append(f"pairwise test={pairwise_test}")
@@ -361,6 +406,16 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"bins={params.get('bins')}")
         if params.get("histnorm"):
             summary["display"].append(f"scale={params.get('histnorm')}")
+        if params.get("barmode"):
+            summary["display"].append(f"bar mode={params.get('barmode')}")
+        if params.get("opacity") is not None:
+            summary["display"].append(f"opacity={params.get('opacity')}")
+        if params.get("bar_line_width") is not None:
+            summary["display"].append(f"bar line width={params.get('bar_line_width')}")
+        if params.get("bar_line_color"):
+            summary["display"].append(f"bar line color={params.get('bar_line_color')}")
+        if params.get("cumulative"):
+            summary["statistics"].append("cumulative histogram")
         if params.get("show_mean"):
             summary["statistics"].append("mean reference shown")
         if params.get("show_median"):
@@ -415,13 +470,23 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"abs log2FC threshold={params.get('log2fc_threshold')}")
         if params.get("p_value_threshold") is not None:
             summary["statistics"].append(f"p-value threshold={params.get('p_value_threshold')}")
+        if "show_threshold_lines" in params:
+            summary["display"].append(f"threshold lines={bool(params.get('show_threshold_lines'))}")
         if params.get("label_top_n") is not None:
             summary["display"].append(f"top labels={params.get('label_top_n')}")
         if params.get("label_mode"):
             summary["display"].append(f"label mode={params.get('label_mode')}")
+        if params.get("label_font_size"):
+            summary["display"].append(f"label font size={params.get('label_font_size')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
     if plot_id in {"heatmap", "correlation"}:
         if plot_id == "correlation" and params.get("method"):
             summary["statistics"].append(f"method={params.get('method')}")
+        if plot_id == "heatmap" and params.get("scale"):
+            summary["statistics"].append(f"scale={params.get('scale')}")
         if "cluster_rows" in params:
             summary["statistics"].append(f"cluster rows={bool(params.get('cluster_rows'))}")
         if "cluster_columns" in params:
@@ -432,10 +497,18 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"linkage={params.get('linkage')}")
         if plot_id == "heatmap" and params.get("show_dendrogram"):
             summary["display"].append("dendrogram guides shown")
+        if plot_id == "heatmap" and params.get("palette"):
+            summary["display"].append(f"color scale={params.get('palette')}")
+        if plot_id == "heatmap" and params.get("show_values"):
+            summary["display"].append(f"cell values shown with {params.get('value_precision', 2)} decimals")
+        if plot_id == "heatmap" and params.get("cell_gap") is not None:
+            summary["display"].append(f"cell gap={params.get('cell_gap')}")
         if plot_id == "correlation" and params.get("show_values"):
-            summary["display"].append("r-value labels shown")
+            summary["display"].append(f"r-value labels shown with {params.get('value_precision', 2)} decimals")
         if plot_id == "correlation" and params.get("color_scale"):
             summary["display"].append(f"color scale={params.get('color_scale')}")
+        if plot_id == "correlation" and params.get("cell_gap") is not None:
+            summary["display"].append(f"cell gap={params.get('cell_gap')}")
         if params.get("top_n"):
             summary["display"].append(f"top rows={params.get('top_n')}")
     if plot_id == "upset":
@@ -463,6 +536,16 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append(f"color transform={params.get('color_transform')}")
         if params.get("wrap_term_label"):
             summary["display"].append("wrapped term labels")
+        if params.get("term_label_width"):
+            summary["display"].append(f"term label width={params.get('term_label_width')}")
+        if params.get("min_dot_size") or params.get("max_dot_size"):
+            summary["display"].append(
+                f"dot size range={params.get('min_dot_size', 'auto')}-{params.get('max_dot_size', 'auto')}"
+            )
+        if params.get("color_scale"):
+            summary["display"].append(f"color scale={params.get('color_scale')}")
+        if params.get("point_alpha"):
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
     if params.get("width") or params.get("height"):
         summary["export"].append(f"canvas={params.get('width', 'auto')}x{params.get('height', 'auto')}")
     if params.get("format") or params.get("dpi"):

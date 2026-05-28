@@ -18,11 +18,15 @@ PLOTLY_PALETTE = [
 SUPPORTED_PLOTLY_SPEC_TYPES = {
     "scatter",
     "boxplot",
+    "grouped_dotplot",
+    "raincloud",
     "violin",
     "ridgeline",
     "bar",
     "line",
     "histogram",
+    "density_curve",
+    "ecdf",
     "calendar_heatmap",
     "density_contour",
     "scatter_3d",
@@ -176,6 +180,16 @@ PLOT_UI_METADATA: dict[str, dict[str, str]] = {
         "thumbnail": "boxplot",
         "use_case": "Group comparison with medians, spread, and raw points.",
     },
+    "grouped_dotplot": {
+        "category": "Distribution",
+        "thumbnail": "grouped_dotplot",
+        "use_case": "Prism-style grouped raw points with mean or median summary bars.",
+    },
+    "raincloud": {
+        "category": "Distribution",
+        "thumbnail": "raincloud",
+        "use_case": "Half-violin, box, and raw point overlay for compact group distribution review.",
+    },
     "violin": {
         "category": "Distribution",
         "thumbnail": "violin",
@@ -200,6 +214,16 @@ PLOT_UI_METADATA: dict[str, dict[str, str]] = {
         "category": "Distribution",
         "thumbnail": "histogram",
         "use_case": "Single-variable distribution and value range checks.",
+    },
+    "density_curve": {
+        "category": "Distribution",
+        "thumbnail": "density_curve",
+        "use_case": "Smooth one-dimensional KDE distribution comparison without histogram bin choices.",
+    },
+    "ecdf": {
+        "category": "Distribution",
+        "thumbnail": "ecdf",
+        "use_case": "Empirical cumulative distribution comparison across groups or samples.",
     },
     "calendar_heatmap": {
         "category": "Time",
@@ -668,6 +692,110 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "grouped_dotplot",
+        "label": "Grouped dot plot",
+        "engine": "plotly",
+        "description": "Prism-style grouped raw-value plot with jitter, group colors, and mean/median summary bars.",
+        "default_params": {
+            "point_jitter": 0.32,
+            "point_size": 7,
+            "point_alpha": 0.78,
+            "summary_stat": "mean",
+            "summary_line_width": 2.4,
+            "summary_line_color_mode": "group",
+            "summary_line_color": "#07131f",
+            "summary_width": 0.56,
+            "sort_groups": "input",
+            "show_n_labels": True,
+        },
+        "parameter_groups": [
+            _group(
+                "mapping",
+                "Data mapping",
+                [
+                    _param("y", "Value", "column", None, required=True),
+                    _param("group", "Group", "column", None, required=True),
+                    _param("label", "Point label", "column_or_none", None),
+                ],
+            ),
+            _group(
+                "points",
+                "Raw points and summary",
+                [
+                    _param("point_jitter", "Point jitter", "number", 0.32, min_value=0, max_value=0.8, step=0.02),
+                    _param("point_size", "Point size", "number", 7, min_value=1, max_value=30, step=1),
+                    _param("point_alpha", "Point opacity", "number", 0.78, min_value=0.05, max_value=1, step=0.02),
+                    _param("summary_stat", "Summary bar", "select", "mean", options=["none", "mean", "median"]),
+                    _param("summary_line_width", "Summary width", "number", 2.4, min_value=0.5, max_value=10, step=0.1),
+                    _param("summary_width", "Summary span", "number", 0.56, min_value=0.15, max_value=0.95, step=0.02),
+                    _param("sort_groups", "Sort groups", "select", "input", options=["input", "median_desc", "median_asc", "size_desc"]),
+                    _param("show_n_labels", "Show n labels", "boolean", True),
+                ],
+            ),
+            _group(
+                "style",
+                "Summary style",
+                [
+                    _param("summary_line_color_mode", "Summary color", "select", "group", options=["group", "custom"]),
+                    _param("summary_line_color", "Custom summary color", "color", "#07131f"),
+                ],
+            ),
+            *COMMON_THEME_GROUPS,
+        ],
+    },
+    {
+        "id": "raincloud",
+        "label": "Raincloud",
+        "engine": "plotly",
+        "description": "Half-violin density plus raw points and box summary for publication-style group comparisons.",
+        "default_params": {
+            "violin_side": "negative",
+            "show_box": True,
+            "show_points": True,
+            "point_jitter": 0.22,
+            "point_size": 5,
+            "point_alpha": 0.68,
+            "violin_width": 0.72,
+            "box_width": 0.24,
+            "box_offset": 0.18,
+            "show_mean": True,
+            "mean_marker_size": 9,
+            "sort_groups": "input",
+            "max_groups": 16,
+        },
+        "parameter_groups": [
+            _group(
+                "mapping",
+                "Data mapping",
+                [
+                    _param("y", "Value", "column", None, required=True),
+                    _param("group", "Group", "column", None, required=True),
+                    _param("label", "Point label", "column_or_none", None),
+                ],
+            ),
+            _group(
+                "cloud",
+                "Cloud and points",
+                [
+                    _param("violin_side", "Violin side", "select", "negative", options=["negative", "positive"]),
+                    _param("violin_width", "Violin width", "number", 0.72, min_value=0.15, max_value=1.4, step=0.02),
+                    _param("show_box", "Show box", "boolean", True),
+                    _param("box_width", "Box width", "number", 0.24, min_value=0.08, max_value=0.6, step=0.02),
+                    _param("box_offset", "Box offset", "number", 0.18, min_value=-0.5, max_value=0.5, step=0.02),
+                    _param("show_points", "Show raw points", "boolean", True),
+                    _param("point_jitter", "Point jitter", "number", 0.22, min_value=0, max_value=0.8, step=0.02),
+                    _param("point_size", "Point size", "number", 5, min_value=1, max_value=24, step=1),
+                    _param("point_alpha", "Point opacity", "number", 0.68, min_value=0.05, max_value=1, step=0.02),
+                    _param("show_mean", "Show mean marker", "boolean", True),
+                    _param("mean_marker_size", "Mean marker size", "number", 9, min_value=2, max_value=28, step=1),
+                    _param("sort_groups", "Sort groups", "select", "input", options=["input", "median_desc", "median_asc", "size_desc"]),
+                    _param("max_groups", "Max groups", "number", 16, min_value=2, max_value=40, step=1),
+                ],
+            ),
+            *COMMON_THEME_GROUPS,
+        ],
+    },
+    {
         "id": "violin",
         "label": "Violin",
         "engine": "plotly",
@@ -909,6 +1037,106 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                         options=["group", "custom"],
                     ),
                     _param("reference_line_color", "Custom line color", "color", "#324657"),
+                ],
+            ),
+            *COMMON_THEME_GROUPS,
+        ],
+    },
+    {
+        "id": "density_curve",
+        "label": "Density curve",
+        "engine": "plotly",
+        "description": "Smooth one-dimensional kernel density curve with optional group overlays, fill, rug marks, and median guides.",
+        "default_params": {
+            "density_points": 160,
+            "bandwidth": "auto",
+            "normalize": "area",
+            "fill": True,
+            "fill_alpha": 0.24,
+            "line_width": 2.4,
+            "show_rug": True,
+            "rug_size": 8,
+            "rug_alpha": 0.42,
+            "show_median": True,
+            "median_line_dash": "dot",
+            "max_groups": 12,
+            "sort_groups": "input",
+        },
+        "parameter_groups": [
+            _group(
+                "mapping",
+                "Data mapping",
+                [
+                    _param("x", "Value", "column", None, required=True),
+                    _param("group", "Group", "column_or_none", None),
+                    _param("label", "Point label", "column_or_none", None),
+                ],
+            ),
+            _group(
+                "density",
+                "Density display",
+                [
+                    _param("density_points", "Density resolution", "number", 160, min_value=30, max_value=500, step=1),
+                    _param("bandwidth", "Bandwidth", "number_or_auto", "auto", min_value=0.001, max_value=1000000, step=0.01),
+                    _param("normalize", "Normalize", "select", "area", options=["area", "peak"]),
+                    _param("fill", "Fill under curve", "boolean", True),
+                    _param("fill_alpha", "Fill opacity", "number", 0.24, min_value=0.02, max_value=1, step=0.02),
+                    _param("line_width", "Line width", "number", 2.4, min_value=0.5, max_value=10, step=0.1),
+                    _param("show_rug", "Show rug marks", "boolean", True),
+                    _param("rug_size", "Rug size", "number", 8, min_value=2, max_value=20, step=1),
+                    _param("rug_alpha", "Rug opacity", "number", 0.42, min_value=0.05, max_value=1, step=0.02),
+                    _param("show_median", "Median guide", "boolean", True),
+                    _param("median_line_dash", "Median dash", "select", "dot", options=["solid", "dash", "dot", "dashdot"]),
+                    _param("max_groups", "Max groups", "number", 12, min_value=1, max_value=40, step=1),
+                    _param("sort_groups", "Sort groups", "select", "input", options=["input", "median_desc", "median_asc", "size_desc"]),
+                ],
+            ),
+            *COMMON_THEME_GROUPS,
+        ],
+    },
+    {
+        "id": "ecdf",
+        "label": "ECDF",
+        "engine": "plotly",
+        "description": "Empirical cumulative distribution curve with optional group overlays and median guide lines.",
+        "default_params": {
+            "y_mode": "cumulative",
+            "y_units": "percent",
+            "line_shape": "hv",
+            "line_width": 2.4,
+            "show_points": False,
+            "point_size": 5,
+            "point_alpha": 0.62,
+            "show_median": True,
+            "median_line_dash": "dot",
+            "max_groups": 12,
+            "sort_groups": "input",
+        },
+        "parameter_groups": [
+            _group(
+                "mapping",
+                "Data mapping",
+                [
+                    _param("x", "Value", "column", None, required=True),
+                    _param("group", "Group", "column_or_none", None),
+                    _param("label", "Point label", "column_or_none", None),
+                ],
+            ),
+            _group(
+                "distribution",
+                "ECDF display",
+                [
+                    _param("y_mode", "Curve mode", "select", "cumulative", options=["cumulative", "survival"]),
+                    _param("y_units", "Y units", "select", "percent", options=["percent", "proportion"]),
+                    _param("line_shape", "Line shape", "select", "hv", options=["hv", "linear"]),
+                    _param("line_width", "Line width", "number", 2.4, min_value=0.5, max_value=10, step=0.1),
+                    _param("show_points", "Show step points", "boolean", False),
+                    _param("point_size", "Point size", "number", 5, min_value=1, max_value=20, step=1),
+                    _param("point_alpha", "Point opacity", "number", 0.62, min_value=0.05, max_value=1, step=0.02),
+                    _param("show_median", "Median guide", "boolean", True),
+                    _param("median_line_dash", "Median dash", "select", "dot", options=["solid", "dash", "dot", "dashdot"]),
+                    _param("max_groups", "Max groups", "number", 12, min_value=1, max_value=40, step=1),
+                    _param("sort_groups", "Sort groups", "select", "input", options=["input", "median_desc", "median_asc", "size_desc"]),
                 ],
             ),
             *COMMON_THEME_GROUPS,
@@ -2540,7 +2768,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
 
 
 RECOMMENDATIONS_BY_OUTPUT = {
-    "gene_expression": ["boxplot", "violin", "bar", "histogram"],
+    "gene_expression": ["grouped_dotplot", "raincloud", "boxplot", "violin", "density_curve", "bar", "histogram"],
     "paired": ["paired_dot", "dumbbell", "boxplot", "line"],
     "pca": ["scatter", "bubble", "scatter_3d", "density_contour"],
     "sample_correlation": ["correlation", "heatmap"],
@@ -2560,7 +2788,7 @@ RECOMMENDATIONS_BY_OUTPUT = {
     "survival": ["kaplan_meier", "forest_plot", "boxplot"],
     "agreement": ["bland_altman", "scatter", "correlation"],
     "dose": ["dose_response", "scatter", "line"],
-    "expression_matrix": ["boxplot", "heatmap", "correlation", "histogram", "radar", "parallel_coordinates", "surface_3d"],
+    "expression_matrix": ["heatmap", "correlation", "boxplot", "density_curve", "histogram", "surface_3d", "parallel_coordinates"],
 }
 
 
@@ -2606,15 +2834,30 @@ def recommend_plot_types(source_type: str, table_summary: dict[str, Any] | None 
     if table_summary:
         numeric_count = len(table_summary.get("numeric_columns") or [])
         categorical_count = len(table_summary.get("categorical_columns") or [])
+        row_count = int(table_summary.get("scanned_rows") or table_summary.get("row_count") or 0)
         column_names = [str(column).lower() for column in table_summary.get("columns") or []]
+        matrix_profile = (table_summary.get("signals") or {}).get("matrix_profile") or {}
+        if matrix_profile.get("kind") == "expression_like":
+            return RECOMMENDATIONS_BY_OUTPUT["expression_matrix"][:]
         if any(column in {"date", "day", "time", "sample_date", "collection_date", "sampling_date"} for column in column_names):
             return ["calendar_heatmap", "line", "bar", "histogram"]
+        if row_count <= 1:
+            if numeric_count >= 1:
+                return ["bar", "histogram"]
+            return ["bar"]
+        if row_count < 3:
+            if numeric_count >= 2 and categorical_count >= 1:
+                return ["grouped_dotplot", "boxplot", "bar", "histogram"]
+            if numeric_count >= 2:
+                return ["bar", "histogram", "heatmap"]
+            if numeric_count == 1 and categorical_count >= 1:
+                return ["grouped_dotplot", "bar", "histogram"]
         if numeric_count >= 2 and categorical_count >= 1:
-            return ["scatter", "boxplot", "ridgeline", "radar", "heatmap"]
+            return ["scatter", "grouped_dotplot", "raincloud", "boxplot", "density_curve", "ecdf", "ridgeline", "radar", "heatmap"]
         if numeric_count >= 2:
             return ["scatter", "correlation", "parallel_coordinates", "heatmap"]
         if numeric_count == 1 and categorical_count >= 1:
-            return ["boxplot", "ridgeline", "bar", "violin"]
+            return ["grouped_dotplot", "raincloud", "boxplot", "density_curve", "ecdf", "ridgeline", "bar", "violin"]
     return ["scatter", "boxplot", "bar"]
 
 

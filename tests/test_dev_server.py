@@ -5,7 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from yzwcloud.dev_server import cleanup_server_logs, cleanup_server_logs_detailed, main, matching_server_logs
+import yzwcloud.dev_server as dev_server
+from yzwcloud.dev_server import (
+    cleanup_server_logs,
+    cleanup_server_logs_detailed,
+    main,
+    matching_server_logs,
+    normalized_process_env,
+    start_server,
+)
 
 
 def _touch(path: Path, mtime: int) -> None:
@@ -93,6 +101,59 @@ def test_cleanup_server_logs_detailed_reports_locked_files(
     assert result.skipped == [locked]
 
 
+def test_normalized_process_env_deduplicates_windows_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dev_server.os, "name", "nt")
+
+    normalized = normalized_process_env({"PATH": "upper", "Path": "title", "HOME": "x"})
+
+    assert normalized["Path"] == "title"
+    assert "PATH" not in normalized
+    assert normalized["HOME"] == "x"
+
+
+def test_start_server_spawns_uvicorn_and_records_pid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+    port_checks = iter([False, True])
+
+    class FakeProcess:
+        pid = 12345
+
+        def poll(self) -> None:
+            return None
+
+    def fake_popen(command: list[str], **kwargs: object) -> FakeProcess:
+        calls.append({"command": command, **kwargs})
+        return FakeProcess()
+
+    def fake_port_open(host: str, port: int, *, timeout: float = 0.35) -> bool:
+        return next(port_checks)
+
+    monkeypatch.setattr(dev_server, "is_port_open", fake_port_open)
+    monkeypatch.setattr(dev_server.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(dev_server, "project_root", lambda: tmp_path)
+
+    result = start_server(tmp_path, port=8123, wait_seconds=1, python_executable="python-test")
+
+    assert result.pid == 12345
+    assert result.already_running is False
+    assert result.pid_path.read_text(encoding="utf-8") == "12345"
+    assert result.log_path is not None
+    assert result.log_path.name.startswith("server-8123-")
+    assert calls[0]["command"] == [
+        "python-test",
+        "-m",
+        "uvicorn",
+        "yzwcloud.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8123",
+    ]
+    assert calls[0]["cwd"] == tmp_path
+
+
 def test_clean_logs_cli_prints_skipped_locked_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -110,3 +171,18 @@ def test_clean_logs_cli_prints_skipped_locked_files(
     assert exit_code == 0
     assert "skipped=file-in-use:" in output
     assert "removed=0 skipped=1" in output
+
+
+def test_clean_logs_cli_can_clean_all_server_ports(tmp_path: Path) -> None:
+    current_port = tmp_path / "server-8010-current.out.log"
+    legacy_port = tmp_path / "server-5174-legacy.out.log"
+    worker = tmp_path / "worker-5174.log"
+    for index, path in enumerate([current_port, legacy_port, worker], start=1):
+        _touch(path, index)
+
+    exit_code = main(["clean-logs", "--log-dir", str(tmp_path), "--all-ports"])
+
+    assert exit_code == 0
+    assert not current_port.exists()
+    assert not legacy_port.exists()
+    assert worker.exists()

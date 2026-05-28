@@ -52,12 +52,16 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     presets = {item["id"]: item for item in manifest["presets"]}
     assert {
         "boxplot",
+        "grouped_dotplot",
+        "raincloud",
         "heatmap",
         "volcano",
         "upset",
         "venn",
         "correlation",
         "histogram",
+        "density_curve",
+        "ecdf",
         "calendar_heatmap",
         "ridgeline",
         "density_contour",
@@ -97,6 +101,35 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert boxplot["default_params"]["point_alpha"] == 0.72
     violin_distribution = next(group for group in presets["violin"]["parameter_groups"] if group["id"] == "distribution")
     assert {param["id"] for param in violin_distribution["parameters"]} >= {"point_size", "point_alpha"}
+    grouped_dot_points = next(group for group in presets["grouped_dotplot"]["parameter_groups"] if group["id"] == "points")
+    assert presets["grouped_dotplot"]["thumbnail"] == "grouped_dotplot"
+    assert {param["id"] for param in grouped_dot_points["parameters"]} >= {
+        "point_jitter",
+        "point_size",
+        "point_alpha",
+        "summary_stat",
+        "summary_line_width",
+        "summary_width",
+        "sort_groups",
+        "show_n_labels",
+    }
+    raincloud_display = next(group for group in presets["raincloud"]["parameter_groups"] if group["id"] == "cloud")
+    assert presets["raincloud"]["thumbnail"] == "raincloud"
+    assert {param["id"] for param in raincloud_display["parameters"]} >= {
+        "violin_side",
+        "violin_width",
+        "show_box",
+        "box_width",
+        "box_offset",
+        "show_points",
+        "point_jitter",
+        "point_size",
+        "point_alpha",
+        "show_mean",
+        "mean_marker_size",
+        "sort_groups",
+        "max_groups",
+    }
     ridge_density = next(group for group in presets["ridgeline"]["parameter_groups"] if group["id"] == "density")
     assert presets["ridgeline"]["thumbnail"] == "ridgeline"
     assert {param["id"] for param in ridge_density["parameters"]} >= {
@@ -385,6 +418,38 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "reference_line_width",
         "reference_line_color_mode",
         "reference_line_color",
+    }
+    ecdf_display = next(group for group in presets["ecdf"]["parameter_groups"] if group["id"] == "distribution")
+    assert presets["ecdf"]["thumbnail"] == "ecdf"
+    assert {param["id"] for param in ecdf_display["parameters"]} >= {
+        "y_mode",
+        "y_units",
+        "line_shape",
+        "line_width",
+        "show_points",
+        "point_size",
+        "point_alpha",
+        "show_median",
+        "median_line_dash",
+        "max_groups",
+        "sort_groups",
+    }
+    density_curve_display = next(group for group in presets["density_curve"]["parameter_groups"] if group["id"] == "density")
+    assert presets["density_curve"]["thumbnail"] == "density_curve"
+    assert {param["id"] for param in density_curve_display["parameters"]} >= {
+        "density_points",
+        "bandwidth",
+        "normalize",
+        "fill",
+        "fill_alpha",
+        "line_width",
+        "show_rug",
+        "rug_size",
+        "rug_alpha",
+        "show_median",
+        "median_line_dash",
+        "max_groups",
+        "sort_groups",
     }
     calendar_display = next(group for group in presets["calendar_heatmap"]["parameter_groups"] if group["id"] == "calendar")
     assert presets["calendar_heatmap"]["thumbnail"] == "calendar_heatmap"
@@ -867,6 +932,79 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
     assert "sort bars=descending" in bar_display_summary
     assert "orientation=horizontal" in bar_display_summary
 
+    grouped_dot_report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "grouped_dotplot",
+            "params": {
+                "group": "condition",
+                "y": "value",
+                "point_jitter": 0.25,
+                "point_size": 8,
+                "point_alpha": 0.66,
+                "summary_stat": "median",
+                "summary_line_width": 3,
+                "summary_line_color_mode": "custom",
+                "sort_groups": "median_desc",
+                "show_n_labels": True,
+            },
+        },
+    )
+    grouped_dot_sections = {section["title"]: section["text"] for section in grouped_dot_report["report"]["sections"]}
+    assert "individual sample values" in grouped_dot_sections["Figure interpretation"]
+    grouped_dot_summary = grouped_dot_report["agent_context"]["parameter_summary"]
+    assert "value=value" in grouped_dot_summary["statistics"]
+    assert "group=condition" in grouped_dot_summary["statistics"]
+    assert "summary=median" in grouped_dot_summary["statistics"]
+    assert "point jitter=0.25" in grouped_dot_summary["display"]
+    assert "summary color mode=custom" in grouped_dot_summary["display"]
+
+    raincloud_report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "raincloud",
+            "params": {
+                "group": "condition",
+                "y": "value",
+                "violin_side": "negative",
+                "violin_width": 0.8,
+                "show_box": True,
+                "show_points": True,
+                "point_jitter": 0.25,
+                "point_size": 6,
+                "point_alpha": 0.55,
+                "show_mean": True,
+                "sort_groups": "median_desc",
+                "max_groups": 8,
+            },
+        },
+    )
+    raincloud_sections = {section["title"]: section["text"] for section in raincloud_report["report"]["sections"]}
+    assert "combined distribution shape" in raincloud_sections["Figure interpretation"]
+    raincloud_summary = raincloud_report["agent_context"]["parameter_summary"]
+    assert "value=value" in raincloud_summary["statistics"]
+    assert "group=condition" in raincloud_summary["statistics"]
+    assert "mean marker=True" in raincloud_summary["statistics"]
+    assert "violin side=negative" in raincloud_summary["display"]
+    assert "box shown=True" in raincloud_summary["display"]
+    assert "raw points shown=True" in raincloud_summary["display"]
+
     histogram_report = _request(
         client,
         "POST",
@@ -910,6 +1048,81 @@ def test_plot_studio_report_summarizes_statistical_parameters(tmp_path: Path) ->
     assert "reference line color mode=custom" in histogram_display_summary
     assert "reference line color=#334155" in histogram_display_summary
     assert "rug marks shown" in histogram_display_summary
+
+    density_report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "density_curve",
+            "params": {
+                "x": "value",
+                "group": "condition",
+                "density_points": 120,
+                "bandwidth": "auto",
+                "normalize": "peak",
+                "fill": True,
+                "fill_alpha": 0.33,
+                "line_width": 3,
+                "show_rug": True,
+                "show_median": True,
+                "max_groups": 8,
+                "sort_groups": "median_desc",
+            },
+        },
+    )
+    density_sections = {section["title"]: section["text"] for section in density_report["report"]["sections"]}
+    assert "smoothed distribution shape" in density_sections["Figure interpretation"]
+    density_summary = density_report["agent_context"]["parameter_summary"]
+    assert "value=value" in density_summary["statistics"]
+    assert "group=condition" in density_summary["statistics"]
+    assert "normalization=peak" in density_summary["statistics"]
+    assert "median guides=True" in density_summary["statistics"]
+    assert "density resolution=120" in density_summary["display"]
+    assert "filled curve=True" in density_summary["display"]
+    assert "rug marks shown=True" in density_summary["display"]
+
+    ecdf_report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "ecdf",
+            "params": {
+                "x": "value",
+                "group": "condition",
+                "y_mode": "survival",
+                "y_units": "proportion",
+                "line_shape": "hv",
+                "line_width": 3,
+                "show_points": True,
+                "show_median": True,
+                "max_groups": 8,
+                "sort_groups": "median_desc",
+            },
+        },
+    )
+    ecdf_sections = {section["title"]: section["text"] for section in ecdf_report["report"]["sections"]}
+    assert "cumulative distribution shifts" in ecdf_sections["Figure interpretation"]
+    ecdf_summary = ecdf_report["agent_context"]["parameter_summary"]
+    assert "value=value" in ecdf_summary["statistics"]
+    assert "group=condition" in ecdf_summary["statistics"]
+    assert "mode=survival" in ecdf_summary["statistics"]
+    assert "median guides=True" in ecdf_summary["statistics"]
+    assert "units=proportion" in ecdf_summary["display"]
+    assert "points shown=True" in ecdf_summary["display"]
 
     ridgeline_report = _request(
         client,
@@ -2484,11 +2697,15 @@ def test_plot_studio_report_has_plot_specific_guidance_for_every_preset() -> Non
     expected_keywords = {
         "scatter": "relationship strength",
         "boxplot": "group medians",
+        "grouped_dotplot": "individual sample values",
+        "raincloud": "combined distribution shape",
         "violin": "distribution shape",
         "ridgeline": "stacked group distribution shapes",
         "bar": "aggregated group summaries",
         "line": "ordered trends",
         "histogram": "single-variable distribution shape",
+        "density_curve": "smoothed distribution shape",
+        "ecdf": "cumulative distribution shifts",
         "calendar_heatmap": "daily temporal intensity",
         "density_contour": "two-variable density structure",
         "scatter_3d": "three-dimensional separation",
@@ -3812,6 +4029,202 @@ def test_plot_studio_spec_builds_paired_dot(tmp_path: Path) -> None:
     assert summary_trace["y"] == [25 / 3, 35 / 3]
 
 
+def test_plot_studio_spec_builds_grouped_dotplot(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_grouped_dot.csv"
+    table_file.write_text(
+        "sample,condition,value\n"
+        "S1,A,1.0\nS2,A,1.4\nS3,A,2.0\n"
+        "S4,B,3.0\nS5,B,3.2\nS6,B,3.9\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "grouped_dotplot",
+            "params": {
+                "y": "value",
+                "group": "condition",
+                "label": "sample",
+                "summary_stat": "median",
+                "summary_line_color_mode": "custom",
+                "summary_line_color": "#111827",
+                "summary_line_width": 3,
+                "sort_groups": "median_desc",
+                "show_n_labels": True,
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "grouped_dotplot"
+    assert [trace["name"] for trace in spec["data"]] == ["B", "A"]
+    assert spec["data"][0]["type"] == "scattergl"
+    assert spec["data"][0]["text"] == ["S4", "S5", "S6"]
+    assert spec["layout"]["xaxis"]["ticktext"] == ["B", "A"]
+    assert len(spec["layout"]["shapes"]) == 2
+    assert spec["layout"]["shapes"][0]["line"] == {"color": "#111827", "width": 3}
+    assert spec["layout"]["annotations"][0]["text"] == "n=3"
+
+
+def test_plot_studio_spec_builds_raincloud(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_raincloud.csv"
+    table_file.write_text(
+        "sample,condition,value\n"
+        "S1,A,1.0\nS2,A,1.5\nS3,A,2.0\n"
+        "S4,B,3.0\nS5,B,3.5\nS6,B,4.5\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "raincloud",
+            "params": {
+                "y": "value",
+                "group": "condition",
+                "label": "sample",
+                "violin_side": "negative",
+                "show_box": True,
+                "show_points": True,
+                "show_mean": True,
+                "sort_groups": "median_desc",
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "raincloud"
+    assert spec["layout"]["xaxis"]["ticktext"] == ["B", "A"]
+    assert spec["layout"]["meta"]["raincloud"] == {"groups": 2, "violin_side": "negative", "show_box": True}
+    trace_types = [trace["type"] for trace in spec["data"]]
+    assert trace_types.count("violin") == 2
+    assert trace_types.count("box") == 2
+    assert trace_types.count("scattergl") == 2
+    mean_trace = next(trace for trace in spec["data"] if trace["name"] == "B mean")
+    assert mean_trace["marker"]["symbol"] == "diamond"
+    point_trace = next(trace for trace in spec["data"] if trace["name"] == "B")
+    assert point_trace["text"] == ["S4", "S5", "S6"]
+
+
+def test_plot_studio_spec_builds_ecdf(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_ecdf.csv"
+    table_file.write_text(
+        "sample,condition,value\n"
+        "S1,A,1.0\nS2,A,2.0\nS3,A,4.0\n"
+        "S4,B,2.5\nS5,B,3.5\nS6,B,5.0\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "ecdf",
+            "params": {
+                "x": "value",
+                "group": "condition",
+                "y_mode": "cumulative",
+                "y_units": "percent",
+                "show_points": True,
+                "show_median": True,
+                "line_width": 3,
+                "sort_groups": "median_desc",
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "ecdf"
+    assert [trace["name"] for trace in spec["data"]] == ["B", "A"]
+    assert spec["data"][0]["mode"] == "lines+markers"
+    assert spec["data"][0]["line"]["shape"] == "hv"
+    assert spec["data"][0]["line"]["width"] == 3
+    assert spec["data"][0]["y"] == [100 * (1 / 3), 100 * (2 / 3), 100.0]
+    assert len(spec["layout"]["shapes"]) == 2
+    assert spec["layout"]["meta"]["ecdf"] == {"groups": 2, "mode": "cumulative", "units": "percent"}
+
+
+def test_plot_studio_spec_builds_density_curve(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_density_curve.csv"
+    table_file.write_text(
+        "sample,condition,value\n"
+        "S1,A,1.0\nS2,A,1.5\nS3,A,2.0\n"
+        "S4,B,3.0\nS5,B,3.5\nS6,B,4.5\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Grouped values",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "density_curve",
+            "params": {
+                "x": "value",
+                "group": "condition",
+                "label": "sample",
+                "density_points": 40,
+                "normalize": "peak",
+                "fill": True,
+                "show_rug": True,
+                "show_median": True,
+                "sort_groups": "median_desc",
+            },
+        },
+    )
+
+    assert spec["plot_type"] == "density_curve"
+    assert spec["layout"]["meta"]["density_curve"] == {"groups": 2, "normalize": "peak", "fill": True}
+    line_traces = [trace for trace in spec["data"] if trace["type"] == "scatter"]
+    rug_traces = [trace for trace in spec["data"] if trace["type"] == "scattergl"]
+    assert [trace["name"] for trace in line_traces] == ["B", "A"]
+    assert len(line_traces[0]["x"]) == 40
+    assert max(line_traces[0]["y"]) == 1.0
+    assert line_traces[0]["fill"] == "tozeroy"
+    assert rug_traces[0]["name"] == "B rug"
+    assert rug_traces[0]["text"] == ["S4", "S5", "S6"]
+    assert len(spec["layout"]["shapes"]) == 2
+
+
 def test_plot_studio_spec_builds_ridgeline(tmp_path: Path) -> None:
     allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
     allowed_tmp.mkdir(parents=True, exist_ok=True)
@@ -4592,10 +5005,97 @@ def test_plot_studio_spec_builds_radar_and_parallel_coordinates(tmp_path: Path) 
     assert "yaxis" not in parallel["layout"]
 
 
+def test_plot_studio_rejects_multisample_plots_for_single_row_tables(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_single_row_profile.csv"
+    table_file.write_text(
+        "sample,group,Length,S1,S2,S3\n"
+        "row_1,A,10,2,4,8\n",
+        encoding="utf-8",
+    )
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "Single row table",
+        "type": "unknown_table",
+        "dataPath": str(table_file),
+    }
+    client = TestClient(app)
+
+    summary = inspect_table(table_file)
+    recommendations = recommend_plot_types("unknown_table", summary)
+    assert "scatter" not in recommendations
+    assert "radar" not in recommendations
+    assert recommendations[:2] == ["bar", "histogram"]
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={"source": source},
+    )
+    assert report["selected_plot"]["id"] == "bar"
+    assert "scatter" not in report["recommended_plot_ids"]
+    assert "radar" not in report["recommended_plot_ids"]
+
+    scatter = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "scatter"},
+    )
+    radar = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": source,
+            "plotType": "radar",
+            "params": {"value_columns": ["Length", "S1", "S2", "S3"]},
+        },
+    )
+
+    assert scatter["data"] == []
+    assert any("at least two complete x/y" in warning for warning in scatter["warnings"])
+    assert radar["data"] == []
+    assert any("at least two sample or group profiles" in warning for warning in radar["warnings"])
+
+
 def test_table_inspection_and_recommendations_handle_numeric_tables() -> None:
     summary = inspect_table(DATA_FILE, max_rows=25)
 
     assert summary["scanned_rows"] == 25
     assert summary["column_count"] > 2
     assert summary["numeric_columns"]
-    assert recommend_plot_types("unknown_table", summary)[0] in {"scatter", "boxplot"}
+    assert summary["signals"]["matrix_profile"]["kind"] == "expression_like"
+    assert "Length" in summary["signals"]["matrix_profile"]["excluded_numeric_columns"]
+    assert summary["signals"]["matrix_profile"]["value_columns"][0].startswith("Group ")
+    assert recommend_plot_types("unknown_table", summary)[:2] == ["heatmap", "correlation"]
+
+
+def test_plot_studio_expression_matrix_defaults_skip_numeric_metadata() -> None:
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "Expression matrix",
+        "type": "expression_matrix",
+        "dataPath": str(DATA_FILE),
+    }
+    client = TestClient(app)
+
+    scatter = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "scatter"},
+    )
+    radar = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "radar"},
+    )
+
+    assert scatter["layout"]["title"]["text"].startswith("Scatter: Group ")
+    assert "Length" not in scatter["layout"]["title"]["text"]
+    assert radar["data"][0]["theta"][0].startswith("Group ")
+    assert "Length" not in radar["data"][0]["theta"]

@@ -331,6 +331,33 @@ function PlotMethodOverview({ preset, source, tableSummary, t }) {
   );
 }
 
+function PlotPreviewEmpty({ selectedPreset, plotSpec, recommendedPresets, onSelectPlot, t }) {
+  const message = plotSpec?.warnings?.[0] || t("noRenderableChart");
+  const alternatives = recommendedPresets.filter((preset) => preset.id !== selectedPreset?.id).slice(0, 4);
+  return (
+    <div className="plot-preview-empty">
+      <div className="plot-preview-empty-copy">
+        <span>{t("chartNotSuitable")}</span>
+        <strong>{selectedPreset?.label || t("plotStudio")}</strong>
+        <p>{message}</p>
+      </div>
+      {alternatives.length ? (
+        <div className="plot-preview-recommendations" aria-label={t("tryRecommendedPlot")}>
+          <small>{t("tryRecommendedPlot")}</small>
+          <div>
+            {alternatives.map((plot) => (
+              <button type="button" key={plot.id} onClick={() => onSelectPlot(plot)}>
+                <MiniPlotThumbnail plotId={plot.id} thumbnail={plot.thumbnail} />
+                <span>{plot.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function InteractivePlot({ spec }) {
   const plotRef = useRef(null);
 
@@ -365,6 +392,31 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
         {[0, 1, 2].map((item) => (
           <span className={`box box-${item}`} key={item}>
             <i />
+          </span>
+        ))}
+      </div>
+    );
+  }
+  if (kind === "grouped_dotplot") {
+    return (
+      <div className="mini-plot mini-grouped-dotplot" aria-hidden="true">
+        {[0, 1, 2].map((group) => (
+          <span className={`group g${group}`} key={group}>
+            {[0, 1, 2, 3].map((dot) => <i key={dot} />)}
+          </span>
+        ))}
+      </div>
+    );
+  }
+  if (kind === "raincloud") {
+    return (
+      <div className="mini-plot mini-raincloud" aria-hidden="true">
+        {[0, 1, 2].map((group) => (
+          <span className={`cloud c${group}`} key={group}>
+            <i className="box" />
+            <i className="dot d1" />
+            <i className="dot d2" />
+            <i className="dot d3" />
           </span>
         ))}
       </div>
@@ -417,6 +469,27 @@ function MiniPlotThumbnail({ plotId, thumbnail }) {
         {[28, 42, 67, 54, 78, 49, 32].map((height, index) => (
           <span style={{ height: `${height}%` }} key={index} />
         ))}
+      </div>
+    );
+  }
+  if (kind === "density_curve") {
+    return (
+      <div className="mini-plot mini-density-curve" aria-hidden="true">
+        <span className="curve c1" />
+        <span className="curve c2" />
+        <i className="rug r1" />
+        <i className="rug r2" />
+        <i className="rug r3" />
+      </div>
+    );
+  }
+  if (kind === "ecdf") {
+    return (
+      <div className="mini-plot mini-ecdf" aria-hidden="true">
+        <span className="step s1" />
+        <span className="step s2" />
+        <span className="step s3" />
+        <i className="median" />
       </div>
     );
   }
@@ -854,6 +927,12 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     const preferredId = selectedPlotId || reportSelected || recommendedPlotIds[0] || plotPresets[0]?.id;
     return plotPresets.find((preset) => preset.id === preferredId) || plotPresets[0];
   }, [plotPresets, recommendedPlotIds, selectedPlotId, studioReport?.selected_plot?.id]);
+  const recommendedPresets = useMemo(
+    () => recommendedPlotIds
+      .map((plotId) => plotPresets.find((preset) => preset.id === plotId))
+      .filter(Boolean),
+    [plotPresets, recommendedPlotIds],
+  );
 
   useEffect(() => {
     if (!selectedPreset) return;
@@ -942,6 +1021,12 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     setParams((current) => ({ ...current, [paramId]: value }));
   };
 
+  const selectPlotPreset = (plot) => {
+    setSelectedPlotId(plot.id);
+    setParams(defaultParamsFromPreset(plot));
+    setSelectedRecipeId("");
+  };
+
   const resetParams = () => {
     if (selectedPreset) setParams(defaultParamsFromPreset(selectedPreset));
     setSelectedRecipeId("");
@@ -1011,11 +1096,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                         className={`plot-type-card ${recommended ? "recommended" : ""} ${active ? "active" : ""}`}
                         key={plot.id}
                         type="button"
-                        onClick={() => {
-                          setSelectedPlotId(plot.id);
-                          setParams(defaultParamsFromPreset(plot));
-                          setSelectedRecipeId("");
-                        }}
+                        onClick={() => selectPlotPreset(plot)}
                       >
                         <MiniPlotThumbnail plotId={plot.id} thumbnail={plot.thumbnail} />
                         <span className="plot-type-card-main">
@@ -1074,10 +1155,13 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
             {plotSpec?.data?.length ? (
               <InteractivePlot spec={plotSpec} />
             ) : (
-              <div className="plot-preview-empty">
-                <strong>{selectedPreset?.label || t("plotStudio")}</strong>
-                <p>{plotSpec?.warnings?.[0] || t("noRenderableChart")}</p>
-              </div>
+              <PlotPreviewEmpty
+                selectedPreset={selectedPreset}
+                plotSpec={plotSpec}
+                recommendedPresets={recommendedPresets}
+                onSelectPlot={selectPlotPreset}
+                t={t}
+              />
             )}
             {plotSpec?.warnings?.length ? (
               <div className="plot-warning-list">

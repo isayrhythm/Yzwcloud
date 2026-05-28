@@ -18,6 +18,14 @@ PLOT_REPORT_GUIDANCE = {
         "focus": "group medians, spread, raw point distribution, outliers, and whether a pairwise test is appropriate",
         "parameter_hint": "Keep raw points visible by default, use group colors consistently, and add pairwise tests only after confirming the grouping design.",
     },
+    "grouped_dotplot": {
+        "focus": "individual sample values, group-level spread, small-sample outliers, and whether the mean or median summary matches the visible points",
+        "parameter_hint": "Use grouped dot plots for Prism-style small-sample comparisons; keep raw points visible and choose mean or median bars deliberately.",
+    },
+    "raincloud": {
+        "focus": "combined distribution shape, raw sample values, box-summary spread, outliers, and whether density and points tell the same group story",
+        "parameter_hint": "Use raincloud plots for compact publication-style group comparisons; keep raw points visible and use the half-violin as shape context rather than a replacement for sample values.",
+    },
     "violin": {
         "focus": "distribution shape, multimodality, group spread, and whether a box overlay clarifies the summary",
         "parameter_hint": "Use violin plots when distribution shape matters; keep a box overlay and points when sample size is modest.",
@@ -37,6 +45,14 @@ PLOT_REPORT_GUIDANCE = {
     "histogram": {
         "focus": "single-variable distribution shape, skewness, tails, bin sensitivity, and group shifts",
         "parameter_hint": "Start with 30 bins, keep grouped histograms semi-transparent, and switch to density scaling when group sizes differ.",
+    },
+    "density_curve": {
+        "focus": "smoothed distribution shape, group shifts, tail behavior, multimodal peaks, and whether smoothing hides small-sample points",
+        "parameter_hint": "Use density curves when bin choices would distract; check bandwidth, keep rug marks visible for modest sample sizes, and compare with ECDF or raw points before making claims.",
+    },
+    "ecdf": {
+        "focus": "cumulative distribution shifts, stochastic dominance between groups, tail behavior, and median crossings",
+        "parameter_hint": "Use ECDF when comparing full distributions without bin choices; choose percent or proportion units and keep median guides visible for first review.",
     },
     "calendar_heatmap": {
         "focus": "daily temporal intensity, sampling gaps, seasonal blocks, weekday patterns, and outlier dates",
@@ -310,6 +326,14 @@ def _signal_text(source_type: str, table_summary: dict[str, Any] | None, meta: d
                 "At abs(log2FC) >= {abs_log2fc} and p <= {p_value}, {significant} feature(s) pass "
                 "the default differential threshold: {up} up and {down} down."
             ).format(**diff_signal)
+        matrix_profile = table_summary.get("signals", {}).get("matrix_profile")
+        if matrix_profile:
+            excluded = matrix_profile.get("excluded_numeric_columns") or []
+            suffix = f"; excluded default metadata columns: {', '.join(excluded[:4])}" if excluded else ""
+            return (
+                f"The source looks expression-like with {table_summary.get('scanned_rows')} row(s) and "
+                f"{matrix_profile.get('numeric_value_count')} sample-like numeric column(s){suffix}."
+            )
         numeric_columns = table_summary.get("numeric_columns") or []
         if "expression" in source_type or meta.get("sample_count"):
             sample_count = meta.get("passed_sample_count") or meta.get("sample_count") or len(numeric_columns)
@@ -457,6 +481,52 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["display"].append(f"point size={params.get('point_size')}")
         if params.get("point_alpha"):
             summary["display"].append(f"point opacity={params.get('point_alpha')}")
+    if plot_id == "grouped_dotplot":
+        if params.get("y"):
+            summary["statistics"].append(f"value={params.get('y')}")
+        if params.get("group"):
+            summary["statistics"].append(f"group={params.get('group')}")
+        if params.get("summary_stat"):
+            summary["statistics"].append(f"summary={params.get('summary_stat')}")
+        if params.get("sort_groups"):
+            summary["display"].append(f"group sorting={params.get('sort_groups')}")
+        if params.get("point_jitter") is not None:
+            summary["display"].append(f"point jitter={params.get('point_jitter')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("point_alpha") is not None:
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
+        if "show_n_labels" in params:
+            summary["display"].append(f"n labels shown={bool(params.get('show_n_labels'))}")
+        if params.get("summary_line_width"):
+            summary["display"].append(f"summary line width={params.get('summary_line_width')}")
+        if params.get("summary_line_color_mode"):
+            summary["display"].append(f"summary color mode={params.get('summary_line_color_mode')}")
+    if plot_id == "raincloud":
+        if params.get("y"):
+            summary["statistics"].append(f"value={params.get('y')}")
+        if params.get("group"):
+            summary["statistics"].append(f"group={params.get('group')}")
+        if params.get("violin_side"):
+            summary["display"].append(f"violin side={params.get('violin_side')}")
+        if params.get("violin_width"):
+            summary["display"].append(f"violin width={params.get('violin_width')}")
+        if "show_box" in params:
+            summary["display"].append(f"box shown={bool(params.get('show_box'))}")
+        if "show_points" in params:
+            summary["display"].append(f"raw points shown={bool(params.get('show_points'))}")
+        if params.get("point_jitter") is not None:
+            summary["display"].append(f"point jitter={params.get('point_jitter')}")
+        if params.get("point_size"):
+            summary["display"].append(f"point size={params.get('point_size')}")
+        if params.get("point_alpha") is not None:
+            summary["display"].append(f"point opacity={params.get('point_alpha')}")
+        if "show_mean" in params:
+            summary["statistics"].append(f"mean marker={bool(params.get('show_mean'))}")
+        if params.get("sort_groups"):
+            summary["display"].append(f"group sorting={params.get('sort_groups')}")
+        if params.get("max_groups"):
+            summary["display"].append(f"max groups={params.get('max_groups')}")
     if plot_id == "scatter":
         trendline = str(params.get("trendline") or "none")
         if trendline != "none":
@@ -550,6 +620,52 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
             summary["statistics"].append("median reference shown")
         if params.get("show_rug"):
             summary["display"].append("rug marks shown")
+    if plot_id == "density_curve":
+        if params.get("x"):
+            summary["statistics"].append(f"value={params.get('x')}")
+        if params.get("group"):
+            summary["statistics"].append(f"group={params.get('group')}")
+        if params.get("bandwidth"):
+            summary["statistics"].append(f"bandwidth={params.get('bandwidth')}")
+        if params.get("normalize"):
+            summary["statistics"].append(f"normalization={params.get('normalize')}")
+        if params.get("density_points"):
+            summary["display"].append(f"density resolution={params.get('density_points')}")
+        if "fill" in params:
+            summary["display"].append(f"filled curve={bool(params.get('fill'))}")
+        if params.get("fill_alpha") is not None:
+            summary["display"].append(f"fill opacity={params.get('fill_alpha')}")
+        if params.get("line_width"):
+            summary["display"].append(f"line width={params.get('line_width')}")
+        if "show_rug" in params:
+            summary["display"].append(f"rug marks shown={bool(params.get('show_rug'))}")
+        if "show_median" in params:
+            summary["statistics"].append(f"median guides={bool(params.get('show_median'))}")
+        if params.get("max_groups"):
+            summary["display"].append(f"max groups={params.get('max_groups')}")
+        if params.get("sort_groups"):
+            summary["display"].append(f"group sorting={params.get('sort_groups')}")
+    if plot_id == "ecdf":
+        if params.get("x"):
+            summary["statistics"].append(f"value={params.get('x')}")
+        if params.get("group"):
+            summary["statistics"].append(f"group={params.get('group')}")
+        if params.get("y_mode"):
+            summary["statistics"].append(f"mode={params.get('y_mode')}")
+        if params.get("y_units"):
+            summary["display"].append(f"units={params.get('y_units')}")
+        if params.get("line_shape"):
+            summary["display"].append(f"line shape={params.get('line_shape')}")
+        if params.get("line_width"):
+            summary["display"].append(f"line width={params.get('line_width')}")
+        if "show_points" in params:
+            summary["display"].append(f"points shown={bool(params.get('show_points'))}")
+        if "show_median" in params:
+            summary["statistics"].append(f"median guides={bool(params.get('show_median'))}")
+        if params.get("max_groups"):
+            summary["display"].append(f"max groups={params.get('max_groups')}")
+        if params.get("sort_groups"):
+            summary["display"].append(f"group sorting={params.get('sort_groups')}")
     if plot_id == "ridgeline":
         if params.get("x"):
             summary["statistics"].append(f"value={params.get('x')}")

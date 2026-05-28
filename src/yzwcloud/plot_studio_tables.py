@@ -192,6 +192,75 @@ def _detect_table_signals(columns: list[str], rows: list[list[str]]) -> dict[str
             "up": up,
             "down": down,
         }
+
+    numeric_columns = _numeric_columns_from_rows(columns, rows)
+    identifier_columns = [
+        column
+        for column in columns
+        if _normalize_column_name(column)
+        in {
+            "gene",
+            "gene_id",
+            "gene_name",
+            "gene_short_name",
+            "symbol",
+            "feature",
+            "feature_id",
+            "ensembl_id",
+            "transcript_id",
+        }
+    ]
+    excluded_numeric_columns = [column for column in numeric_columns if _is_matrix_numeric_metadata(column)]
+    value_columns = [column for column in numeric_columns if column not in excluded_numeric_columns]
+    if identifier_columns and len(value_columns) >= 6:
+        signals["matrix_profile"] = {
+            "kind": "expression_like",
+            "identifier_columns": identifier_columns[:5],
+            "value_columns": value_columns,
+            "excluded_numeric_columns": excluded_numeric_columns,
+            "numeric_value_count": len(value_columns),
+        }
     return signals
+
+
+def _numeric_columns_from_rows(columns: list[str], rows: list[list[str]]) -> list[str]:
+    numeric_columns = []
+    for index, column in enumerate(columns):
+        numeric_count = 0
+        non_missing = 0
+        for row in rows:
+            if index >= len(row):
+                continue
+            text = str(row[index]).strip()
+            if not text:
+                continue
+            non_missing += 1
+            parsed = _parse_float(text)
+            if parsed is not None and math.isfinite(parsed):
+                numeric_count += 1
+        if non_missing and numeric_count / non_missing >= 0.8:
+            numeric_columns.append(column)
+    return numeric_columns
+
+
+def _is_matrix_numeric_metadata(column: str) -> bool:
+    normalized = _normalize_column_name(column)
+    if normalized in {
+        "length",
+        "gene_length",
+        "transcript_length",
+        "tx_length",
+        "width",
+        "start",
+        "end",
+        "chrom_start",
+        "chrom_end",
+        "tx_start",
+        "tx_end",
+        "cds_start",
+        "cds_end",
+    }:
+        return True
+    return normalized.endswith("_start") or normalized.endswith("_end") or "length" in normalized
 
 

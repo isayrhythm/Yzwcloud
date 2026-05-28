@@ -36,11 +36,12 @@ def create_plot_studio_spec(
         data_path,
         max_rows=_bounded_int(resolved_params.get("max_rows"), 800, 50, 5000),
     )
-    numeric_columns = [
+    raw_numeric_columns = [
         column
         for column in table_summary["numeric_columns"]
         if column in columns and _numeric_value_count(records, column) > 0
     ]
+    numeric_columns = _preferred_numeric_columns(table_summary, raw_numeric_columns)
     categorical_columns = [column for column in table_summary["categorical_columns"] if column in columns]
 
     context = {
@@ -57,11 +58,15 @@ def create_plot_studio_spec(
     builders = {
         "scatter": _build_scatter_spec,
         "boxplot": _build_boxplot_spec,
+        "grouped_dotplot": _build_grouped_dotplot_spec,
+        "raincloud": _build_raincloud_spec,
         "violin": _build_violin_spec,
         "ridgeline": _build_ridgeline_spec,
         "bar": _build_bar_spec,
         "line": _build_line_spec,
         "histogram": _build_histogram_spec,
+        "density_curve": _build_density_curve_spec,
+        "ecdf": _build_ecdf_spec,
         "calendar_heatmap": _build_calendar_heatmap_spec,
         "density_contour": _build_density_contour_spec,
         "scatter_3d": _build_scatter_3d_spec,
@@ -125,6 +130,12 @@ def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
     y_column = _choose_column(params.get("y"), numeric_columns, fallback_index=1)
     if not x_column or not y_column:
         return _empty_plot_spec("scatter", "Scatter requires at least two numeric columns.", context["table_summary"])
+    if _complete_numeric_row_count(context["records"], [x_column, y_column]) < 2:
+        return _empty_plot_spec(
+            "scatter",
+            "Scatter requires at least two complete x/y numeric rows; upload more rows or choose a single-row summary chart.",
+            context["table_summary"],
+        )
 
     color_column = _choose_column(params.get("color"), context["categorical_columns"])
     label_column = _choose_column(params.get("label"), context["columns"])
@@ -273,6 +284,12 @@ def _build_radar_spec(context: dict[str, Any]) -> dict[str, Any]:
 
     if not series:
         return _empty_plot_spec("radar", "No complete numeric profiles were available for radar rendering.", context["table_summary"])
+    if len(series) < 2:
+        return _empty_plot_spec(
+            "radar",
+            "Radar requires at least two sample or group profiles; a single row is not enough for a meaningful radar comparison.",
+            context["table_summary"],
+        )
 
     normalized_series = _normalize_profile_series(series, str(params.get("normalize") or "minmax_by_axis"))
     closed_theta = value_columns + [value_columns[0]]
@@ -324,6 +341,12 @@ def _build_parallel_coordinates_spec(context: dict[str, Any]) -> dict[str, Any]:
         )
 
     rows = context["records"][:max_rows]
+    if len(rows) < 2:
+        return _empty_plot_spec(
+            "parallel_coordinates",
+            "Parallel coordinates requires at least two rows to compare profile paths.",
+            context["table_summary"],
+        )
     dimensions = []
     for column in dimension_columns:
         values = [_number_or_none(row.get(column)) for row in rows]
@@ -361,6 +384,250 @@ def _build_parallel_coordinates_spec(context: dict[str, Any]) -> dict[str, Any]:
 
 def _build_boxplot_spec(context: dict[str, Any]) -> dict[str, Any]:
     return _build_distribution_spec(context, trace_type="box")
+
+
+def _build_grouped_dotplot_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    y_column = _choose_column(params.get("y"), context["numeric_columns"])
+    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    if not y_column or not group_column:
+        return _empty_plot_spec(
+            "grouped_dotplot",
+            "Grouped dot plot requires one numeric value column and one grouping column.",
+            context["table_summary"],
+        )
+
+    grouped: list[tuple[str, list[tuple[float, str]]]] = []
+    label_column = _choose_column(params.get("label"), context["columns"])
+    for group_name, rows in _records_by_category(context["records"], group_column).items():
+        values = []
+        for row in rows:
+            y_value = _number_or_none(row.get(y_column))
+            if y_value is None:
+                continue
+            label = str(row.get(label_column) or group_name) if label_column else group_name
+            values.append((y_value, label))
+        if values:
+            grouped.append((group_name, values))
+    if not grouped:
+        return _empty_plot_spec("grouped_dotplot", "No grouped numeric values were available.", context["table_summary"])
+
+    sort_groups = str(params.get("sort_groups") or "input")
+    if sort_groups == "median_desc":
+        grouped.sort(key=lambda item: median([value for value, _ in item[1]]), reverse=True)
+    elif sort_groups == "median_asc":
+        grouped.sort(key=lambda item: median([value for value, _ in item[1]]))
+    elif sort_groups == "size_desc":
+        grouped.sort(key=lambda item: len(item[1]), reverse=True)
+
+    jitter = _bounded_float(params.get("point_jitter"), 0.32, 0, 0.8)
+    point_size = _bounded_float(params.get("point_size"), 7, 1, 30)
+    point_alpha = _bounded_float(params.get("point_alpha"), 0.78, 0.05, 1)
+    summary_stat = str(params.get("summary_stat") or "mean")
+    summary_width = _bounded_float(params.get("summary_width"), 0.56, 0.15, 0.95)
+    summary_line_width = _bounded_float(params.get("summary_line_width"), 2.4, 0.5, 10)
+    summary_color_mode = str(params.get("summary_line_color_mode") or "group")
+    summary_custom_color = str(params.get("summary_line_color") or "#07131f")
+    traces = []
+    shapes = []
+    annotations = []
+    for group_index, (group_name, values) in enumerate(grouped):
+        color = PLOTLY_PALETTE[group_index % len(PLOTLY_PALETTE)]
+        y_values = [value for value, _ in values]
+        x_values = [group_index + _deterministic_jitter(item_index, jitter) for item_index in range(len(values))]
+        traces.append(
+            {
+                "type": "scattergl",
+                "mode": "markers",
+                "name": group_name,
+                "x": x_values,
+                "y": y_values,
+                "text": [label for _, label in values],
+                "marker": {
+                    "color": color,
+                    "size": point_size,
+                    "opacity": point_alpha,
+                    "line": {"color": "#ffffff", "width": 0.7},
+                },
+                "hovertemplate": "%{text}<br>group=%{fullData.name}<br>value=%{y:.4g}<extra></extra>",
+            }
+        )
+        if summary_stat in {"mean", "median"}:
+            summary_value = fmean(y_values) if summary_stat == "mean" else float(median(y_values))
+            summary_color = color if summary_color_mode == "group" else summary_custom_color
+            shapes.append(
+                {
+                    "type": "line",
+                    "xref": "x",
+                    "yref": "y",
+                    "x0": group_index - summary_width / 2,
+                    "x1": group_index + summary_width / 2,
+                    "y0": summary_value,
+                    "y1": summary_value,
+                    "line": {"color": summary_color, "width": summary_line_width},
+                }
+            )
+        if _truthy(params.get("show_n_labels"), True):
+            annotations.append(
+                {
+                    "xref": "x",
+                    "yref": "paper",
+                    "x": group_index,
+                    "y": 1.02,
+                    "text": f"n={len(y_values)}",
+                    "showarrow": False,
+                    "font": {"size": 11, "color": "#617383"},
+                }
+            )
+
+    layout = _base_layout(title=f"Grouped dot plot: {y_column} by {group_column}", x_title=group_column, y_title=y_column, params=params)
+    layout["xaxis"]["tickmode"] = "array"
+    layout["xaxis"]["tickvals"] = list(range(len(grouped)))
+    layout["xaxis"]["ticktext"] = [group_name for group_name, _ in grouped]
+    layout["xaxis"]["range"] = [-0.7, max(len(grouped) - 0.3, 0.7)]
+    if shapes:
+        layout.setdefault("shapes", []).extend(shapes)
+    if annotations:
+        layout.setdefault("annotations", []).extend(annotations)
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
+
+
+def _build_raincloud_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    y_column = _choose_column(params.get("y"), context["numeric_columns"])
+    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    if not y_column or not group_column:
+        return _empty_plot_spec(
+            "raincloud",
+            "Raincloud requires one numeric value column and one grouping column.",
+            context["table_summary"],
+        )
+
+    label_column = _choose_column(params.get("label"), context["columns"])
+    grouped: list[tuple[str, list[tuple[float, str]]]] = []
+    for group_name, rows in _records_by_category(context["records"], group_column).items():
+        values = []
+        for row in rows:
+            y_value = _number_or_none(row.get(y_column))
+            if y_value is None:
+                continue
+            label = str(row.get(label_column) or group_name) if label_column else group_name
+            values.append((y_value, label))
+        if values:
+            grouped.append((group_name, values))
+    if not grouped:
+        return _empty_plot_spec("raincloud", "No grouped numeric values were available for raincloud rendering.", context["table_summary"])
+
+    sort_groups = str(params.get("sort_groups") or "input")
+    if sort_groups == "median_desc":
+        grouped.sort(key=lambda item: median([value for value, _ in item[1]]), reverse=True)
+    elif sort_groups == "median_asc":
+        grouped.sort(key=lambda item: median([value for value, _ in item[1]]))
+    elif sort_groups == "size_desc":
+        grouped.sort(key=lambda item: len(item[1]), reverse=True)
+    max_groups = _bounded_int(params.get("max_groups"), 16, 2, 40)
+    warnings = []
+    if len(grouped) > max_groups:
+        warnings.append(f"Showing first {max_groups} groups to keep the raincloud readable.")
+        grouped = grouped[:max_groups]
+
+    violin_side = str(params.get("violin_side") or "negative")
+    if violin_side not in {"negative", "positive"}:
+        violin_side = "negative"
+    point_offset = 0.22 if violin_side == "negative" else -0.22
+    box_offset = _bounded_float(params.get("box_offset"), 0.18, -0.5, 0.5)
+    jitter = _bounded_float(params.get("point_jitter"), 0.22, 0, 0.8)
+    point_size = _bounded_float(params.get("point_size"), 5, 1, 24)
+    point_alpha = _bounded_float(params.get("point_alpha"), 0.68, 0.05, 1)
+    traces = []
+    for group_index, (group_name, values_with_labels) in enumerate(grouped):
+        y_values = [value for value, _ in values_with_labels]
+        labels = [label for _, label in values_with_labels]
+        color = PLOTLY_PALETTE[group_index % len(PLOTLY_PALETTE)]
+        traces.append(
+            {
+                "type": "violin",
+                "name": f"{group_name} density",
+                "x": [group_index for _ in y_values],
+                "y": y_values,
+                "side": violin_side,
+                "width": _bounded_float(params.get("violin_width"), 0.72, 0.15, 1.4),
+                "points": False,
+                "box": {"visible": False},
+                "meanline": {"visible": False},
+                "scalemode": "width",
+                "fillcolor": _rgba_from_hex(color, 0.34),
+                "line": {"color": color, "width": 1.2},
+                "hovertemplate": f"{group_name}<br>{y_column}=%{{y:.4g}}<extra>density</extra>",
+                "showlegend": False,
+            }
+        )
+        if _truthy(params.get("show_box"), True):
+            traces.append(
+                {
+                    "type": "box",
+                    "name": f"{group_name} box",
+                    "x": [group_index + box_offset for _ in y_values],
+                    "y": y_values,
+                    "width": _bounded_float(params.get("box_width"), 0.24, 0.08, 0.6),
+                    "boxpoints": False,
+                    "marker": {"color": color, "opacity": 0.1},
+                    "fillcolor": _rgba_from_hex(color, 0.14),
+                    "line": {"color": color, "width": 1.4},
+                    "hovertemplate": f"{group_name}<br>{y_column}=%{{y:.4g}}<extra>box</extra>",
+                    "showlegend": False,
+                }
+            )
+        if _truthy(params.get("show_points"), True):
+            point_x = [
+                group_index + point_offset + _deterministic_jitter(item_index, jitter)
+                for item_index in range(len(y_values))
+            ]
+            traces.append(
+                {
+                    "type": "scattergl",
+                    "mode": "markers",
+                    "name": group_name,
+                    "x": point_x,
+                    "y": y_values,
+                    "text": labels,
+                    "marker": {
+                        "color": color,
+                        "size": point_size,
+                        "opacity": point_alpha,
+                        "line": {"color": "#ffffff", "width": 0.6},
+                    },
+                    "hovertemplate": "%{text}<br>group=%{fullData.name}<br>value=%{y:.4g}<extra></extra>",
+                }
+            )
+        if _truthy(params.get("show_mean"), True):
+            traces.append(
+                {
+                    "type": "scatter",
+                    "mode": "markers",
+                    "name": f"{group_name} mean",
+                    "x": [group_index + box_offset],
+                    "y": [fmean(y_values)],
+                    "marker": {
+                        "symbol": "diamond",
+                        "size": _bounded_float(params.get("mean_marker_size"), 9, 2, 28),
+                        "color": "#ffffff",
+                        "line": {"color": color, "width": 1.8},
+                    },
+                    "hovertemplate": f"{group_name}<br>mean=%{{y:.4g}}<extra></extra>",
+                    "showlegend": False,
+                }
+            )
+
+    layout = _base_layout(title=f"Raincloud: {y_column} by {group_column}", x_title=group_column, y_title=y_column, params=params)
+    layout["xaxis"]["tickmode"] = "array"
+    layout["xaxis"]["tickvals"] = list(range(len(grouped)))
+    layout["xaxis"]["ticktext"] = [group_name for group_name, _ in grouped]
+    layout["xaxis"]["range"] = [-0.85, max(len(grouped) - 0.15, 0.85)]
+    layout["violingap"] = 0
+    layout["boxmode"] = "overlay"
+    layout["meta"] = {"raincloud": {"groups": len(grouped), "violin_side": violin_side, "show_box": _truthy(params.get("show_box"), True)}}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
 def _build_violin_spec(context: dict[str, Any]) -> dict[str, Any]:
@@ -787,6 +1054,247 @@ def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
     return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": []}
 
 
+def _build_density_curve_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    x_column = _choose_column(params.get("x"), context["numeric_columns"])
+    if not x_column:
+        return _empty_plot_spec("density_curve", "Density curve requires at least one numeric value column.", context["table_summary"])
+
+    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    grouped = _records_by_category(context["records"], group_column) if group_column else {"All": context["records"]}
+    grouped_values: list[tuple[str, list[float], list[str]]] = []
+    label_column = _choose_column(params.get("label"), context["columns"])
+    for group_name, rows in grouped.items():
+        values = []
+        labels = []
+        for row in rows:
+            value = _number_or_none(row.get(x_column))
+            if value is None:
+                continue
+            values.append(value)
+            labels.append(str(row.get(label_column) or group_name) if label_column else group_name)
+        if values:
+            grouped_values.append((group_name, sorted(values), labels))
+    if not grouped_values:
+        return _empty_plot_spec("density_curve", "No numeric values were available for density curve rendering.", context["table_summary"])
+
+    sort_groups = str(params.get("sort_groups") or "input")
+    if sort_groups == "median_desc":
+        grouped_values.sort(key=lambda item: median(item[1]), reverse=True)
+    elif sort_groups == "median_asc":
+        grouped_values.sort(key=lambda item: median(item[1]))
+    elif sort_groups == "size_desc":
+        grouped_values.sort(key=lambda item: len(item[1]), reverse=True)
+
+    max_groups = _bounded_int(params.get("max_groups"), 12, 1, 40)
+    warnings = []
+    if len(grouped_values) > max_groups:
+        warnings.append(f"Showing first {max_groups} groups to keep the density curve readable.")
+        grouped_values = grouped_values[:max_groups]
+
+    all_values = [value for _, values, _ in grouped_values for value in values]
+    x_min = min(all_values)
+    x_max = max(all_values)
+    span = max(x_max - x_min, 1e-9)
+    x_grid = _linspace(x_min - span * 0.08, x_max + span * 0.08, _bounded_int(params.get("density_points"), 160, 30, 500))
+    traces = []
+    shapes = []
+    annotations = []
+    line_width = _bounded_float(params.get("line_width"), 2.4, 0.5, 10)
+    fill = _truthy(params.get("fill"), True)
+    normalize = str(params.get("normalize") or "area")
+    for index, (group_name, values, labels) in enumerate(grouped_values):
+        color = PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+        density_values = _kernel_density(values, x_grid, params.get("bandwidth"))
+        if normalize == "peak":
+            peak = max(density_values) if density_values else 0.0
+            density_values = [value / peak if peak > 0 else 0.0 for value in density_values]
+        traces.append(
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "name": group_name,
+                "x": x_grid,
+                "y": density_values,
+                "fill": "tozeroy" if fill else "none",
+                "fillcolor": _rgba_from_hex(color, _bounded_float(params.get("fill_alpha"), 0.24, 0.02, 1)),
+                "line": {"color": color, "width": line_width, "shape": "spline"},
+                "hovertemplate": f"{x_column}=%{{x:.4g}}<br>density=%{{y:.4g}}<extra>{group_name}</extra>",
+            }
+        )
+        if _truthy(params.get("show_rug"), True):
+            traces.append(
+                {
+                    "type": "scattergl",
+                    "mode": "markers",
+                    "name": f"{group_name} rug",
+                    "x": values,
+                    "y": [0 for _ in values],
+                    "text": labels[: len(values)],
+                    "marker": {
+                        "symbol": "line-ns-open",
+                        "size": _bounded_float(params.get("rug_size"), 8, 2, 20),
+                        "color": color,
+                        "opacity": _bounded_float(params.get("rug_alpha"), 0.42, 0.05, 1),
+                    },
+                    "hovertemplate": "%{text}<br>value=%{x:.4g}<extra></extra>",
+                    "showlegend": False,
+                }
+            )
+        if _truthy(params.get("show_median"), True):
+            median_value = float(median(values))
+            shapes.append(
+                {
+                    "type": "line",
+                    "xref": "x",
+                    "yref": "paper",
+                    "x0": median_value,
+                    "x1": median_value,
+                    "y0": 0,
+                    "y1": 1,
+                    "line": {"color": color, "width": 1.2, "dash": str(params.get("median_line_dash") or "dot")},
+                }
+            )
+            annotations.append(
+                {
+                    "xref": "x",
+                    "yref": "paper",
+                    "x": median_value,
+                    "y": 1.01,
+                    "text": f"{group_name} median",
+                    "showarrow": False,
+                    "textangle": -90,
+                    "font": {"size": 10, "color": color},
+                    "xanchor": "left",
+                    "yanchor": "bottom",
+                }
+            )
+
+    y_title = "density" if normalize == "area" else "relative density"
+    layout = _base_layout(title=f"Density curve: {x_column}", x_title=x_column, y_title=y_title, params=params)
+    if shapes:
+        layout.setdefault("shapes", []).extend(shapes)
+        layout.setdefault("annotations", []).extend(annotations)
+    layout["meta"] = {"density_curve": {"groups": len(grouped_values), "normalize": normalize, "fill": fill}}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
+def _build_ecdf_spec(context: dict[str, Any]) -> dict[str, Any]:
+    params = context["params"]
+    x_column = _choose_column(params.get("x"), context["numeric_columns"])
+    if not x_column:
+        return _empty_plot_spec("ecdf", "ECDF requires at least one numeric value column.", context["table_summary"])
+
+    group_column = _choose_column(params.get("group"), context["categorical_columns"])
+    grouped = _records_by_category(context["records"], group_column) if group_column else {"All": context["records"]}
+    grouped_values: list[tuple[str, list[float]]] = []
+    for group_name, rows in grouped.items():
+        values = [_number_or_none(row.get(x_column)) for row in rows]
+        values = sorted(value for value in values if value is not None)
+        if values:
+            grouped_values.append((group_name, values))
+    if not grouped_values:
+        return _empty_plot_spec("ecdf", "No numeric values were available for ECDF rendering.", context["table_summary"])
+
+    sort_groups = str(params.get("sort_groups") or "input")
+    if sort_groups == "median_desc":
+        grouped_values.sort(key=lambda item: median(item[1]), reverse=True)
+    elif sort_groups == "median_asc":
+        grouped_values.sort(key=lambda item: median(item[1]))
+    elif sort_groups == "size_desc":
+        grouped_values.sort(key=lambda item: len(item[1]), reverse=True)
+
+    max_groups = _bounded_int(params.get("max_groups"), 12, 1, 40)
+    warnings = []
+    if len(grouped_values) > max_groups:
+        warnings.append(f"Showing first {max_groups} groups to keep the ECDF readable.")
+        grouped_values = grouped_values[:max_groups]
+
+    y_mode = str(params.get("y_mode") or "cumulative")
+    y_units = str(params.get("y_units") or "percent")
+    multiplier = 100.0 if y_units == "percent" else 1.0
+    line_shape = str(params.get("line_shape") or "hv")
+    if line_shape not in {"hv", "linear"}:
+        line_shape = "hv"
+    show_points = _truthy(params.get("show_points"), False)
+    traces = []
+    shapes = []
+    annotations = []
+    for index, (group_name, values) in enumerate(grouped_values):
+        count = len(values)
+        y_values = []
+        for item_index in range(count):
+            fraction = (item_index + 1) / count
+            if y_mode == "survival":
+                fraction = 1 - item_index / count
+            y_values.append(fraction * multiplier)
+        color = PLOTLY_PALETTE[index % len(PLOTLY_PALETTE)]
+        traces.append(
+            {
+                "type": "scatter",
+                "mode": "lines+markers" if show_points else "lines",
+                "name": group_name,
+                "x": values,
+                "y": y_values,
+                "line": {
+                    "color": color,
+                    "width": _bounded_float(params.get("line_width"), 2.4, 0.5, 10),
+                    "shape": line_shape,
+                },
+                "marker": {
+                    "color": color,
+                    "size": _bounded_float(params.get("point_size"), 5, 1, 20),
+                    "opacity": _bounded_float(params.get("point_alpha"), 0.62, 0.05, 1),
+                },
+                "customdata": [[count] for _ in values],
+                "hovertemplate": f"{x_column}=%{{x:.4g}}<br>{y_mode}=%{{y:.4g}}<br>n=%{{customdata[0]}}<extra>{group_name}</extra>",
+            }
+        )
+        if _truthy(params.get("show_median"), True):
+            median_value = float(median(values))
+            shapes.append(
+                {
+                    "type": "line",
+                    "xref": "x",
+                    "yref": "paper",
+                    "x0": median_value,
+                    "x1": median_value,
+                    "y0": 0,
+                    "y1": 1,
+                    "line": {
+                        "color": color,
+                        "width": 1.2,
+                        "dash": str(params.get("median_line_dash") or "dot"),
+                    },
+                }
+            )
+            annotations.append(
+                {
+                    "xref": "x",
+                    "yref": "paper",
+                    "x": median_value,
+                    "y": 1.01,
+                    "text": f"{group_name} median",
+                    "showarrow": False,
+                    "textangle": -90,
+                    "font": {"size": 10, "color": color},
+                    "xanchor": "left",
+                    "yanchor": "bottom",
+                }
+            )
+
+    y_title = "cumulative percent" if y_units == "percent" else "cumulative proportion"
+    if y_mode == "survival":
+        y_title = "survival percent" if y_units == "percent" else "survival proportion"
+    layout = _base_layout(title=f"ECDF: {x_column}", x_title=x_column, y_title=y_title, params=params)
+    layout["yaxis"]["range"] = [-2 if y_units == "percent" else -0.02, 102 if y_units == "percent" else 1.02]
+    if shapes:
+        layout.setdefault("shapes", []).extend(shapes)
+        layout.setdefault("annotations", []).extend(annotations)
+    layout["meta"] = {"ecdf": {"groups": len(grouped_values), "mode": y_mode, "units": y_units}}
+    return {"data": traces, "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
+
 def _build_calendar_heatmap_spec(context: dict[str, Any]) -> dict[str, Any]:
     params = context["params"]
     columns = context["columns"]
@@ -938,8 +1446,12 @@ def _build_density_contour_spec(context: dict[str, Any]) -> dict[str, Any]:
             continue
         x_values.append(x_value)
         y_values.append(y_value)
-    if not x_values:
-        return _empty_plot_spec("density_contour", "No paired numeric values were available for contour rendering.", context["table_summary"])
+    if len(x_values) < 3:
+        return _empty_plot_spec(
+            "density_contour",
+            "2D density contour requires at least three paired numeric rows.",
+            context["table_summary"],
+        )
 
     contour_settings: dict[str, Any] = {
         "coloring": str(params.get("contours_coloring") or "heatmap"),
@@ -1040,8 +1552,13 @@ def _build_scatter_3d_spec(context: dict[str, Any]) -> dict[str, Any]:
                 "hovertemplate": "%{text}<br>x=%{x:.4g}<br>y=%{y:.4g}<br>z=%{z:.4g}<extra>%{fullData.name}</extra>",
             }
         )
-    if not traces:
-        return _empty_plot_spec("scatter_3d", "No complete x/y/z numeric rows were available.", context["table_summary"])
+    total_points = sum(len(trace.get("x", [])) for trace in traces)
+    if total_points < 2:
+        return _empty_plot_spec(
+            "scatter_3d",
+            "3D scatter requires at least two complete x/y/z numeric rows.",
+            context["table_summary"],
+        )
 
     layout = _base_layout(
         title=f"3D scatter: {x_column}, {y_column}, {z_column}",
@@ -4789,6 +5306,19 @@ def _choose_column(
     return None
 
 
+def _preferred_numeric_columns(table_summary: dict[str, Any], numeric_columns: list[str]) -> list[str]:
+    matrix_profile = (table_summary.get("signals") or {}).get("matrix_profile") or {}
+    preferred = [
+        column
+        for column in matrix_profile.get("value_columns") or []
+        if column in numeric_columns
+    ]
+    if not preferred:
+        return numeric_columns
+    preferred_set = set(preferred)
+    return preferred + [column for column in numeric_columns if column not in preferred_set]
+
+
 def _requested_column(requested: Any, columns: list[str]) -> str | None:
     if requested and str(requested) in columns:
         return str(requested)
@@ -5234,6 +5764,14 @@ def _numeric_value_count(records: list[dict[str, str]], column: str) -> int:
     return sum(1 for row in records if _number_or_none(row.get(column)) is not None)
 
 
+def _complete_numeric_row_count(records: list[dict[str, str]], columns: list[str]) -> int:
+    return sum(
+        1
+        for row in records
+        if all(_number_or_none(row.get(column)) is not None for column in columns)
+    )
+
+
 def _number_or_none(value: Any) -> float | None:
     parsed = _parse_float(value)
     if parsed is None or not math.isfinite(parsed):
@@ -5539,6 +6077,13 @@ def _kernel_density(values: list[float], grid: list[float], bandwidth_value: Any
         kernel_sum = sum(math.exp(-0.5 * ((point - value) / bandwidth) ** 2) for value in values)
         densities.append(kernel_sum / norm)
     return densities
+
+
+def _deterministic_jitter(index: int, width: float) -> float:
+    if width <= 0:
+        return 0.0
+    cycle = [-0.5, 0.18, -0.08, 0.42, -0.32, 0.31, -0.44, 0.06, 0.5, -0.2]
+    return cycle[index % len(cycle)] * width
 
 
 def _distribution_trace(

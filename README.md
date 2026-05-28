@@ -244,6 +244,12 @@ pdm run clean-logs
 pdm run start-bg
 ```
 
+重启 8010 并清理旧的 `server-*.log`（包括历史端口日志）：
+
+```bash
+pdm run restart-bg
+```
+
 如果之前开过其他端口的临时服务，可以清理所有 `server-*.log`：
 
 ```bash

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
 from yzwcloud.plot_studio_presets import PLOT_PRESETS, PLOT_STUDIO_VERSION, recommend_plot_types
 from yzwcloud.plot_studio_source import _select_source_table, _source_summary
 from yzwcloud.plot_studio_specs import _select_plot_id
-from yzwcloud.plot_studio_tables import inspect_table
+from yzwcloud.plot_studio_tables import _load_table_records, inspect_table
+from yzwcloud.plot_studio_utils import _parse_float, _round_number
 
 
 PLOT_REPORT_GUIDANCE = {
@@ -194,6 +196,7 @@ def create_plot_studio_report(
     source_type = str(source.get("type") or source.get("output_type") or "")
     data_path, path_reason = _select_source_table(source)
     table_summary = inspect_table(data_path) if data_path else None
+    data_profile = _single_row_profile_context(data_path, table_summary)
     recommended_plot_ids = recommend_plot_types(source_type, table_summary)
     selected_plot_id = _select_plot_id(plot_type, recommended_plot_ids)
     selected_preset = next(item for item in PLOT_PRESETS if item["id"] == selected_plot_id)
@@ -202,6 +205,7 @@ def create_plot_studio_report(
         source_type=source_type,
         selected_preset=selected_preset,
         table_summary=table_summary,
+        data_profile=data_profile,
         params=params or {},
         path_reason=path_reason,
     )
@@ -210,6 +214,8 @@ def create_plot_studio_report(
         source_type=source_type,
         selected_preset=selected_preset,
         table_summary=table_summary,
+        data_profile=data_profile,
+        recommended_plot_ids=recommended_plot_ids,
         params=params or {},
         path_reason=path_reason,
     )
@@ -235,10 +241,19 @@ def _build_report(
     source_type: str,
     selected_preset: dict[str, Any],
     table_summary: dict[str, Any] | None,
+    data_profile: dict[str, Any] | None,
     params: dict[str, Any],
     path_reason: str,
 ) -> dict[str, Any]:
-    observations = _build_observations(source, source_type, selected_preset, table_summary, params, path_reason)
+    observations = _build_observations(
+        source,
+        source_type,
+        selected_preset,
+        table_summary,
+        data_profile,
+        params,
+        path_reason,
+    )
     limitations = [
         "This report is generated from source metadata and tabular statistics only.",
         "Rendered images are not inspected by the report agent.",
@@ -284,6 +299,7 @@ def _build_observations(
     source_type: str,
     selected_preset: dict[str, Any],
     table_summary: dict[str, Any] | None,
+    data_profile: dict[str, Any] | None,
     params: dict[str, Any],
     path_reason: str,
 ) -> dict[str, str]:
@@ -306,9 +322,9 @@ def _build_observations(
         f"Default parameters include {', '.join(sorted(selected_preset['default_params'])[:5])}."
     )
 
-    signals = _signal_text(source_type, table_summary, meta)
+    signals = _signal_text(source_type, table_summary, meta, data_profile)
     parameter_notes = _parameter_notes(selected_preset["id"], table_summary, meta, params)
-    figure_interpretation = _figure_interpretation(selected_preset["id"], table_summary)
+    figure_interpretation = _figure_interpretation(selected_preset["id"], table_summary, data_profile)
     return {
         "data_readiness": data_readiness,
         "figure_choice": figure_choice,
@@ -318,7 +334,12 @@ def _build_observations(
     }
 
 
-def _signal_text(source_type: str, table_summary: dict[str, Any] | None, meta: dict[str, Any]) -> str:
+def _signal_text(
+    source_type: str,
+    table_summary: dict[str, Any] | None,
+    meta: dict[str, Any],
+    data_profile: dict[str, Any] | None = None,
+) -> str:
     if table_summary:
         diff_signal = table_summary.get("signals", {}).get("differential_default_threshold")
         if diff_signal:
@@ -326,6 +347,16 @@ def _signal_text(source_type: str, table_summary: dict[str, Any] | None, meta: d
                 "At abs(log2FC) >= {abs_log2fc} and p <= {p_value}, {significant} feature(s) pass "
                 "the default differential threshold: {up} up and {down} down."
             ).format(**diff_signal)
+        if data_profile:
+            top = data_profile["highest_values"][0]
+            low = data_profile["lowest_values"][0]
+            skipped = data_profile.get("excluded_numeric_columns") or []
+            suffix = f"; skipped numeric metadata: {', '.join(skipped[:4])}" if skipped else ""
+            return (
+                f"Single-row expression profile for {data_profile['identifier']} contains "
+                f"{data_profile['value_count']} sample-like value(s). Highest value is "
+                f"{top['column']}={top['value']}; lowest value is {low['column']}={low['value']}{suffix}."
+            )
         matrix_profile = table_summary.get("signals", {}).get("matrix_profile")
         if matrix_profile:
             excluded = matrix_profile.get("excluded_numeric_columns") or []
@@ -387,8 +418,21 @@ def _parameter_notes(
     return f"Start from the preset defaults, then refine mappings after the source table is inspected. {_analysis_parameter_text(plot_id, params)} {_layout_parameter_summary(params)}"
 
 
-def _figure_interpretation(plot_id: str, table_summary: dict[str, Any] | None) -> str:
+def _figure_interpretation(
+    plot_id: str,
+    table_summary: dict[str, Any] | None,
+    data_profile: dict[str, Any] | None = None,
+) -> str:
     guidance = PLOT_REPORT_GUIDANCE.get(plot_id)
+    if data_profile and plot_id in {"bar", "histogram", "density_curve", "ecdf"}:
+        high = ", ".join(f"{item['column']}={item['value']}" for item in data_profile["highest_values"][:3])
+        low = ", ".join(f"{item['column']}={item['value']}" for item in data_profile["lowest_values"][:3])
+        return (
+            f"For this single-row expression profile, the report agent should compare "
+            f"{data_profile['value_count']} sample-like values for {data_profile['identifier']}. "
+            f"Highest values: {high}. Lowest values: {low}. "
+            "This describes the attached table values only and should not be treated as a statistical group comparison."
+        )
     if not guidance:
         return "The report agent should describe what the selected chart can and cannot prove from the attached table."
     if table_summary:
@@ -1031,6 +1075,8 @@ def _parameter_summary(plot_id: str, params: dict[str, Any]) -> dict[str, list[s
     if plot_id in {"heatmap", "correlation"}:
         if plot_id == "correlation" and params.get("method"):
             summary["statistics"].append(f"method={params.get('method')}")
+        if plot_id == "correlation" and params.get("matrix_type"):
+            summary["display"].append(f"matrix type={params.get('matrix_type')}")
         if plot_id == "heatmap" and params.get("scale"):
             summary["statistics"].append(f"scale={params.get('scale')}")
         if "cluster_rows" in params:
@@ -1368,6 +1414,8 @@ def _build_agent_context(
     source_type: str,
     selected_preset: dict[str, Any],
     table_summary: dict[str, Any] | None,
+    data_profile: dict[str, Any] | None,
+    recommended_plot_ids: list[str],
     params: dict[str, Any],
     path_reason: str,
 ) -> dict[str, Any]:
@@ -1384,6 +1432,13 @@ def _build_agent_context(
             "focus": PLOT_REPORT_GUIDANCE.get(selected_preset["id"], {}).get("focus", ""),
         },
         "table": _compact_table_context(table_summary),
+        "data_profile": data_profile,
+        "plot_suitability": _plot_suitability_context(
+            selected_preset["id"],
+            recommended_plot_ids,
+            data_profile,
+            table_summary,
+        ),
         "metadata": {key: meta[key] for key in sorted(meta)[:12]},
         "params": params,
         "parameter_summary": _parameter_summary(selected_preset["id"], params),
@@ -1393,6 +1448,57 @@ def _build_agent_context(
             "State uncertainty when the table is missing or only partially scanned.",
         ],
     }
+
+
+def _plot_suitability_context(
+    selected_plot_id: str,
+    recommended_plot_ids: list[str],
+    data_profile: dict[str, Any] | None,
+    table_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    context: dict[str, Any] = {
+        "recommended_plot_ids": recommended_plot_ids,
+        "selected_is_recommended": selected_plot_id in recommended_plot_ids,
+        "not_recommended_plot_ids": [],
+        "reason": "Use the recommended list as the first-pass chart plan for this source.",
+    }
+    row_count = int((table_summary or {}).get("scanned_rows") or 0)
+    if data_profile:
+        not_recommended = [
+            "scatter",
+            "bubble",
+            "density_contour",
+            "scatter_3d",
+            "radar",
+            "parallel_coordinates",
+            "correlation",
+            "heatmap",
+        ]
+        context.update(
+            {
+                "not_recommended_plot_ids": not_recommended,
+                "reason": (
+                    "Single-row expression profiles should be reviewed as profile bar or "
+                    "one-dimensional distribution summaries. Multi-sample relationship, clustering, "
+                    "and correlation charts need at least two rows or multiple profiles."
+                ),
+            }
+        )
+    elif row_count == 1:
+        context.update(
+            {
+                "not_recommended_plot_ids": [
+                    "scatter",
+                    "bubble",
+                    "density_contour",
+                    "scatter_3d",
+                    "radar",
+                    "parallel_coordinates",
+                ],
+                "reason": "A one-row table cannot support multi-observation relationship or profile-comparison charts.",
+            }
+        )
+    return context
 
 
 def _compact_table_context(table_summary: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1406,6 +1512,59 @@ def _compact_table_context(table_summary: dict[str, Any] | None) -> dict[str, An
         "numeric_columns": (table_summary.get("numeric_columns") or [])[:20],
         "categorical_columns": (table_summary.get("categorical_columns") or [])[:20],
         "signals": signals,
+    }
+
+
+def _single_row_profile_context(
+    data_path: Path | None,
+    table_summary: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if data_path is None or table_summary is None:
+        return None
+    if int(table_summary.get("scanned_rows") or 0) != 1:
+        return None
+    matrix_profile = (table_summary.get("signals") or {}).get("matrix_profile") or {}
+    if matrix_profile.get("kind") != "expression_like":
+        return None
+    value_columns = [
+        column
+        for column in matrix_profile.get("value_columns") or []
+        if column in set(table_summary.get("numeric_columns") or [])
+    ]
+    if not value_columns:
+        return None
+    _, records = _load_table_records(data_path, max_rows=1)
+    if not records:
+        return None
+    row = records[0]
+    values = []
+    for column in value_columns:
+        value = _parse_float(row.get(column))
+        if value is None or not math.isfinite(value):
+            continue
+        values.append({"column": column, "value": _round_number(value)})
+    if not values:
+        return None
+    identifier = "row_1"
+    for column in matrix_profile.get("identifier_columns") or []:
+        text = str(row.get(column) or "").strip()
+        if text:
+            identifier = text
+            break
+    sorted_high = sorted(values, key=lambda item: float(item["value"]), reverse=True)
+    sorted_low = sorted(values, key=lambda item: float(item["value"]))
+    numeric_values = [float(item["value"]) for item in values]
+    return {
+        "kind": "single_row_expression_profile",
+        "identifier": identifier,
+        "value_count": len(values),
+        "mean": _round_number(sum(numeric_values) / len(numeric_values)),
+        "minimum": sorted_low[0],
+        "maximum": sorted_high[0],
+        "highest_values": sorted_high[:5],
+        "lowest_values": sorted_low[:5],
+        "value_columns_preview": [item["column"] for item in values[:12]],
+        "excluded_numeric_columns": matrix_profile.get("excluded_numeric_columns") or [],
     }
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -27,6 +28,14 @@ class ServerStartResult:
     log_path: Path | None
     pid_path: Path
     already_running: bool
+
+
+@dataclass(frozen=True)
+class ServerStopResult:
+    pid: int | None
+    pid_path: Path
+    stopped: bool
+    was_running: bool
 
 
 def project_root() -> Path:
@@ -195,12 +204,99 @@ def start_server(
     )
 
 
+def stop_server(
+    log_dir: Path | None = None,
+    *,
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_PORT,
+    wait_seconds: float = 8.0,
+) -> ServerStopResult:
+    resolved_dir = log_dir or default_log_dir()
+    pid_path = server_pid_path(resolved_dir, port=port)
+    pid = _read_pid(pid_path)
+    port_was_open = is_port_open(host, port)
+
+    if pid is None:
+        return ServerStopResult(
+            pid=None,
+            pid_path=pid_path,
+            stopped=False,
+            was_running=port_was_open,
+        )
+
+    if not port_was_open:
+        pid_path.unlink(missing_ok=True)
+        return ServerStopResult(pid=pid, pid_path=pid_path, stopped=False, was_running=False)
+
+    if not _terminate_pid(pid):
+        raise RuntimeError(f"could not stop pid={pid}; remove {pid_path} only after checking the process")
+
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        if not is_port_open(host, port):
+            pid_path.unlink(missing_ok=True)
+            return ServerStopResult(pid=pid, pid_path=pid_path, stopped=True, was_running=True)
+        time.sleep(0.2)
+
+    raise RuntimeError(f"server pid={pid} did not stop listening on {host}:{port} within {wait_seconds:g}s")
+
+
+def restart_server(
+    log_dir: Path | None = None,
+    *,
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_PORT,
+    reload: bool = False,
+    clean_all_ports: bool = True,
+    keep_latest: int = 0,
+    wait_seconds: float = 8.0,
+) -> ServerStartResult:
+    resolved_dir = log_dir or default_log_dir()
+    stop_result = stop_server(resolved_dir, host=host, port=port, wait_seconds=wait_seconds)
+    if stop_result.was_running and not stop_result.stopped:
+        raise RuntimeError(
+            f"port {port} is running but no usable pid file was found at {stop_result.pid_path}; "
+            "stop it manually before restart"
+        )
+    cleanup_server_logs_detailed(
+        resolved_dir,
+        port=None if clean_all_ports else port,
+        keep_latest=keep_latest,
+    )
+    return start_server(
+        resolved_dir,
+        host=host,
+        port=port,
+        reload=reload,
+        keep_latest=keep_latest,
+        wait_seconds=wait_seconds,
+    )
+
+
 def _read_pid(pid_path: Path) -> int | None:
     try:
         text = pid_path.read_text(encoding="utf-8").strip()
         return int(text) if text else None
     except (FileNotFoundError, ValueError):
         return None
+
+
+def _terminate_pid(pid: int) -> bool:
+    if os.name == "nt":
+        completed = subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return completed.returncode == 0
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -213,6 +309,23 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument("--keep-latest", type=int, default=3)
     start.add_argument("--wait-seconds", type=float, default=8.0)
     start.add_argument("--log-dir", type=Path, default=default_log_dir())
+    stop = subcommands.add_parser("stop", help="stop the local API server started by this helper")
+    stop.add_argument("--host", default="127.0.0.1")
+    stop.add_argument("--port", type=int, default=DEFAULT_PORT)
+    stop.add_argument("--wait-seconds", type=float, default=8.0)
+    stop.add_argument("--log-dir", type=Path, default=default_log_dir())
+    restart = subcommands.add_parser("restart", help="restart the local API server and clean generated logs")
+    restart.add_argument("--host", default="127.0.0.1")
+    restart.add_argument("--port", type=int, default=DEFAULT_PORT)
+    restart.add_argument("--reload", action="store_true")
+    restart.add_argument("--keep-latest", type=int, default=0)
+    restart.add_argument("--wait-seconds", type=float, default=8.0)
+    restart.add_argument("--log-dir", type=Path, default=default_log_dir())
+    restart.add_argument(
+        "--current-port-only",
+        action="store_true",
+        help="clean only logs for the restarted port instead of every server-*.log file",
+    )
     cleanup = subcommands.add_parser("clean-logs", help="remove generated local server logs")
     cleanup.add_argument("--port", type=int, default=DEFAULT_PORT)
     cleanup.add_argument(
@@ -240,6 +353,33 @@ def main(argv: list[str] | None = None) -> int:
             print(f"already-running port={args.port} pid={result.pid or 'unknown'}")
         else:
             print(f"started port={args.port} pid={result.pid} log={result.log_path}")
+        print(f"pid-file={result.pid_path}")
+        return 0
+    if args.command == "stop":
+        result = stop_server(
+            args.log_dir,
+            host=args.host,
+            port=args.port,
+            wait_seconds=args.wait_seconds,
+        )
+        if result.stopped:
+            print(f"stopped port={args.port} pid={result.pid}")
+        elif result.was_running:
+            print(f"not-stopped port={args.port} pid=unknown pid-file={result.pid_path}")
+        else:
+            print(f"not-running port={args.port} pid={result.pid or 'unknown'}")
+        return 0
+    if args.command == "restart":
+        result = restart_server(
+            args.log_dir,
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            clean_all_ports=not args.current_port_only,
+            keep_latest=args.keep_latest,
+            wait_seconds=args.wait_seconds,
+        )
+        print(f"started port={args.port} pid={result.pid} log={result.log_path}")
         print(f"pid-file={result.pid_path}")
         return 0
     if args.command == "clean-logs":

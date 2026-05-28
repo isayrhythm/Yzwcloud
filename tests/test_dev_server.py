@@ -12,7 +12,9 @@ from yzwcloud.dev_server import (
     main,
     matching_server_logs,
     normalized_process_env,
+    restart_server,
     start_server,
+    stop_server,
 )
 
 
@@ -152,6 +154,72 @@ def test_start_server_spawns_uvicorn_and_records_pid(
         "8123",
     ]
     assert calls[0]["cwd"] == tmp_path
+
+
+def test_stop_server_terminates_pid_and_removes_pid_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid_path = tmp_path / "server-8123.pid"
+    pid_path.write_text("12345", encoding="utf-8")
+    port_checks = iter([True, False])
+    terminated: list[int] = []
+
+    def fake_port_open(host: str, port: int, *, timeout: float = 0.35) -> bool:
+        return next(port_checks)
+
+    monkeypatch.setattr(dev_server, "is_port_open", fake_port_open)
+    monkeypatch.setattr(dev_server, "_terminate_pid", lambda pid: terminated.append(pid) or True)
+
+    result = stop_server(tmp_path, port=8123, wait_seconds=1)
+
+    assert result.stopped is True
+    assert result.was_running is True
+    assert result.pid == 12345
+    assert terminated == [12345]
+    assert not pid_path.exists()
+
+
+def test_restart_server_cleans_legacy_logs_before_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid_path = tmp_path / "server-8123.pid"
+    pid_path.write_text("12345", encoding="utf-8")
+    current_log = tmp_path / "server-8123-old.log"
+    legacy_log = tmp_path / "server-5174-old.log"
+    _touch(current_log, 1)
+    _touch(legacy_log, 2)
+    port_checks = iter([True, False, False, True])
+
+    class FakeProcess:
+        pid = 777
+
+        def poll(self) -> None:
+            return None
+
+    def fake_port_open(host: str, port: int, *, timeout: float = 0.35) -> bool:
+        return next(port_checks)
+
+    monkeypatch.setattr(dev_server, "is_port_open", fake_port_open)
+    monkeypatch.setattr(dev_server, "_terminate_pid", lambda pid: True)
+    monkeypatch.setattr(dev_server.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    monkeypatch.setattr(dev_server, "project_root", lambda: tmp_path)
+
+    result = restart_server(tmp_path, port=8123, wait_seconds=1)
+
+    assert result.pid == 777
+    assert result.already_running is False
+    assert not current_log.exists()
+    assert not legacy_log.exists()
+    assert (tmp_path / "server-8123.pid").read_text(encoding="utf-8") == "777"
+
+
+def test_restart_server_rejects_unknown_running_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(dev_server, "is_port_open", lambda *args, **kwargs: True)
+
+    with pytest.raises(RuntimeError, match="no usable pid file"):
+        restart_server(tmp_path, port=8123, wait_seconds=0)
 
 
 def test_clean_logs_cli_prints_skipped_locked_files(

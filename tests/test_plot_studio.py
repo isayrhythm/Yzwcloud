@@ -1894,6 +1894,7 @@ def test_plot_studio_report_summarizes_correlation_parameters() -> None:
             "plotType": "correlation",
             "params": {
                 "method": "spearman",
+                "matrix_type": "upper_triangle",
                 "cluster_rows": False,
                 "cluster_columns": True,
                 "show_values": True,
@@ -1908,6 +1909,7 @@ def test_plot_studio_report_summarizes_correlation_parameters() -> None:
     assert "method=spearman" in sections["Parameter notes"]
     assert "cluster rows=False" in sections["Parameter notes"]
     assert "cluster columns=True" in sections["Parameter notes"]
+    assert "matrix type=upper_triangle" in report["agent_context"]["parameter_summary"]["display"]
     assert "r-value labels shown with 3 decimals" in report["agent_context"]["parameter_summary"]["display"]
     assert "color scale=green_white_purple" in report["agent_context"]["parameter_summary"]["display"]
     assert "cell gap=4" in report["agent_context"]["parameter_summary"]["display"]
@@ -3726,6 +3728,7 @@ def test_plot_studio_spec_builds_heatmap_and_correlation() -> None:
                 "max_columns": 4,
                 "cluster_rows": False,
                 "cluster_columns": False,
+                "matrix_type": "lower_triangle",
                 "show_values": True,
                 "value_precision": 3,
                 "cell_gap": 2,
@@ -3734,6 +3737,10 @@ def test_plot_studio_spec_builds_heatmap_and_correlation() -> None:
     )
     assert labeled_correlation["data"][0]["texttemplate"] == "%{text}"
     assert labeled_correlation["data"][0]["text"][0][0] == "1.000"
+    assert labeled_correlation["data"][0]["z"][0][1] is None
+    assert labeled_correlation["data"][0]["z"][1][0] is not None
+    assert labeled_correlation["data"][0]["text"][0][1] == ""
+    assert any("lower triangle display hides" in warning for warning in labeled_correlation["warnings"])
     assert labeled_correlation["data"][0]["xgap"] == 2
     assert labeled_correlation["data"][0]["ygap"] == 2
     assert "meta" not in labeled_correlation["layout"]
@@ -5059,6 +5066,146 @@ def test_plot_studio_rejects_multisample_plots_for_single_row_tables(tmp_path: P
     assert any("at least two complete x/y" in warning for warning in scatter["warnings"])
     assert radar["data"] == []
     assert any("at least two sample or group profiles" in warning for warning in radar["warnings"])
+
+
+def test_plot_studio_recommends_profile_charts_for_single_gene_matrices(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_single_gene_matrix.csv"
+    table_file.write_text(
+        "gene_short_name,gene_id,Length,Group A-1,Group A-2,Group B-1,Group B-2,Group C-1,Group C-2\n"
+        "AL590714.1,ENSG00000268387,1120,8.2,8.6,3.1,3.5,6.7,6.4\n",
+        encoding="utf-8",
+    )
+
+    summary = inspect_table(table_file)
+    recommendations = recommend_plot_types("unknown_table", summary)
+
+    assert summary["signals"]["matrix_profile"]["kind"] == "expression_like"
+    assert recommendations[:2] == ["bar", "histogram"]
+    assert "scatter" not in recommendations
+    assert "radar" not in recommendations
+    assert "correlation" not in recommendations
+
+
+def test_plot_studio_single_gene_matrix_bar_and_histogram_use_sample_columns(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_single_gene_profile_plot.csv"
+    table_file.write_text(
+        "gene_short_name,gene_id,Length,Group A-1,Group A-2,Group B-1,Group B-2,Group C-1,Group C-2\n"
+        "AL590714.1,ENSG00000268387,1120,8.2,8.6,3.1,3.5,6.7,6.4\n",
+        encoding="utf-8",
+    )
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "Single gene matrix",
+        "type": "unknown_table",
+        "dataPath": str(table_file),
+    }
+    client = TestClient(app)
+
+    bar = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "bar"},
+    )
+    histogram = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={"source": source, "plotType": "histogram"},
+    )
+
+    assert bar["plot_type"] == "bar"
+    assert bar["layout"]["title"]["text"] == "Bar profile: AL590714.1"
+    assert bar["layout"]["xaxis"]["title"]["text"] == "sample-like columns"
+    assert "Length" not in bar["data"][0]["x"]
+    assert bar["data"][0]["x"] == [
+        "Group A-1",
+        "Group A-2",
+        "Group B-1",
+        "Group B-2",
+        "Group C-1",
+        "Group C-2",
+    ]
+    assert bar["data"][0]["y"] == [8.2, 8.6, 3.1, 3.5, 6.7, 6.4]
+    assert any(
+        "Skipped numeric metadata columns" in warning and "Length" in warning
+        for warning in bar["warnings"]
+    )
+
+    assert histogram["plot_type"] == "histogram"
+    assert histogram["layout"]["title"]["text"] == "Histogram profile: AL590714.1"
+    assert histogram["layout"]["xaxis"]["title"]["text"] == "sample-like value"
+    assert histogram["data"][0]["x"] == [8.2, 8.6, 3.1, 3.5, 6.7, 6.4]
+    assert histogram["data"][0]["customdata"] == [
+        "Group A-1",
+        "Group A-2",
+        "Group B-1",
+        "Group B-2",
+        "Group C-1",
+        "Group C-2",
+    ]
+    assert any(
+        "Skipped numeric metadata columns" in warning and "Length" in warning
+        for warning in histogram["warnings"]
+    )
+
+
+def test_plot_studio_report_summarizes_single_gene_profile_values(tmp_path: Path) -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_single_gene_profile_report.csv"
+    table_file.write_text(
+        "gene_short_name,gene_id,Length,Group A-1,Group A-2,Group B-1,Group B-2,Group C-1,Group C-2\n"
+        "AL590714.1,ENSG00000268387,1120,8.2,8.6,3.1,3.5,6.7,6.4\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+
+    report = _request(
+        client,
+        "POST",
+        "/api/plot-studio/report",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Single gene matrix",
+                "type": "unknown_table",
+                "dataPath": str(table_file),
+            },
+            "plotType": "bar",
+        },
+    )
+
+    sections = {section["title"]: section["text"] for section in report["report"]["sections"]}
+    profile = report["agent_context"]["data_profile"]
+    suitability = report["agent_context"]["plot_suitability"]
+    assert profile["kind"] == "single_row_expression_profile"
+    assert profile["identifier"] == "AL590714.1"
+    assert profile["value_count"] == 6
+    assert profile["maximum"] == {"column": "Group A-2", "value": 8.6}
+    assert profile["minimum"] == {"column": "Group B-1", "value": 3.1}
+    assert profile["highest_values"][:3] == [
+        {"column": "Group A-2", "value": 8.6},
+        {"column": "Group A-1", "value": 8.2},
+        {"column": "Group C-1", "value": 6.7},
+    ]
+    assert (
+        "Single-row expression profile for AL590714.1 contains 6 sample-like value(s)"
+        in sections["Signals to inspect"]
+    )
+    assert (
+        "Highest values: Group A-2=8.6, Group A-1=8.2, Group C-1=6.7"
+        in sections["Figure interpretation"]
+    )
+    assert suitability["recommended_plot_ids"][:2] == ["bar", "histogram"]
+    assert suitability["selected_is_recommended"] is True
+    assert {"scatter", "radar", "correlation"}.issubset(set(suitability["not_recommended_plot_ids"]))
+    assert "Single-row expression profiles" in suitability["reason"]
+    assert "Do not infer visual details" in report["agent_context"]["interpretation_rules"][1]
 
 
 def test_table_inspection_and_recommendations_handle_numeric_tables() -> None:

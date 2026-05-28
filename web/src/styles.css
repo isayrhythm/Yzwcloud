@@ -3805,6 +3805,46 @@ h2 {
   text-overflow: ellipsis;
 }
 
+.plot-mapping-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+  padding: 10px;
+  border: 1px solid rgba(49, 95, 214, 0.14);
+  border-radius: 14px;
+  background: #fbfdff;
+}
+
+.plot-mapping-summary div {
+  display: grid;
+  gap: 3px;
+  min-width: 118px;
+  max-width: min(240px, 100%);
+  padding: 8px 10px;
+  border: 1px solid rgba(15, 138, 143, 0.12);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.plot-mapping-summary span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.plot-mapping-summary strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--accent-strong);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .plotly-preview {
   width: 100%;
   height: 560px;

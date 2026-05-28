@@ -123,10 +123,43 @@ function parameterIdsForPreset(preset) {
   return ids;
 }
 
-function optionsForParameter(parameter, tableSummary) {
-  const columns = tableSummary?.columns || [];
+function preferredNumericColumns(tableSummary) {
   const numericColumns = tableSummary?.numeric_columns || [];
+  const matrixProfile = tableSummary?.signals?.matrix_profile || null;
+  const sampleColumns = Array.isArray(matrixProfile?.value_columns)
+    ? matrixProfile.value_columns.filter((column) => numericColumns.includes(column))
+    : [];
+  if (!sampleColumns.length) return numericColumns;
+  const sampleSet = new Set(sampleColumns);
+  return [...sampleColumns, ...numericColumns.filter((column) => !sampleSet.has(column))];
+}
+
+function numericParameterIdsForPlot(plotId) {
+  const idsByPlot = {
+    scatter: ["x", "y", "size"],
+    bubble: ["x", "y", "size"],
+    density_contour: ["x", "y"],
+    scatter_3d: ["x", "y", "z", "size"],
+    surface_3d: ["x", "y", "z"],
+    boxplot: ["y"],
+    violin: ["y"],
+    raincloud: ["y"],
+    grouped_dotplot: ["y"],
+    histogram: ["x"],
+    density_curve: ["x"],
+    ecdf: ["x"],
+    line: ["y"],
+    paired_dot: ["before", "after"],
+    dumbbell: ["start", "end"],
+  };
+  return new Set(idsByPlot[plotId] || []);
+}
+
+function optionsForParameter(parameter, tableSummary, plotId) {
+  const columns = tableSummary?.columns || [];
+  const numericColumns = preferredNumericColumns(tableSummary);
   if (parameter.type === "numeric_columns") return numericColumns;
+  if (numericParameterIdsForPlot(plotId).has(parameter.id)) return numericColumns;
   if (parameter.type === "column" || parameter.type === "column_or_none" || parameter.type === "columns") return columns;
   return parameter.options || [];
 }
@@ -164,6 +197,104 @@ function parameterHelpText(parameter, options) {
   return "";
 }
 
+function isEmptyParamValue(value) {
+  return value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
+}
+
+function autoMappingParamsForPreset(preset, tableSummary) {
+  if (!preset || !tableSummary) return {};
+  const numericColumns = preferredNumericColumns(tableSummary);
+  const auto = {};
+  const numericIds = numericParameterIdsForPlot(preset.id);
+  (preset.parameter_groups || []).forEach((group) => {
+    (group.parameters || []).forEach((parameter) => {
+      if (parameter.type === "numeric_columns") {
+        const limit = parameter.id === "dimensions" ? 8 : 24;
+        auto[parameter.id] = numericColumns.slice(0, limit);
+      } else if (numericIds.has(parameter.id)) {
+        const indexById = { x: 0, y: 1, z: 2, size: 2, before: 0, after: 1, start: 0, end: 1 };
+        const fallbackIndex = indexById[parameter.id] ?? 0;
+        if (numericColumns[fallbackIndex]) auto[parameter.id] = numericColumns[fallbackIndex];
+      }
+    });
+  });
+  return auto;
+}
+
+function compactValueList(value, fallback = "-") {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  if (!values.length) return fallback;
+  const visible = values.slice(0, 5);
+  const suffix = values.length > visible.length ? ` +${values.length - visible.length}` : "";
+  return `${visible.join(", ")}${suffix}`;
+}
+
+function renderabilityWarning(preset, spec, tableSummary) {
+  if (!preset || !spec?.data?.length) return "";
+  const rowCount = Number(tableSummary?.scanned_rows ?? tableSummary?.row_count ?? 0);
+  if (rowCount > 1) return "";
+  if (["scatter", "density_contour", "scatter_3d", "bubble"].includes(preset.id)) {
+    return "This plot needs at least two complete observation rows. For a single-row profile, use Bar or Histogram first.";
+  }
+  if (["radar", "parallel_coordinates"].includes(preset.id)) {
+    return "This plot needs at least two sample or group profiles. A single-row table is better shown as Bar or Histogram.";
+  }
+  return "";
+}
+
+function previewSpecForRenderability(preset, spec, tableSummary) {
+  const warning = renderabilityWarning(preset, spec, tableSummary);
+  if (!warning) return spec;
+  return {
+    ...spec,
+    data: [],
+    warnings: [warning, ...(spec.warnings || [])],
+  };
+}
+
+function mappingSummaryForPlot(preset, params, tableSummary) {
+  if (!preset || !tableSummary) return [];
+  const autoParams = autoMappingParamsForPreset(preset, tableSummary);
+  const resolved = { ...autoParams, ...(params || {}) };
+  const rows = [];
+  const add = (label, value) => {
+    if (!isEmptyParamValue(value)) rows.push({ label, value: compactValueList(value) });
+  };
+  if (preset.id === "scatter" || preset.id === "density_contour") {
+    add("X", resolved.x);
+    add("Y", resolved.y);
+    add("Color", resolved.color);
+  } else if (preset.id === "bubble") {
+    add("X", resolved.x);
+    add("Y", resolved.y);
+    add("Size", resolved.size);
+    add("Color", resolved.color);
+  } else if (preset.id === "scatter_3d" || preset.id === "surface_3d") {
+    add("X", resolved.x);
+    add("Y", resolved.y);
+    add("Z", resolved.z);
+  } else if (["boxplot", "violin", "raincloud", "grouped_dotplot"].includes(preset.id)) {
+    add("Y", resolved.y);
+    add("Group", resolved.group);
+  } else if (["histogram", "density_curve", "ecdf"].includes(preset.id)) {
+    add("Value", resolved.x);
+    add("Group", resolved.group);
+  } else if (["heatmap", "radar"].includes(preset.id)) {
+    add("Values", resolved.value_columns);
+    add("Group", resolved.group);
+  } else if (preset.id === "correlation") {
+    add("Values", resolved.value_columns);
+  } else if (preset.id === "parallel_coordinates") {
+    add("Dimensions", resolved.dimensions);
+    add("Color", resolved.color);
+  } else if (["paired_dot", "dumbbell"].includes(preset.id)) {
+    add("Start", resolved.before || resolved.start);
+    add("End", resolved.after || resolved.end);
+    add("Group", resolved.group);
+  }
+  return rows;
+}
+
 function ParamLabel({ parameter, options }) {
   const help = parameterHelpText(parameter, options);
   return (
@@ -174,8 +305,8 @@ function ParamLabel({ parameter, options }) {
   );
 }
 
-function ParameterControl({ parameter, value, tableSummary, onChange }) {
-  const options = optionsForParameter(parameter, tableSummary);
+function ParameterControl({ parameter, value, tableSummary, plotId, onChange }) {
+  const options = optionsForParameter(parameter, tableSummary, plotId);
   const resolvedValue = value ?? parameter.default ?? "";
 
   if (parameter.type === "boolean") {
@@ -309,8 +440,11 @@ function ReportSection({ section }) {
 
 function PlotMethodOverview({ preset, source, tableSummary, t }) {
   if (!preset) return null;
+  const matrixProfile = tableSummary?.signals?.matrix_profile || null;
   const inputSummary = tableSummary
-    ? `${tableSummary.scanned_rows} rows / ${tableSummary.column_count} columns`
+    ? matrixProfile
+      ? `${tableSummary.scanned_rows} rows / ${matrixProfile.numeric_value_count} sample-like columns`
+      : `${tableSummary.scanned_rows} rows / ${tableSummary.column_count} columns`
     : source?.type || t("selectSourceFirst");
   const outputSummary = preset.engine === "plotly" ? t("interactivePlotlyOutput") : preset.engine || "-";
   return (
@@ -327,6 +461,39 @@ function PlotMethodOverview({ preset, source, tableSummary, t }) {
         <span>{t("output")}</span>
         <strong>{outputSummary}</strong>
       </div>
+    </section>
+  );
+}
+
+function PlotMappingSummary({ preset, params, tableSummary }) {
+  if (!preset || !tableSummary) return null;
+  const matrixProfile = tableSummary?.signals?.matrix_profile || null;
+  const mappingRows = mappingSummaryForPlot(preset, params, tableSummary);
+  const skippedColumns = matrixProfile?.excluded_numeric_columns || [];
+  return (
+    <section className="plot-mapping-summary" aria-label="Current data mapping">
+      <div>
+        <span>Auto mapping</span>
+        <strong>{mappingRows.length ? "ready" : "inspect parameters"}</strong>
+      </div>
+      {mappingRows.map((row) => (
+        <div key={row.label}>
+          <span>{row.label}</span>
+          <strong title={row.value}>{row.value}</strong>
+        </div>
+      ))}
+      {matrixProfile ? (
+        <div>
+          <span>Sample-like columns</span>
+          <strong>{matrixProfile.numeric_value_count}</strong>
+        </div>
+      ) : null}
+      {skippedColumns.length ? (
+        <div>
+          <span>Metadata skipped</span>
+          <strong title={skippedColumns.join(", ")}>{compactValueList(skippedColumns)}</strong>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -907,6 +1074,8 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const styleRecipes = manifest?.style_recipes || [];
   const workflowStages = manifest?.workflow_stages?.length ? manifest.workflow_stages : FALLBACK_WORKFLOW_STAGES;
   const tableSummary = studioReport?.table_summary || null;
+  const preferredPreviewNumericColumns = useMemo(() => preferredNumericColumns(tableSummary), [tableSummary]);
+  const skippedPreviewNumericColumns = tableSummary?.signals?.matrix_profile?.excluded_numeric_columns || [];
   const recommendedPlotIds = studioReport?.recommended_plot_ids || [];
   const filteredGroupedPresets = useMemo(() => {
     const query = plotSearch.trim().toLowerCase();
@@ -938,6 +1107,23 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     if (!selectedPreset) return;
     setParams((current) => ({ ...defaultParamsFromPreset(selectedPreset), ...current }));
   }, [selectedPreset?.id]);
+
+  useEffect(() => {
+    if (!selectedPreset || !tableSummary) return;
+    const autoParams = autoMappingParamsForPreset(selectedPreset, tableSummary);
+    if (!Object.keys(autoParams).length) return;
+    setParams((current) => {
+      let changed = false;
+      const next = { ...current };
+      Object.entries(autoParams).forEach(([key, value]) => {
+        if (isEmptyParamValue(next[key])) {
+          next[key] = value;
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [selectedPreset?.id, sourceKey(selectedSource), tableSummary]);
 
   const supportedParamIds = useMemo(() => parameterIdsForPreset(selectedPreset), [selectedPreset]);
 
@@ -1016,6 +1202,10 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     () => (studioReport?.agent_context ? JSON.stringify(studioReport.agent_context, null, 2) : ""),
     [studioReport?.agent_context],
   );
+  const previewSpec = useMemo(
+    () => previewSpecForRenderability(selectedPreset, plotSpec, tableSummary),
+    [selectedPreset?.id, plotSpec, tableSummary],
+  );
 
   const updateParam = (paramId, value) => {
     setParams((current) => ({ ...current, [paramId]: value }));
@@ -1045,7 +1235,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
 
       <section className="plot-workflow-strip" aria-label="Plot Studio workflow">
         {workflowStages.map((stage, index) => {
-          const state = workflowStageState(stage, { selectedSource, selectedPreset, params, plotSpec, studioReport });
+          const state = workflowStageState(stage, { selectedSource, selectedPreset, params, plotSpec: previewSpec, studioReport });
           return (
             <article className={`plot-workflow-step ${state}`} key={stage.id}>
               <span>{index + 1}</span>
@@ -1151,22 +1341,23 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
               <span className="muted">{specStatus === "loading" ? t("rendering") : specStatus === "ready" ? t("ready") : specStatus}</span>
             </div>
             <PlotMethodOverview preset={selectedPreset} source={selectedSource} tableSummary={tableSummary} t={t} />
+            <PlotMappingSummary preset={selectedPreset} params={params} tableSummary={tableSummary} />
             {specError ? <p className="plot-error">{specError}</p> : null}
-            {plotSpec?.data?.length ? (
-              <InteractivePlot spec={plotSpec} />
+            {previewSpec?.data?.length ? (
+              <InteractivePlot spec={previewSpec} />
             ) : (
               <PlotPreviewEmpty
                 selectedPreset={selectedPreset}
-                plotSpec={plotSpec}
+                plotSpec={previewSpec}
                 recommendedPresets={recommendedPresets}
                 onSelectPlot={selectPlotPreset}
                 t={t}
               />
             )}
-            {plotSpec?.warnings?.length ? (
+            {previewSpec?.warnings?.length ? (
               <div className="plot-warning-list">
                 <strong>{t("plotWarnings")}</strong>
-                {plotSpec.warnings.map((warning) => <span key={warning}>{warning}</span>)}
+                {previewSpec.warnings.map((warning) => <span key={warning}>{warning}</span>)}
               </div>
             ) : null}
           </section>
@@ -1182,8 +1373,14 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
               <div className="plot-data-summary">
                 <div>
                   <span>{t("numericColumns")}</span>
-                  <strong>{tableSummary.numeric_columns.slice(0, 8).join(", ") || "-"}</strong>
+                  <strong>{preferredPreviewNumericColumns.slice(0, 8).join(", ") || "-"}</strong>
                 </div>
+                {skippedPreviewNumericColumns.length ? (
+                  <div>
+                    <span>Skipped metadata</span>
+                    <strong>{skippedPreviewNumericColumns.slice(0, 8).join(", ")}</strong>
+                  </div>
+                ) : null}
                 <div>
                   <span>{t("categoricalColumns")}</span>
                   <strong>{tableSummary.categorical_columns.slice(0, 8).join(", ") || "-"}</strong>
@@ -1287,6 +1484,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                             parameter={parameter}
                             value={params[parameter.id]}
                             tableSummary={tableSummary}
+                            plotId={selectedPreset?.id}
                             onChange={updateParam}
                           />
                         ))}
@@ -1309,6 +1507,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                               parameter={parameter}
                               value={params[parameter.id]}
                               tableSummary={tableSummary}
+                              plotId={selectedPreset?.id}
                               onChange={updateParam}
                             />
                           ))}

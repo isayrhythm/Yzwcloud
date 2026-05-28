@@ -804,8 +804,15 @@ def _build_distribution_spec(context: dict[str, Any], *, trace_type: str) -> dic
 
 def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
     params = context["params"]
-    category_column = _choose_column(params.get("category"), context["categorical_columns"])
-    value_column = _choose_column(params.get("value"), context["numeric_columns"])
+    profile = _single_row_matrix_profile(context, max_columns=_bounded_int(params.get("max_groups"), 20, 2, 80))
+    requested_category = _requested_column(params.get("category"), context["categorical_columns"])
+    requested_value = _requested_column(params.get("value"), context["numeric_columns"])
+    if profile and not (requested_category and requested_value):
+        category_column = None
+        value_column = None
+    else:
+        category_column = requested_category or _choose_column(None, context["categorical_columns"])
+        value_column = requested_value or _choose_column(None, context["numeric_columns"])
     aggregation = str(params.get("aggregation") or "mean")
     warnings = []
     if category_column and value_column:
@@ -842,7 +849,7 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
         title = f"Bar: {value_column} by {category_column}"
     else:
         max_groups = _bounded_int(params.get("max_groups"), 20, 2, 80)
-        labels = context["numeric_columns"][:max_groups]
+        labels = profile["columns"] if profile else context["numeric_columns"][:max_groups]
         values = []
         errors = []
         grouped_values = []
@@ -854,6 +861,11 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
             grouped_values.append((column, column_values))
         if len(context["numeric_columns"]) > max_groups:
             warnings.append(f"Showing first {max_groups} numeric columns to keep the chart readable.")
+        if profile and profile["excluded_columns"]:
+            warnings.append(
+                "Skipped numeric metadata columns for this single-row profile: "
+                + ", ".join(profile["excluded_columns"][:6])
+            )
         raw_point_x = []
         raw_point_y = []
         raw_point_text = []
@@ -864,9 +876,14 @@ def _build_bar_spec(context: dict[str, Any]) -> dict[str, Any]:
             str(params.get("sort") or "input"),
             grouped_values=grouped_values,
         )
-        x_title = "numeric columns"
-        y_title = aggregation
-        title = "Bar summary by numeric column"
+        if profile:
+            x_title = "sample-like columns"
+            y_title = "value"
+            title = f"Bar profile: {profile['label']}"
+        else:
+            x_title = "numeric columns"
+            y_title = aggregation
+            title = "Bar summary by numeric column"
 
     trace = {
         "type": "bar",
@@ -980,6 +997,73 @@ def _build_line_spec(context: dict[str, Any]) -> dict[str, Any]:
 
 def _build_histogram_spec(context: dict[str, Any]) -> dict[str, Any]:
     params = context["params"]
+    profile = _single_row_matrix_profile(context, max_columns=200)
+    requested_x = _requested_column(params.get("x"), context["numeric_columns"])
+    if profile and (requested_x is None or requested_x in profile["columns"]):
+        values = []
+        labels = []
+        row = context["records"][0]
+        for column in profile["columns"]:
+            value = _number_or_none(row.get(column))
+            if value is None:
+                continue
+            values.append(value)
+            labels.append(column)
+        if not values:
+            return _empty_plot_spec(
+                "histogram",
+                "No sample-like values were available for histogram rendering.",
+                context["table_summary"],
+            )
+        bins = _bounded_int(params.get("bins"), min(20, max(5, len(values))), 5, 200)
+        histnorm = str(params.get("histnorm") or "count")
+        color = PLOTLY_PALETTE[0]
+        trace = {
+            "type": "histogram",
+            "name": profile["label"],
+            "x": values,
+            "customdata": labels,
+            "nbinsx": bins,
+            "histnorm": "" if histnorm == "count" else histnorm,
+            "opacity": _bounded_float(params.get("opacity"), 0.72, 0.1, 1),
+            "marker": {
+                "color": color,
+                "line": {
+                    "color": str(params.get("bar_line_color") or "#ffffff"),
+                    "width": _bounded_float(params.get("bar_line_width"), 0.5, 0, 4),
+                },
+            },
+            "hovertemplate": "value=%{x:.4g}<br>sample=%{customdata}<extra></extra>",
+        }
+        shapes = []
+        annotations = []
+        reference_line_width = _bounded_float(params.get("reference_line_width"), 1.7, 0.5, 6)
+        if _truthy(params.get("show_mean"), True):
+            mean_value = fmean(values)
+            shapes.append(_x_reference_line(mean_value, color, dash="dash", width=reference_line_width))
+            annotations.append(_x_reference_annotation(mean_value, "mean", color))
+        if _truthy(params.get("show_median"), False):
+            median_value = float(median(values))
+            shapes.append(_x_reference_line(median_value, color, dash="dot", width=reference_line_width))
+            annotations.append(_x_reference_annotation(median_value, "median", color))
+        layout = _base_layout(
+            title=f"Histogram profile: {profile['label']}",
+            x_title="sample-like value",
+            y_title="count" if histnorm == "count" else histnorm,
+            params=params,
+        )
+        layout["barmode"] = str(params.get("barmode") or "overlay")
+        if shapes:
+            layout.setdefault("shapes", []).extend(shapes)
+            layout.setdefault("annotations", []).extend(annotations)
+        warnings = []
+        if profile["excluded_columns"]:
+            warnings.append(
+                "Skipped numeric metadata columns for this single-row profile: "
+                + ", ".join(profile["excluded_columns"][:6])
+            )
+        return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
+
     x_column = _choose_column(params.get("x"), context["numeric_columns"])
     if not x_column:
         return _empty_plot_spec("histogram", "Histogram requires at least one numeric column.", context["table_summary"])
@@ -3987,11 +4071,13 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
         numeric_columns = [numeric_columns[index] for index in order]
         z_values = [[row[index] for index in order] for row in [z_values[index] for index in order]]
 
+    matrix_type = str(params.get("matrix_type") or "full")
+    z_display_values, masked_cells = _correlation_matrix_display_values(z_values, matrix_type)
     trace = {
         "type": "heatmap",
         "x": numeric_columns,
         "y": numeric_columns,
-        "z": z_values,
+        "z": z_display_values,
         "zmin": -1,
         "zmax": 1,
         "colorscale": _colorscale(str(params.get("color_scale") or "blue_white_red")),
@@ -4004,7 +4090,10 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
     if _truthy(params.get("show_values"), False):
         if len(numeric_columns) <= 40:
             precision = _bounded_int(params.get("value_precision"), 2, 0, 4)
-            trace["text"] = [[f"{value:.{precision}f}" for value in row] for row in z_values]
+            trace["text"] = [
+                ["" if value is None else f"{value:.{precision}f}" for value in row]
+                for row in z_display_values
+            ]
             trace["texttemplate"] = "%{text}"
             trace["textfont"] = {"size": 10, "color": "#152433"}
         else:
@@ -4028,6 +4117,8 @@ def _build_correlation_spec(context: dict[str, Any]) -> dict[str, Any]:
     )
     if len(context["numeric_columns"]) > len(numeric_columns):
         warnings.append(f"Showing first {len(numeric_columns)} numeric columns to keep correlation readable.")
+    if masked_cells:
+        warnings.append(f"{matrix_type.replace('_', ' ')} display hides {masked_cells} redundant correlation cells.")
     return {"data": [trace], "layout": layout, "config": _plotly_config(params), "warnings": warnings}
 
 
@@ -5319,6 +5410,38 @@ def _preferred_numeric_columns(table_summary: dict[str, Any], numeric_columns: l
     return preferred + [column for column in numeric_columns if column not in preferred_set]
 
 
+def _single_row_matrix_profile(context: dict[str, Any], *, max_columns: int) -> dict[str, Any] | None:
+    if len(context["records"]) != 1:
+        return None
+    matrix_profile = (context["table_summary"].get("signals") or {}).get("matrix_profile") or {}
+    if matrix_profile.get("kind") != "expression_like":
+        return None
+    available_numeric = set(context["numeric_columns"])
+    columns = [
+        column
+        for column in matrix_profile.get("value_columns") or []
+        if column in available_numeric
+    ][:max_columns]
+    if not columns:
+        return None
+    row = context["records"][0]
+    label = None
+    for column in matrix_profile.get("identifier_columns") or []:
+        value = str(row.get(column) or "").strip()
+        if value:
+            label = value
+            break
+    return {
+        "columns": columns,
+        "label": label or "row_1",
+        "excluded_columns": [
+            column
+            for column in matrix_profile.get("excluded_numeric_columns") or []
+            if column in available_numeric
+        ],
+    }
+
+
 def _requested_column(requested: Any, columns: list[str]) -> str | None:
     if requested and str(requested) in columns:
         return str(requested)
@@ -5366,6 +5489,28 @@ def _top_matrix_rows(
         ranked.append({"label": label, "values": filled_values, "variance": _variance(filled_values)})
     ranked.sort(key=lambda item: item["variance"], reverse=True)
     return ranked[:top_n]
+
+
+def _correlation_matrix_display_values(
+    z_values: list[list[float]],
+    matrix_type: str,
+) -> tuple[list[list[float | None]], int]:
+    if matrix_type not in {"lower_triangle", "upper_triangle"}:
+        return [[float(value) for value in row] for row in z_values], 0
+    displayed: list[list[float | None]] = []
+    masked = 0
+    for row_index, row in enumerate(z_values):
+        display_row: list[float | None] = []
+        for column_index, value in enumerate(row):
+            hide_upper = matrix_type == "lower_triangle" and column_index > row_index
+            hide_lower = matrix_type == "upper_triangle" and column_index < row_index
+            if hide_upper or hide_lower:
+                display_row.append(None)
+                masked += 1
+            else:
+                display_row.append(float(value))
+        displayed.append(display_row)
+    return displayed, masked
 
 
 def _cluster_vectors(vectors: list[list[float]], params: dict[str, Any]) -> dict[str, Any] | None:

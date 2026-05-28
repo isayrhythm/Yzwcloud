@@ -2291,6 +2291,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
         "description": "Correlation matrix heatmap with optional hierarchical clustering and group side bars.",
         "default_params": {
             "method": "pearson",
+            "matrix_type": "full",
             "cluster_rows": True,
             "cluster_columns": True,
             "color_scale": "blue_white_red",
@@ -2312,6 +2313,7 @@ PLOT_PRESETS: list[dict[str, Any]] = [
                 "Correlation settings",
                 [
                     _param("method", "Method", "select", "pearson", options=["pearson", "spearman"]),
+                    _param("matrix_type", "Matrix type", "select", "full", options=["full", "lower_triangle", "upper_triangle"]),
                     _param("cluster_rows", "Cluster rows", "boolean", True),
                     _param("cluster_columns", "Cluster columns", "boolean", True),
                     _param("show_values", "Show r values", "boolean", False),
@@ -2836,15 +2838,15 @@ def recommend_plot_types(source_type: str, table_summary: dict[str, Any] | None 
         categorical_count = len(table_summary.get("categorical_columns") or [])
         row_count = int(table_summary.get("scanned_rows") or table_summary.get("row_count") or 0)
         column_names = [str(column).lower() for column in table_summary.get("columns") or []]
-        matrix_profile = (table_summary.get("signals") or {}).get("matrix_profile") or {}
-        if matrix_profile.get("kind") == "expression_like":
-            return RECOMMENDATIONS_BY_OUTPUT["expression_matrix"][:]
         if any(column in {"date", "day", "time", "sample_date", "collection_date", "sampling_date"} for column in column_names):
             return ["calendar_heatmap", "line", "bar", "histogram"]
         if row_count <= 1:
             if numeric_count >= 1:
                 return ["bar", "histogram"]
             return ["bar"]
+        matrix_profile = (table_summary.get("signals") or {}).get("matrix_profile") or {}
+        if matrix_profile.get("kind") == "expression_like":
+            return RECOMMENDATIONS_BY_OUTPUT["expression_matrix"][:]
         if row_count < 3:
             if numeric_count >= 2 and categorical_count >= 1:
                 return ["grouped_dotplot", "boxplot", "bar", "histogram"]

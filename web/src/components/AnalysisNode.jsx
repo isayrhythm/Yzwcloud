@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 
 import { formatBytes, formatDateTime, outputUrl } from "../workflow/format.js";
@@ -7,8 +6,6 @@ import { statusLabel } from "../workflow/status.js";
 
 export function AnalysisNode({ data }) {
   const node = data.node;
-  const [showMetadataEditor, setShowMetadataEditor] = useState(false);
-  const [metadataText, setMetadataText] = useState("");
   const output = summarizeOutput(node.output);
   const options = nextAnalysisOptions(node, data.detail);
   const canRun = node.id === "diff_analysis" || node.status === "ready" || node.status === "failed";
@@ -44,8 +41,9 @@ export function AnalysisNode({ data }) {
               <input
                 type="file"
                 accept=".csv,.tsv,.txt,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
+                multiple
                 onChange={(event) => {
-                  data.onUploadInput("expression_matrix", event.target.files?.[0]);
+                  data.onUploadInput("expression_matrix", event.target.files);
                   event.target.value = "";
                 }}
               />
@@ -56,58 +54,14 @@ export function AnalysisNode({ data }) {
               <input
                 type="file"
                 accept=".csv,.tsv,.txt,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
+                multiple
                 onChange={(event) => {
-                  data.onUploadInput("expression_matrix", event.target.files?.[0]);
+                  data.onUploadInput("expression_matrix", event.target.files);
                   event.target.value = "";
                 }}
               />
             </label>
           )}
-          <div className="metadata-input-actions">
-            <button type="button" onClick={() => setShowMetadataEditor((current) => !current)}>
-              填写 metadata
-            </button>
-            <label className="upload-empty-picker upload-meta-picker">
-              上传 metadata
-              <input
-                type="file"
-                accept=".csv,.tsv,.txt"
-                onChange={(event) => {
-                  data.onUploadInput("sample_metadata", event.target.files?.[0]);
-                  event.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-          {showMetadataEditor ? (
-            <div className="metadata-editor">
-              <textarea
-                rows={4}
-                value={metadataText}
-                onChange={(event) => setMetadataText(event.target.value)}
-                placeholder="sample,group,condition\nsampleA,group1,conditionA\nsampleB,group2,conditionB"
-              />
-              <div className="metadata-editor-actions">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!metadataText.trim()) {
-                      window.alert("metadata 内容不能为空");
-                      return;
-                    }
-                    await data.onUploadMetadataText(metadataText);
-                    setMetadataText("");
-                    setShowMetadataEditor(false);
-                  }}
-                >
-                  上传并保存
-                </button>
-                <button type="button" onClick={() => setShowMetadataEditor(false)}>
-                  收起
-                </button>
-              </div>
-            </div>
-          ) : null}
           {node.output?.meta?.sample_metadata_file ? (
             <button type="button" onClick={() => data.onEditGroups()}>
               编辑分组
@@ -130,11 +84,7 @@ export function AnalysisNode({ data }) {
       ) : null}
       <div className="node-actions">
         <button className="run" disabled={!canRun} onClick={() => data.onRun(node.id)}>
-          {node.id === "diff_analysis"
-            ? "创建下游分析"
-            : node.status === "failed"
-            ? "重新运行"
-            : "运行节点"}
+          {node.id === "diff_analysis" ? "创建下游分析" : node.status === "failed" ? "重新运行" : "运行节点"}
         </button>
         {options.length ? (
           <button className="add-next" onClick={() => data.onAddNext(node.id)} title="添加下游节点">
@@ -174,9 +124,7 @@ function AgentProgress({ progress, failed, onOpenReport }) {
     <div className={`agent-progress compact ${failed ? "failed" : progress?.status || "running"}`}>
       <span className="agent-pulse" />
       <div className="agent-copy">
-        <strong key={progress?.label || "Agent 正在运行"}>
-          {progress?.label || "Agent 正在运行"}
-        </strong>
+        <strong key={progress?.label || "Agent 正在运行"}>{progress?.label || "Agent 正在运行"}</strong>
         {lastDone && progress?.status !== "completed" ? <small>上一步：{lastDone.label}</small> : null}
       </div>
       <span className="agent-step-count">
@@ -190,4 +138,3 @@ function AgentProgress({ progress, failed, onOpenReport }) {
     </div>
   );
 }
-

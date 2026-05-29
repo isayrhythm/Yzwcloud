@@ -281,6 +281,76 @@ def save_task_input(
     return task, graph
 
 
+def save_task_inputs_auto(
+    task_id: str,
+    files: list[tuple[str, bytes]],
+) -> tuple[TaskState, Graph]:
+    if not files:
+        raise ValueError("No files were uploaded")
+
+    metadata_files: list[tuple[str, bytes]] = []
+    data_files: list[tuple[str, bytes]] = []
+    extras: list[dict[str, str | int]] = []
+    for filename, content in files:
+        if not content:
+            raise ValueError(f"Uploaded file is empty: {filename}")
+        safe_name = _safe_filename(filename)
+        lowered = safe_name.lower()
+        if _looks_like_metadata_upload(safe_name, content):
+            metadata_files.append((safe_name, content))
+            continue
+        if _is_supported_expression_upload(lowered):
+            data_files.append((safe_name, content))
+            continue
+        extras.append({"filename": safe_name, "size": len(content), "reason": "unsupported"})
+
+    if not data_files:
+        raise ValueError("No supported data table was found in the upload batch")
+
+    ordered_data = sorted(data_files, key=lambda item: _data_upload_priority(item[0]))
+    selected_data = ordered_data[0]
+    for filename, content in metadata_files:
+        save_task_input(task_id, "sample_metadata", filename, content)
+    task, graph = save_task_input(task_id, "expression_matrix", selected_data[0], selected_data[1])
+
+    inputs_dir = get_task_dir(task_id) / "inputs"
+    extra_data_files = []
+    for filename, content in data_files:
+        if filename == selected_data[0]:
+            continue
+        target = _unique_input_path(inputs_dir, f"batch_extra__{_safe_filename(filename)}")
+        target.write_bytes(content)
+        extra_data_files.append({"filename": filename, "path": str(target.resolve()), "size": len(content)})
+
+    manifest_path = inputs_dir / "manifest.json"
+    manifest = _read_manifest(manifest_path)
+    manifest["upload_batch"] = {
+        "files": [
+            {"filename": _safe_filename(filename), "size": len(content)}
+            for filename, content in files
+        ],
+        "metadata_files": [filename for filename, _ in metadata_files],
+        "data_files": [filename for filename, _ in data_files],
+        "selected_data_file": selected_data[0],
+        "extra_data_files": extra_data_files,
+        "ignored_files": extras,
+        "uploaded_at": datetime.now().isoformat(),
+    }
+    _atomic_write_json(manifest_path, manifest)
+
+    graph = load_graph(task_id)
+    upload_node = next((node for node in graph.nodes if node.id == "upload_expression"), None)
+    if upload_node is not None:
+        upload_node.params["uploaded_inputs"] = manifest
+        upload_node.default_params["uploaded_inputs"] = manifest
+        save_graph(graph)
+    append_log(
+        task_id,
+        f"Batch input uploaded: {len(files)} file(s), selected data -> {selected_data[0]}",
+    )
+    return task, graph
+
+
 def save_task_input_text(
     task_id: str,
     input_kind: str,
@@ -808,6 +878,20 @@ def _safe_filename(filename: str) -> str:
     return "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in raw_name)
 
 
+def _unique_input_path(inputs_dir: Path, filename: str) -> Path:
+    target = inputs_dir / filename
+    if not target.exists():
+        return target
+    stem = target.stem
+    suffix = target.suffix
+    counter = 2
+    while True:
+        candidate = inputs_dir / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 def _parse_metadata_text(content: str) -> list[dict[str, str]]:
     parsed = _parse_metadata_text_as_csv(content, ",")
     if parsed:
@@ -942,6 +1026,27 @@ def _serialize_metadata_rows(rows: list[dict[str, str]]) -> str:
 
 def _is_supported_expression_upload(filename: str) -> bool:
     return filename.endswith((".csv", ".tsv", ".txt", ".xlsx", ".xlsm", ".zip", ".tar", ".tar.gz", ".tgz", ".gz"))
+
+
+def _looks_like_metadata_upload(filename: str, content: bytes) -> bool:
+    if Path(filename).suffix.lower() not in {".csv", ".tsv", ".txt"}:
+        return False
+    try:
+        _parse_metadata_bytes(content)
+    except ValueError:
+        return False
+    return True
+
+
+def _data_upload_priority(filename: str) -> tuple[int, str]:
+    lowered = filename.lower()
+    if lowered.startswith("m_") or "maf" in lowered or "metabolite" in lowered or "metabolomics" in lowered:
+        return (0, lowered)
+    if any(token in lowered for token in ("matrix", "expression", "count", "counts", "mrna", "gene")):
+        return (1, lowered)
+    if lowered.endswith((".csv", ".xlsx", ".xlsm")):
+        return (2, lowered)
+    return (3, lowered)
 
 
 def _count_values(values) -> dict[str, int]:

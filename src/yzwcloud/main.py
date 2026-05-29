@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -46,6 +46,7 @@ from yzwcloud.task_store import (
     rename_task,
     save_task_input_text,
     save_task_input,
+    save_task_inputs_auto,
     update_sample_groups,
 )
 
@@ -195,6 +196,21 @@ async def api_upload_task_input(
             filename=filename,
             content=content,
         )
+        return TaskDetail(task=task, graph=graph)
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/tasks/{task_id}/inputs", response_model=TaskDetail)
+async def api_upload_task_inputs(
+    task_id: str,
+    files: list[UploadFile] = File(...),
+) -> TaskDetail:
+    try:
+        uploaded = [(file.filename or "uploaded_file", await file.read()) for file in files]
+        task, graph = save_task_inputs_auto(task_id=task_id, files=uploaded)
         return TaskDetail(task=task, graph=graph)
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc

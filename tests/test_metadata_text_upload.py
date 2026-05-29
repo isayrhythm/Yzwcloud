@@ -100,3 +100,33 @@ def test_sample_metadata_text_and_file_inputs_are_merged() -> None:
     merged_path = Path(_upload_node(merged_detail)["params"]["sample_metadata_path"])
     rows_merged = _metadata_rows_from_path(str(merged_path))
     assert {row["sample"]: row["group"] for row in rows_merged} == {"S1": "groupA", "S2": "groupB", "S3": "groupB"}
+
+
+def test_batch_upload_classifies_metadata_and_data_files() -> None:
+    client = TestClient(app)
+    created = _request(client, "POST", "/api/tasks", json={"name": "batch-upload-test"})
+    task_id = created["task"]["task_id"]
+    metadata = "sample,group,condition\nS1,A,case\nS2,A,case\nS3,B,control\nS4,B,control"
+    matrix = "\n".join(
+        [
+            "gene_short_name,gene_id,biotype,strand,locus,Length,S1,S2,S3,S4",
+            "GENE_A,ENSGA,protein_coding,+,chr1:1-10,10,10,11,2,3",
+        ]
+    )
+
+    response = client.post(
+        f"/api/tasks/{task_id}/inputs",
+        files=[
+            ("files", ("sample_metadata.csv", metadata.encode("utf-8"), "text/csv")),
+            ("files", ("expression_matrix.csv", matrix.encode("utf-8"), "text/csv")),
+        ],
+    )
+
+    assert response.status_code < 400, response.text
+    detail = response.json()
+    upload_node = _upload_node(detail)
+    assert upload_node["params"]["sample_metadata_path"].endswith("sample_metadata.csv")
+    assert upload_node["params"]["source_path"].endswith("expression_matrix.csv")
+    batch = upload_node["params"]["uploaded_inputs"]["upload_batch"]
+    assert batch["selected_data_file"] == "expression_matrix.csv"
+    assert batch["metadata_files"] == ["sample_metadata.csv"]

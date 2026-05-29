@@ -1239,6 +1239,44 @@ h2 {
   line-height: 1.2;
 }
 
+.upload-batch-files {
+  display: grid;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.upload-file-role {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid rgba(15, 107, 87, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.upload-file-role em {
+  color: #0f6b57;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.upload-file-role strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #17342e;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-file-role.ignored em {
+  color: #9b4d05;
+}
+
 .upload-controls label {
   display: block;
   padding: 6px 8px;

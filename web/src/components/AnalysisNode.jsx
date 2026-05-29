@@ -21,6 +21,24 @@ export function AnalysisNode({ data }) {
   const metadataFileCount = uploadBatch?.metadata_files?.length || (uploadedInputs.sample_metadata ? 1 : 0);
   const ignoredFileCount = uploadBatch?.ignored_files?.length || 0;
   const extraDataCount = uploadBatch?.extra_data_files?.length || 0;
+  const uploadBatchFiles = uploadBatch?.files
+    ? uploadBatch.files.map((file) => {
+        const filename = file.filename || "";
+        let role = "已上传";
+        if (filename === uploadBatch.selected_data_file) {
+          role = "主数据";
+        } else if (uploadBatch.metadata_files?.includes(filename)) {
+          role = "metadata";
+        } else if (uploadBatch.extra_data_files?.some((item) => item.filename === filename)) {
+          role = "备用数据";
+        } else if (uploadBatch.ignored_files?.some((item) => item.filename === filename)) {
+          role = "未识别";
+        } else if (uploadBatch.data_files?.includes(filename)) {
+          role = "数据表";
+        }
+        return { filename, role, size: file.size };
+      })
+    : [];
   const uploadStateLabel = uploadedInput
     ? uploadedFileCount > 1
       ? `已上传 ${uploadedFileCount} 个文件`
@@ -50,12 +68,22 @@ export function AnalysisNode({ data }) {
                 {uploadedInput.uploaded_at ? ` 上传于 ${formatDateTime(uploadedInput.uploaded_at)}` : ""}
               </small>
               {uploadBatch ? (
-                <div className="upload-batch-summary">
-                  <span>数据表 {dataFileCount}</span>
-                  <span>metadata {metadataFileCount}</span>
-                  {extraDataCount ? <span>备用数据 {extraDataCount}</span> : null}
-                  {ignoredFileCount ? <span>未识别 {ignoredFileCount}</span> : null}
-                </div>
+                <>
+                  <div className="upload-batch-summary">
+                    <span>数据表 {dataFileCount}</span>
+                    <span>metadata {metadataFileCount}</span>
+                    {extraDataCount ? <span>备用数据 {extraDataCount}</span> : null}
+                    {ignoredFileCount ? <span>未识别 {ignoredFileCount}</span> : null}
+                  </div>
+                  <div className="upload-batch-files">
+                    {uploadBatchFiles.map((file) => (
+                      <span className={`upload-file-role ${file.role === "未识别" ? "ignored" : ""}`} key={file.filename} title={file.filename}>
+                        <em>{file.role}</em>
+                        <strong>{file.filename}</strong>
+                      </span>
+                    ))}
+                  </div>
+                </>
               ) : null}
               <input
                 type="file"

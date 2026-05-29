@@ -1222,6 +1222,23 @@ h2 {
   font-size: 10px;
 }
 
+.upload-batch-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.upload-batch-summary span {
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: #0d5860;
+  background: rgba(255, 255, 255, 0.68);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
 .upload-controls label {
   display: block;
   padding: 6px 8px;

@@ -13,8 +13,19 @@ export function AnalysisNode({ data }) {
     ? outputUrl(data.detail.task.task_id, node.output.meta.preview_file)
     : null;
   const canOpenResult = Boolean(node.output?.meta?.html_file);
-  const uploadedInput = node.params?.uploaded_inputs?.expression_matrix;
-  const uploadStateLabel = uploadedInput ? "数据已识别：" : "等待上传";
+  const uploadedInputs = node.params?.uploaded_inputs || {};
+  const uploadedInput = uploadedInputs.expression_matrix;
+  const uploadBatch = uploadedInputs.upload_batch;
+  const uploadedFileCount = uploadBatch?.files?.length || (uploadedInput ? 1 : 0);
+  const dataFileCount = uploadBatch?.data_files?.length || (uploadedInput ? 1 : 0);
+  const metadataFileCount = uploadBatch?.metadata_files?.length || (uploadedInputs.sample_metadata ? 1 : 0);
+  const ignoredFileCount = uploadBatch?.ignored_files?.length || 0;
+  const extraDataCount = uploadBatch?.extra_data_files?.length || 0;
+  const uploadStateLabel = uploadedInput
+    ? uploadedFileCount > 1
+      ? `已上传 ${uploadedFileCount} 个文件`
+      : "数据已识别："
+    : "等待上传";
 
   return (
     <article className={`analysis-node ${node.status} ${uploadedInput ? "has-uploaded-input" : ""}`}>
@@ -33,11 +44,19 @@ export function AnalysisNode({ data }) {
           {uploadedInput ? (
             <label className="uploaded-file-card upload-file-picker">
               <span>{uploadStateLabel}</span>
-              <strong title={uploadedInput.filename}>{uploadedInput.filename}</strong>
+              <strong title={uploadedInput.filename}>主数据：{uploadedInput.filename}</strong>
               <small>
                 {formatBytes(uploadedInput.size)}
                 {uploadedInput.uploaded_at ? ` 上传于 ${formatDateTime(uploadedInput.uploaded_at)}` : ""}
               </small>
+              {uploadBatch ? (
+                <div className="upload-batch-summary">
+                  <span>数据表 {dataFileCount}</span>
+                  <span>metadata {metadataFileCount}</span>
+                  {extraDataCount ? <span>备用数据 {extraDataCount}</span> : null}
+                  {ignoredFileCount ? <span>未识别 {ignoredFileCount}</span> : null}
+                </div>
+              ) : null}
               <input
                 type="file"
                 accept=".csv,.tsv,.txt,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"

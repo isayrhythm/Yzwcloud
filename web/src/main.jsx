@@ -98,6 +98,7 @@ function App() {
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editingTaskName, setEditingTaskName] = useState("");
   const [plotStudioSource, setPlotStudioSource] = useState(null);
+  const [plotStudioReturnTarget, setPlotStudioReturnTarget] = useState(null);
   const flowPanelRef = useRef(null);
   const miniMapTimerRef = useRef(null);   const reportModel = useMemo(() => buildReportModel(detail, logs), [detail, logs]);
 
@@ -150,7 +151,12 @@ function App() {
 
   useEffect(() => {
     const handleHashChange = () => {
-      setPage(normalizePage(window.location.hash));
+      const nextPage = normalizePage(window.location.hash);
+      if (nextPage === "plot") {
+        setPlotStudioSource(null);
+        setPlotStudioReturnTarget(null);
+      }
+      setPage(nextPage);
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
@@ -360,14 +366,20 @@ function App() {
     setModal({ kind: "next", sourceNodeId: nodeId, options });
   }
 
-  function openResultModal(node) {
+  function openResultModal(node, taskId = activeTaskId) {
     const htmlFile = node.output?.meta?.html_file;
     if (!htmlFile) return;
     const version = encodeURIComponent(node.completed_at || Date.now());
+    const plotStudioResult = node.output?.meta?.plot_studio_result || null;
+    const savedHtmlFile = plotStudioResult?.html_file || "";
+    const source = buildPlotSourceFromNode(node);
     setModal({
       kind: "result",
       title: node.name,
-      url: `${outputUrl(activeTaskId, htmlFile)}?v=${version}`,
+      url: `${outputUrl(taskId, savedHtmlFile || htmlFile)}?v=${encodeURIComponent(plotStudioResult?.saved_at || version)}`,
+      originalUrl: savedHtmlFile ? `${outputUrl(taskId, htmlFile)}?v=${version}` : "",
+      hasSavedPlot: Boolean(savedHtmlFile),
+      source,
     });
   }
 
@@ -377,6 +389,7 @@ function App() {
 
   function buildPlotSourceFromNode(node) {
     const meta = node.output?.meta || {};
+    const upstreamMeta = mergedUpstreamOutputMeta(node.id);
     return {
       sourceKind: "analysis_node",
       taskId: activeTaskId,
@@ -389,20 +402,75 @@ function App() {
       dataPath: node.output?.data || "",
       previewUrl: meta.preview_file ? outputUrl(activeTaskId, meta.preview_file) : "",
       htmlUrl: meta.html_file ? outputUrl(activeTaskId, meta.html_file) : "",
-      meta,
+      meta: { ...upstreamMeta, ...meta },
     };
+  }
+
+  function mergedUpstreamOutputMeta(nodeId, visited = new Set()) {
+    if (!detail || visited.has(nodeId)) return {};
+    visited.add(nodeId);
+    const incomingNodes = (detail.graph.edges || [])
+      .filter((edge) => edge.target === nodeId)
+      .map((edge) => detail.graph.nodes.find((item) => item.id === edge.source))
+      .filter(Boolean);
+    return incomingNodes.reduce((merged, upstreamNode) => ({
+      ...mergedUpstreamOutputMeta(upstreamNode.id, visited),
+      ...merged,
+      ...(upstreamNode.output?.meta || {}),
+    }), {});
   }
 
   function openPlotStudio(source = null) {
     if (source && !source.currentTarget) {
       setPlotStudioSource(source);
+    } else {
+      setPlotStudioSource(null);
+      setPlotStudioReturnTarget(null);
     }
     setPage("plot");
+  }
+
+  function navigatePage(nextPage) {
+    if (nextPage === "plot") {
+      setPlotStudioSource(null);
+      setPlotStudioReturnTarget(null);
+    }
+    setPage(nextPage);
   }
 
   function openPlotStudioFromNode(node) {
     if (!node?.output || !activeTaskId) return;
     openPlotStudio(buildPlotSourceFromNode(node));
+  }
+
+  function openPlotStudioFromResult(source) {
+    if (!source || !activeTaskId) return;
+    setPlotStudioReturnTarget(source);
+    setModal(null);
+    openPlotStudio(source);
+  }
+
+  async function savePlotStudioBackToResult({ source, plotType, params }) {
+    if (!activeTaskId || !source?.nodeId) return;
+    const response = await api(
+      `/api/tasks/${activeTaskId}/nodes/${encodeURIComponent(source.nodeId)}/plot-studio-result`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          source,
+          plotType,
+          params,
+        }),
+      },
+    );
+    const updatedDetail = await response.json();
+    setDetail(updatedDetail);
+    setPlotStudioReturnTarget(null);
+    setPage("workbench");
+    const updatedNode = updatedDetail.graph.nodes.find((item) => item.id === source.nodeId);
+    if (updatedNode) {
+      openResultModal(updatedNode, updatedDetail.task.task_id);
+    }
   }
 
   async function openGroupEditor() {
@@ -612,12 +680,12 @@ function App() {
     return () => panel.removeEventListener("wheel", handleWheel, { capture: true });
   }, [getViewport, page, pulseMiniMap, setViewport]);
 
-  const openWorkbench = () => setPage("workbench");
-  const openReports = () => setPage("reports");
+  const openWorkbench = () => navigatePage("workbench");
+  const openReports = () => navigatePage("reports");
 
   if (page === "home") {
     return (
-      <AppChrome page={page} onNavigate={setPage}>
+      <AppChrome page={page} onNavigate={navigatePage}>
         <HomePage onStart={openWorkbench} onOpenPlot={openPlotStudio} />
       </AppChrome>
     );
@@ -625,7 +693,7 @@ function App() {
 
   if (page === "docs") {
     return (
-      <AppChrome page={page} onNavigate={setPage}>
+      <AppChrome page={page} onNavigate={navigatePage}>
         <DocsPage onStart={openWorkbench} />
       </AppChrome>
     );
@@ -633,7 +701,7 @@ function App() {
 
   if (page === "lab") {
     return (
-      <AppChrome page={page} onNavigate={setPage}>
+      <AppChrome page={page} onNavigate={navigatePage}>
         <MolecularLabPage />
       </AppChrome>
     );
@@ -641,13 +709,15 @@ function App() {
 
   if (page === "plot") {
     return (
-      <AppChrome page={page} onNavigate={setPage}>
+      <AppChrome page={page} onNavigate={navigatePage}>
         <PlotStudioPage
           source={plotStudioSource}
           report={reportModel}
           activeTaskId={activeTaskId}
           onSelectSource={setPlotStudioSource}
           onOpenAnalysis={openWorkbench}
+          returnTarget={plotStudioReturnTarget}
+          onSaveToResult={savePlotStudioBackToResult}
         />
       </AppChrome>
     );
@@ -655,7 +725,7 @@ function App() {
 
   if (page === "reports") {
     return (
-      <AppChrome page={page} onNavigate={setPage}>
+      <AppChrome page={page} onNavigate={navigatePage}>
         <ReportsPage
           tasks={tasks}
           activeTaskId={activeTaskId}
@@ -669,7 +739,7 @@ function App() {
   }
 
   return (
-    <AppChrome page={page} onNavigate={setPage}>
+    <AppChrome page={page} onNavigate={navigatePage}>
     <main className="workbench-shell">
       <section className="workbench-layout">
         <aside className="panel task-sidebar">
@@ -826,7 +896,15 @@ function App() {
         />
       ) : null}
       {modal?.kind === "result" ? (
-        <ResultModal title={modal.title} url={modal.url} onClose={() => setModal(null)} />
+        <ResultModal
+          title={modal.title}
+          url={modal.url}
+          originalUrl={modal.originalUrl}
+          hasSavedPlot={modal.hasSavedPlot}
+          source={modal.source}
+          onClose={() => setModal(null)}
+          onOpenPlotStudio={openPlotStudioFromResult}
+        />
       ) : null}
       {modal?.kind === "agentReport" ? (
         <AgentReportModal node={modal.node} onClose={() => setModal(null)} />

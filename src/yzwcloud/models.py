@@ -112,6 +112,21 @@ class PlotStudioSpecRequest(PlotStudioReportRequest):
     pass
 
 
+class PlotStudioSaveResultRequest(PlotStudioReportRequest):
+    pass
+
+
+class PlotStudioAgentEditRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    plot_type: str = Field(alias="plotType")
+    params: dict[str, Any] = Field(default_factory=dict)
+    prompt: str
+    parameter_schema: Any = Field(default=None, alias="parameterSchema")
+    output_template: dict[str, Any] = Field(default_factory=dict, alias="outputTemplate")
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
 class CreateDiffAnalysisRequest(BaseModel):
     case_condition: str
     control_condition: str

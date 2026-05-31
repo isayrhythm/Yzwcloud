@@ -138,11 +138,6 @@ export function AnalysisNode({ data }) {
             +
           </button>
         ) : null}
-        {node.output && data.onOpenPlotStudio ? (
-          <button className="plot-send" onClick={() => data.onOpenPlotStudio(node)} title="Send output to Plot Studio">
-            Plot Studio
-          </button>
-        ) : null}
       </div>
       <Handle type="source" position={Position.Right} />
     </article>

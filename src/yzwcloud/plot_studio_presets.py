@@ -520,6 +520,13 @@ COMMON_THEME_GROUPS = [
             _param("axis_mirror", "Axis mirror", "select", "none", options=["none", "line", "ticks"]),
             _param("legend_position", "Legend", "select", "right", options=["right", "top", "bottom", "none"]),
             _param("legend_title", "Legend title", "text", ""),
+            _param(
+                "category_label_map",
+                "Category label map",
+                "json",
+                {},
+                help_text="Display-only rename map for category/group labels, for example {\"A\":\"LM\",\"B\":\"Cancer\"}.",
+            ),
             _param("legend_font_size", "Legend font size", "number", 12, min_value=8, max_value=24, step=1),
             _param("legend_background", "Legend background", "color", "rgba(255,255,255,0)"),
             _param("legend_border_color", "Legend border color", "color", "rgba(0,0,0,0)"),
@@ -2976,6 +2983,8 @@ def recommend_plot_types(source_type: str, table_summary: dict[str, Any] | None 
         categorical_count = len(table_summary.get("categorical_columns") or [])
         row_count = int(table_summary.get("scanned_rows") or table_summary.get("row_count") or 0)
         column_names = [str(column).lower() for column in table_summary.get("columns") or []]
+        if {"sample", "condition", "value"}.issubset(set(column_names)):
+            return ["grouped_dotplot", "boxplot", "raincloud", "violin", "bar", "histogram"]
         if any(column in {"date", "day", "time", "sample_date", "collection_date", "sampling_date"} for column in column_names):
             return ["calendar_heatmap", "line", "bar", "histogram"]
         matrix_profile = (table_summary.get("signals") or {}).get("matrix_profile") or {}

@@ -160,7 +160,11 @@ def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
 
     color_column = _choose_column(params.get("color"), context["categorical_columns"])
     label_column = _choose_column(params.get("label"), context["columns"])
-    size_column = _choose_column(params.get("size"), numeric_columns)
+    size_column = _requested_column(params.get("size"), numeric_columns)
+    warnings = []
+    if size_column in {x_column, y_column}:
+        warnings.append("Ignored size mapping because it reused the X/Y axis column.")
+        size_column = None
     traces = _grouped_marker_traces(
         context["records"],
         x_column=x_column,
@@ -173,8 +177,8 @@ def _build_scatter_spec(context: dict[str, Any]) -> dict[str, Any]:
         marker_opacity=_bounded_float(params.get("point_alpha"), 0.85, 0.05, 1),
         marker_line_width=_bounded_float(params.get("marker_line_width"), 0.5, 0, 5),
         marker_line_color=str(params.get("marker_line_color") or "#ffffff"),
+        category_label_map=_category_label_map(params),
     )
-    warnings = []
     overlays, overlay_warnings, overlay_annotations = _scatter_statistical_overlays(traces, params)
     traces.extend(overlays)
     warnings.extend(overlay_warnings)
@@ -6327,6 +6331,7 @@ def _grouped_marker_traces(
     marker_opacity: float,
     marker_line_width: float = 0.5,
     marker_line_color: str = "#ffffff",
+    category_label_map: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     grouped = _records_by_category(records, color_column) if color_column else {"All": records}
     finite_sizes = [_number_or_none(row.get(size_column)) for row in records] if size_column else []
@@ -6337,6 +6342,7 @@ def _grouped_marker_traces(
     marker_max = max(marker_min, marker_size * 2.4)
     traces = []
     for index, (group_name, rows) in enumerate(grouped.items()):
+        display_group_name = _display_category_label(group_name, category_label_map)
         x_values = []
         y_values = []
         labels = []
@@ -6374,7 +6380,7 @@ def _grouped_marker_traces(
             {
                 "type": "scattergl",
                 "mode": mode,
-                "name": group_name,
+                "name": display_group_name,
                 "x": x_values,
                 "y": y_values,
                 "text": labels,
@@ -6385,6 +6391,19 @@ def _grouped_marker_traces(
             }
         )
     return traces
+
+
+def _category_label_map(params: dict[str, Any]) -> dict[str, str]:
+    raw = params.get("category_label_map")
+    if isinstance(raw, dict):
+        return {str(key): str(value) for key, value in raw.items() if str(key) and str(value)}
+    return {}
+
+
+def _display_category_label(value: str, label_map: dict[str, str] | None) -> str:
+    if not label_map:
+        return value
+    return str(label_map.get(str(value), value))
 
 
 def _scatter_statistical_overlays(

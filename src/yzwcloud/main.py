@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import html
+import json
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,7 +18,9 @@ from yzwcloud.models import (
     CreateDiffAnalysisRequest,
     CreateTaskRequest,
     HealthResponse,
+    PlotStudioAgentEditRequest,
     PlotStudioReportRequest,
+    PlotStudioSaveResultRequest,
     PlotStudioSpecRequest,
     SampleMetadataTextRequest,
     RunNodeRequest,
@@ -29,6 +34,7 @@ from yzwcloud.plot_studio import (
     create_plot_studio_spec,
     get_plot_studio_manifest,
 )
+from yzwcloud.plot_studio_agent import create_plot_studio_agent_edit
 from yzwcloud.plot_studio_examples import example_source_for_plot
 from yzwcloud.task_store import (
     TaskNotFoundError,
@@ -44,6 +50,8 @@ from yzwcloud.task_store import (
     read_log,
     read_sample_groups,
     rename_task,
+    append_log,
+    save_graph,
     save_task_input_text,
     save_task_input,
     save_task_inputs_auto,
@@ -88,6 +96,161 @@ def api_create_plot_studio_spec(payload: PlotStudioSpecRequest) -> dict[str, obj
         plot_type=payload.plot_type,
         params=payload.params,
     )
+
+
+@app.post("/api/plot-studio/agent-edit")
+def api_plot_studio_agent_edit(payload: PlotStudioAgentEditRequest) -> dict[str, object]:
+    return create_plot_studio_agent_edit(
+        payload.plot_type,
+        params=payload.params,
+        prompt=payload.prompt,
+        parameter_schema=payload.parameter_schema,
+        output_template=payload.output_template,
+        context=payload.context,
+    )
+
+
+@app.post("/api/tasks/{task_id}/nodes/{node_id}/plot-studio-result", response_model=TaskDetail)
+def api_save_plot_studio_result(
+    task_id: str,
+    node_id: str,
+    payload: PlotStudioSaveResultRequest,
+) -> TaskDetail:
+    try:
+        task = load_task(task_id)
+        graph = load_graph(task_id)
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+
+    node = next((item for item in graph.nodes if item.id == node_id), None)
+    if node is None or node.output is None:
+        raise HTTPException(status_code=404, detail="Output node not found")
+
+    source = payload.source.model_dump(by_alias=False)
+    if source.get("task_id") and source.get("task_id") != task_id:
+        raise HTTPException(status_code=409, detail="Plot Studio source belongs to a different task.")
+    if source.get("node_id") and source.get("node_id") != node_id:
+        raise HTTPException(status_code=409, detail="Plot Studio source belongs to a different node.")
+
+    spec = create_plot_studio_spec(source, plot_type=payload.plot_type, params=payload.params)
+    if not spec.get("data"):
+        warning = "; ".join(str(item) for item in spec.get("warnings") or []) or "No renderable Plot Studio chart was produced."
+        raise HTTPException(status_code=409, detail=warning)
+
+    output_dir = get_task_dir(task_id) / "outputs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_node_id = _safe_output_stem(node_id)
+    saved_at = datetime.now().isoformat(timespec="seconds")
+    suffix = datetime.now().strftime("%Y%m%d%H%M%S")
+    spec_path = output_dir / f"{safe_node_id}_plot_studio_{suffix}.json"
+    html_path = output_dir / f"{safe_node_id}_plot_studio_{suffix}.html"
+    spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
+    html_path.write_text(_plot_studio_result_html(node.name, spec), encoding="utf-8")
+
+    node.output.meta["plot_studio_result"] = {
+        "html_file": str(html_path),
+        "spec_file": str(spec_path),
+        "plot_type": spec.get("plot_type") or payload.plot_type,
+        "saved_at": saved_at,
+    }
+    save_graph(graph)
+    append_log(task_id, f"Plot Studio figure saved back to result: {node.name}")
+    return TaskDetail(task=task, graph=graph)
+
+
+def _safe_output_stem(value: str) -> str:
+    stem = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value)
+    return stem.strip("_") or "plot_studio_result"
+
+
+def _plot_studio_result_html(title: str, spec: dict[str, object]) -> str:
+    safe_title = html.escape(title or "Plot Studio Result")
+    spec_json = json.dumps(spec, ensure_ascii=False).replace("</", "<\\/")
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{safe_title} - Plot Studio</title>
+  <style>
+    html, body {{
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: #f8fbfc;
+      color: #172635;
+      font-family: Inter, "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    }}
+    body {{
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }}
+    header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(15, 107, 87, 0.14);
+      background: #ffffff;
+    }}
+    header h1 {{
+      margin: 0;
+      color: #0f6b57;
+      font-size: 17px;
+    }}
+    header span {{
+      color: #5f7284;
+      font-size: 12px;
+      font-weight: 800;
+    }}
+    #plot {{
+      width: 100%;
+      height: 100%;
+      min-height: 520px;
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{safe_title}</h1>
+    <span>Plot Studio saved figure</span>
+  </header>
+  <main id="plot"></main>
+  <script>
+    const spec = {spec_json};
+    function plotlyUrls() {{
+      const urls = ["/static/vendor/plotly.min.js"];
+      if (window.location.hostname && window.location.port !== "8010") {{
+        urls.push(`${{window.location.protocol}}//${{window.location.hostname}}:8010/static/vendor/plotly.min.js`);
+      }}
+      return [...new Set(urls)];
+    }}
+    function loadPlotly(index = 0) {{
+      if (window.Plotly) return Promise.resolve(window.Plotly);
+      const src = plotlyUrls()[index];
+      if (!src) return Promise.reject(new Error("Plotly failed to load"));
+      return new Promise((resolve, reject) => {{
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.onload = () => window.Plotly ? resolve(window.Plotly) : reject(new Error("Plotly not found"));
+        script.onerror = () => reject(new Error("Plotly failed to load"));
+        document.head.appendChild(script);
+      }}).catch(() => loadPlotly(index + 1));
+    }}
+    loadPlotly().then((Plotly) => {{
+      const layout = {{ ...(spec.layout || {{}}), autosize: true }};
+      const config = {{ ...(spec.config || {{}}), responsive: true, displaylogo: false }};
+      Plotly.newPlot("plot", spec.data || [], layout, config);
+      window.addEventListener("resize", () => Plotly.Plots.resize("plot"));
+    }}).catch((error) => {{
+      document.getElementById("plot").textContent = error.message;
+    }});
+  </script>
+</body>
+</html>
+"""
 
 
 @app.post("/api/plot-studio/uploads")

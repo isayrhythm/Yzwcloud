@@ -18,5 +18,11 @@ export function formatDateTime(value) {
 
 export function outputUrl(taskId, path) {
   const filename = String(path).split(/[\\/]/).pop();
-  return `/api/tasks/${taskId}/outputs/${encodeURIComponent(filename)}`;
+  const route = `/api/tasks/${taskId}/outputs/${encodeURIComponent(filename)}`;
+  if (typeof window === "undefined") return route;
+  const { protocol, hostname, port } = window.location;
+  if (hostname && port && port !== "8010") {
+    return `${protocol}//${hostname}:8010${route}`;
+  }
+  return route;
 }

@@ -161,7 +161,7 @@ export function buildReportModel(detail, logs) {
   };
 }
 
-export function ReportsPage({ tasks, activeTaskId, report, onSelectTask, onOpenAnalysis, onOpenPlotStudio }) {
+export function ReportsPage({ tasks, activeTaskId, report, onSelectTask, onOpenAnalysis }) {
   const { t } = useI18n();
   const task = report?.task || null;
   const summary = report?.summary || summarizeTaskGraph(null);
@@ -249,11 +249,6 @@ export function ReportsPage({ tasks, activeTaskId, report, onSelectTask, onOpenA
                     </small>
                     <div className="report-output-actions">
                       {href ? <a href={href} target="_blank" rel="noreferrer">Open output</a> : null}
-                      {onOpenPlotStudio ? (
-                        <button type="button" onClick={() => onOpenPlotStudio(output)}>
-                          {t("plotStudio")}
-                        </button>
-                      ) : null}
                     </div>
                   </article>
                 );

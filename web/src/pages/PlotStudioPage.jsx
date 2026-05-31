@@ -3,6 +3,15 @@ import { useI18n } from "../i18n.jsx";
 
 let plotlyLoader = null;
 
+function plotlyScriptUrls() {
+  const urls = ["/static/vendor/plotly.min.js"];
+  const { protocol, hostname, port } = window.location;
+  if (hostname && port !== "8010") {
+    urls.push(`${protocol}//${hostname}:8010/static/vendor/plotly.min.js`);
+  }
+  return Array.from(new Set(urls));
+}
+
 function loadPlotly() {
   if (!plotlyLoader) {
     plotlyLoader = new Promise((resolve, reject) => {
@@ -10,22 +19,41 @@ function loadPlotly() {
         resolve(window.Plotly);
         return;
       }
-      const existingScript = document.querySelector("script[data-yzw-plotly]");
-      if (existingScript) {
-        existingScript.addEventListener("load", () => resolve(window.Plotly));
-        existingScript.addEventListener("error", () => reject(new Error("Plotly failed to load")));
-        return;
-      }
-      const script = document.createElement("script");
-      script.src = "/static/vendor/plotly.min.js";
-      script.async = true;
-      script.dataset.yzwPlotly = "true";
-      script.onload = () => resolve(window.Plotly);
-      script.onerror = () => reject(new Error("Plotly failed to load"));
-      document.head.appendChild(script);
+      const staleScripts = document.querySelectorAll("script[data-yzw-plotly]");
+      staleScripts.forEach((script) => script.remove());
+      const urls = plotlyScriptUrls();
+      const tryLoad = (index) => {
+        const src = urls[index];
+        if (!src) {
+          reject(new Error("Plotly failed to load"));
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.dataset.yzwPlotly = "true";
+        script.onload = () => {
+          if (window.Plotly) {
+            resolve(window.Plotly);
+            return;
+          }
+          script.remove();
+          tryLoad(index + 1);
+        };
+        script.onerror = () => {
+          script.remove();
+          tryLoad(index + 1);
+        };
+        document.head.appendChild(script);
+      };
+      tryLoad(0);
     });
   }
-  return plotlyLoader;
+  const loader = plotlyLoader;
+  return loader.catch((error) => {
+    if (plotlyLoader === loader) plotlyLoader = null;
+    throw error;
+  });
 }
 
 const FALLBACK_PARAMETER_GROUPS = [
@@ -106,14 +134,6 @@ function defaultParamsFromPreset(preset) {
   return { ...(preset?.default_params || {}) };
 }
 
-function parameterIdsForPreset(preset) {
-  const ids = new Set();
-  (preset?.parameter_groups || []).forEach((group) => {
-    (group.parameters || []).forEach((parameter) => ids.add(parameter.id));
-  });
-  return ids;
-}
-
 function preferredNumericColumns(tableSummary) {
   const numericColumns = tableSummary?.numeric_columns || [];
   const matrixProfile = tableSummary?.signals?.matrix_profile || null;
@@ -164,6 +184,14 @@ function normalizeParamValue(parameter, value) {
   if (parameter.type === "columns" || parameter.type === "numeric_columns") {
     return Array.isArray(value) ? value : value ? [value] : [];
   }
+  if (parameter.type === "json") {
+    if (value && typeof value === "object") return value;
+    try {
+      return value ? JSON.parse(value) : {};
+    } catch {
+      return {};
+    }
+  }
   return value;
 }
 
@@ -182,6 +210,7 @@ function parameterHelpText(parameter, options) {
   }
   if (parameter.type === "number_or_auto") return "Use Auto or type a numeric value.";
   if (parameter.type === "color") return "Hex, rgb(), or rgba() are supported.";
+  if (parameter.type === "json") return "Use JSON object syntax.";
   if (["column", "column_or_none", "columns", "numeric_columns"].includes(parameter.type)) {
     return options.length ? `${options.length} compatible column(s) detected.` : "No compatible columns detected yet.";
   }
@@ -203,6 +232,7 @@ function autoMappingParamsForPreset(preset, tableSummary) {
         const limit = parameter.id === "dimensions" ? 8 : 24;
         auto[parameter.id] = numericColumns.slice(0, limit);
       } else if (numericIds.has(parameter.id)) {
+        if (preset.id === "scatter" && parameter.id === "size") return;
         const indexById = { x: 0, y: 1, z: 2, size: 2, before: 0, after: 1, start: 0, end: 1 };
         const fallbackIndex = indexById[parameter.id] ?? 0;
         if (numericColumns[fallbackIndex]) auto[parameter.id] = numericColumns[fallbackIndex];
@@ -431,6 +461,19 @@ function ParameterControl({ parameter, value, tableSummary, plotId, onChange, t 
             </button>
           ) : null}
         </span>
+      </label>
+    );
+  }
+
+  if (parameter.type === "json") {
+    return (
+      <label className="plot-param-row">
+        <ParamLabel parameter={parameter} options={options} modified={modified} modifiedLabel={t("parameterModified")} />
+        <textarea
+          value={JSON.stringify(resolvedValue || {}, null, 2)}
+          rows={4}
+          onChange={(event) => onChange(parameter.id, normalizeParamValue(parameter, event.target.value))}
+        />
       </label>
     );
   }
@@ -709,9 +752,11 @@ function fitPlotlyConfigToPreview(config) {
 
 function InteractivePlot({ spec }) {
   const plotRef = useRef(null);
+  const [plotError, setPlotError] = useState("");
 
   useEffect(() => {
     if (!plotRef.current || !spec) return undefined;
+    setPlotError("");
     let cancelled = false;
     const plotElement = plotRef.current;
     let resizeObserver = null;
@@ -739,18 +784,21 @@ function InteractivePlot({ spec }) {
       resizeObserver.observe(plotElement);
       const shellElement = plotElement.closest(".plotly-preview-shell");
       if (shellElement && shellElement !== plotElement) resizeObserver.observe(shellElement);
+    }).catch((error) => {
+      if (!cancelled) setPlotError(error.message || "Plotly failed to load");
     });
     return () => {
       cancelled = true;
       if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
       resizeObserver?.disconnect();
-      loadPlotly().then((Plotly) => Plotly.purge(plotElement));
+      if (window.Plotly) window.Plotly.purge(plotElement);
     };
   }, [spec]);
 
   return (
     <div className="plotly-preview-shell">
       <div className="plotly-preview" ref={plotRef} />
+      {plotError ? <p className="plot-error">{plotError}</p> : null}
     </div>
   );
 }
@@ -1210,6 +1258,17 @@ function groupPlotPresets(presets) {
   return Array.from(groups.entries()).map(([category, items]) => ({ category, items }));
 }
 
+function sortPresetsByRecommendation(presets, recommendedPlotIds) {
+  if (!recommendedPlotIds.length) return presets;
+  const recommendedRank = new Map(recommendedPlotIds.map((plotId, index) => [plotId, index]));
+  return [...presets].sort((left, right) => {
+    const leftRank = recommendedRank.has(left.id) ? recommendedRank.get(left.id) : Number.MAX_SAFE_INTEGER;
+    const rightRank = recommendedRank.has(right.id) ? recommendedRank.get(right.id) : Number.MAX_SAFE_INTEGER;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return 0;
+  });
+}
+
 function isAdvancedParameterGroup(group) {
   if (typeof group.advanced === "boolean") return group.advanced;
   return ["theme", "export", "labels", "style"].includes(group.id);
@@ -1246,10 +1305,12 @@ function parameterCount(groups) {
   return groups.reduce((total, group) => total + (group.parameters?.length || 0), 0);
 }
 
-export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, onOpenAnalysis }) {
+export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, onOpenAnalysis, returnTarget, onSaveToResult }) {
   const { t } = useI18n();
   const outputs = report?.outputs || [];
   const selectedSource = useMemo(() => normalizeSource(source), [source]);
+  const selectedSourceKey = sourceKey(selectedSource);
+  const normalizedReturnTarget = useMemo(() => normalizeSource(returnTarget), [returnTarget]);
   const [manifest, setManifest] = useState(null);
   const [selectedPlotId, setSelectedPlotId] = useState("");
   const [params, setParams] = useState({});
@@ -1265,11 +1326,15 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const [plotSearch, setPlotSearch] = useState("");
   const [parameterSearch, setParameterSearch] = useState("");
   const [recommendedOnly, setRecommendedOnly] = useState(false);
-  const [selectedRecipeId, setSelectedRecipeId] = useState("");
+  const [editCommand, setEditCommand] = useState("");
+  const [editCommandStatus, setEditCommandStatus] = useState("");
   const [expandedPlotCategories, setExpandedPlotCategories] = useState(() => new Set());
   const [uploadStatus, setUploadStatus] = useState("idle");
   const [uploadError, setUploadError] = useState("");
   const [exampleLoadingId, setExampleLoadingId] = useState("");
+  const [saveBackStatus, setSaveBackStatus] = useState("idle");
+  const [saveBackError, setSaveBackError] = useState("");
+  const [editHistory, setEditHistory] = useState([]);
 
   useEffect(() => {
     let active = true;
@@ -1286,7 +1351,6 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   }, []);
 
   const plotPresets = manifest?.presets || [];
-  const styleRecipes = manifest?.style_recipes || [];
 
   useEffect(() => {
     const examplePlotId = selectedSource?.sourceKind === "plot_studio_example"
@@ -1294,8 +1358,12 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
       : "";
     setSelectedPlotId(examplePlotId);
     setParams({});
-    setSelectedRecipeId("");
-  }, [sourceKey(selectedSource)]);
+    setEditCommand("");
+    setEditCommandStatus("");
+    setEditHistory([]);
+    setPlotSearch("");
+    setRecommendedOnly(Boolean(selectedSource));
+  }, [selectedSourceKey]);
 
   const tableSummary = studioReport?.table_summary || null;
   const preferredPreviewNumericColumns = useMemo(() => preferredNumericColumns(tableSummary), [tableSummary]);
@@ -1304,15 +1372,18 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const filteredGroupedPresets = useMemo(() => {
     const query = plotSearch.trim().toLowerCase();
     const recommendedSet = new Set(recommendedPlotIds);
+    const waitingForRecommendations = recommendedOnly && selectedSource && status === "loading";
+    const applyRecommendedFilter = recommendedOnly && recommendedPlotIds.length > 0;
+    if (waitingForRecommendations) return [];
     const filtered = plotPresets.filter((preset) => {
-      if (recommendedOnly && !recommendedSet.has(preset.id)) return false;
+      if (applyRecommendedFilter && !recommendedSet.has(preset.id)) return false;
       if (!query) return true;
       return [preset.id, preset.label, preset.category, preset.engine, preset.use_case, preset.description]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query));
     });
-    return groupPlotPresets(filtered);
-  }, [plotPresets, plotSearch, recommendedOnly, recommendedPlotIds]);
+    return groupPlotPresets(sortPresetsByRecommendation(filtered, recommendedPlotIds));
+  }, [plotPresets, plotSearch, recommendedOnly, recommendedPlotIds, selectedSource, status]);
   const visiblePlotCount = filteredGroupedPresets.reduce((total, group) => total + group.items.length, 0);
   const filteredGroupSignature = filteredGroupedPresets
     .map((group) => `${group.category}:${group.items.map((item) => item.id).join(",")}`)
@@ -1369,7 +1440,6 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     const fallbackPreset = plotPresets.find((preset) => preset.id === fallbackId);
     setSelectedPlotId(fallbackId);
     setParams(defaultParamsFromPreset(fallbackPreset));
-    setSelectedRecipeId("");
   }, [plotPresets, recommendedPlotIds, selectedPreset?.id, selectedPresetIsSupported, tableSummary]);
 
   useEffect(() => {
@@ -1388,8 +1458,6 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
       return changed ? next : current;
     });
   }, [selectedPreset?.id, sourceKey(selectedSource), tableSummary]);
-
-  const supportedParamIds = useMemo(() => parameterIdsForPreset(selectedPreset), [selectedPreset]);
 
   useEffect(() => {
     if (!selectedSource) {
@@ -1487,6 +1555,19 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     () => previewSpecForRenderability(selectedPreset, plotSpec, tableSummary),
     [selectedPreset?.id, plotSpec, tableSummary],
   );
+  const canSaveBackToResult = Boolean(
+    normalizedReturnTarget &&
+    selectedSource &&
+    selectedSource.taskId &&
+    selectedSource.taskId === normalizedReturnTarget.taskId &&
+    selectedSource.nodeId === normalizedReturnTarget.nodeId &&
+    onSaveToResult,
+  );
+
+  useEffect(() => {
+    setSaveBackStatus("idle");
+    setSaveBackError("");
+  }, [sourceKey(selectedSource), selectedPreset?.id, params]);
 
   const updateParam = (paramId, value) => {
     setParams((current) => ({ ...current, [paramId]: value }));
@@ -1496,7 +1577,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     if (!plotSupportedForTable(plot, tableSummary)) return;
     setSelectedPlotId(plot.id);
     setParams(defaultParamsFromPreset(plot));
-    setSelectedRecipeId("");
+    setEditCommandStatus("");
   };
 
   const loadExampleData = async (plot) => {
@@ -1508,7 +1589,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
       onSelectSource?.(nextSource);
       setSelectedPlotId(plot.id);
       setParams(defaultParamsFromPreset(plot));
-      setSelectedRecipeId("");
+      setEditCommandStatus("");
       setUploadStatus("idle");
     } catch (exampleFailure) {
       setUploadError(exampleFailure.message);
@@ -1528,7 +1609,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
 
   const resetParams = () => {
     if (selectedPreset) setParams(defaultParamsFromPreset(selectedPreset));
-    setSelectedRecipeId("");
+    setEditCommandStatus("");
   };
 
   const uploadPlotStudioTable = async (file) => {
@@ -1556,11 +1637,75 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
       onSelectSource?.(nextSource);
       setSelectedPlotId("");
       setParams({});
-      setSelectedRecipeId("");
+      setEditCommand("");
+      setEditCommandStatus("");
       setUploadStatus("ready");
     } catch (uploadFailure) {
       setUploadError(uploadFailure.message);
       setUploadStatus("error");
+    }
+  };
+
+  const saveCurrentPlotToResult = async () => {
+    if (!canSaveBackToResult || !selectedSource || !selectedPreset) return;
+    setSaveBackStatus("saving");
+    setSaveBackError("");
+    try {
+      await onSaveToResult({
+        source: selectedSource,
+        plotType: selectedPreset.id || selectedPlotId,
+        params,
+      });
+      setSaveBackStatus("saved");
+    } catch (saveFailure) {
+      setSaveBackError(saveFailure.message);
+      setSaveBackStatus("error");
+    }
+  };
+
+  const applyEditCommand = async (event) => {
+    event.preventDefault();
+    if (!selectedPreset || !editCommand.trim()) return;
+    setEditCommandStatus("Agent 正在解析...");
+    try {
+      const payload = await fetchJson("/api/plot-studio/agent-edit", {
+        method: "POST",
+        body: JSON.stringify({
+          plotType: selectedPreset.id || selectedPlotId,
+          params,
+          prompt: editCommand,
+          parameterSchema: selectedPreset,
+          outputTemplate: { param_patch: {}, applied: [], message: "" },
+          context: {
+            source: selectedSource,
+            tableSummary,
+            selectedPlot: {
+              id: selectedPreset.id,
+              label: selectedPreset.label,
+              description: selectedPreset.description,
+              use_case: selectedPreset.use_case,
+            },
+            editHistory,
+          },
+        }),
+      });
+      const patch = payload.param_patch || {};
+      if (!Object.keys(patch).length) {
+        setEditCommandStatus(payload.message || "没有识别到可更新的参数。");
+        return;
+      }
+      setParams((current) => ({ ...current, ...patch }));
+      setEditHistory((current) => [
+        ...current.slice(-7),
+        {
+          request: editCommand,
+          param_patch: patch,
+          message: payload.message || "",
+        },
+      ]);
+      setEditCommandStatus(payload.applied?.length ? `已更新：${payload.applied.join("，")}` : "已更新参数。");
+    } catch (agentFailure) {
+      setEditCommandStatus(agentFailure.message);
     }
   };
 
@@ -1675,7 +1820,13 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                   </div>
                 ) : null}
               </section>
-            )) : <p className="muted">{plotPresets.length ? t("noPlotTypeMatches") : t("loadingPresets")}</p>}
+            )) : (
+              <p className="muted">
+                {recommendedOnly && selectedSource && status === "loading"
+                  ? "正在根据当前数据筛选图型..."
+                  : plotPresets.length ? t("noPlotTypeMatches") : t("loadingPresets")}
+              </p>
+            )}
           </div>
 
           <section className="plot-source-list">
@@ -1711,8 +1862,22 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                 <h2>{selectedPreset?.label || t("interactivePreview")}</h2>
                 <p>{selectedPreset?.description || t("interactiveEnginePlan")}</p>
               </div>
-              <span className="muted">{specStatus === "loading" ? t("rendering") : specStatus === "ready" ? t("ready") : specStatus}</span>
+              <div className="plot-preview-actions">
+                <span className="muted">{specStatus === "loading" ? t("rendering") : specStatus === "ready" ? t("ready") : specStatus}</span>
+                {normalizedReturnTarget ? (
+                  <button
+                    className="plot-save-back"
+                    type="button"
+                    onClick={saveCurrentPlotToResult}
+                    disabled={!canSaveBackToResult || !previewSpec?.data?.length || saveBackStatus === "saving"}
+                    title={canSaveBackToResult ? "保存当前图到刚才打开的结果" : "请使用刚才打开结果对应的数据源"}
+                  >
+                    {saveBackStatus === "saving" ? "保存中..." : "保存回结果"}
+                  </button>
+                ) : null}
+              </div>
             </div>
+            {saveBackError ? <p className="plot-error">{saveBackError}</p> : null}
             <PlotMethodOverview preset={selectedPreset} source={selectedSource} tableSummary={tableSummary} t={t} />
             <PlotMappingSummary preset={selectedPreset} params={params} tableSummary={tableSummary} />
             {specError ? <p className="plot-error">{specError}</p> : null}
@@ -1826,57 +1991,54 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                 <button type="button" onClick={() => setParameterSearch("")}>{t("clear")}</button>
               ) : null}
             </div>
-            {styleRecipes.length ? (
-              <section className="plot-recipe-strip" aria-label={t("styleRecipes")}>
-                <div>
-                  <strong>{t("styleRecipes")}</strong>
-                  <small>{t("styleRecipesHint")}</small>
-                </div>
-                <div className="plot-recipe-list">
-                  {styleRecipes.map((recipe) => (
-                    <button
-                      className={selectedRecipeId === recipe.id ? "active" : ""}
-                      type="button"
-                      key={recipe.id}
-                      title={recipe.description}
-                      onClick={() => {
-                        const nextParams = Object.fromEntries(
-                          Object.entries(recipe.params || {}).filter(([key]) => supportedParamIds.has(key)),
-                        );
-                        setParams((current) => ({ ...current, ...nextParams }));
-                        setSelectedRecipeId(recipe.id);
-                      }}
-                    >
-                      <strong>{recipe.label}</strong>
-                      <span>{recipe.description}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ) : null}
+            <form className="plot-agent-editor" onSubmit={applyEditCommand}>
+              <label htmlFor="plot-agent-edit">PS Agent</label>
+              <textarea
+                id="plot-agent-edit"
+                value={editCommand}
+                onChange={(event) => setEditCommand(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                placeholder="例如：X 标签改为 PC1；散点大小 12；隐藏网格"
+                rows={3}
+              />
+              <div>
+                <button type="submit" disabled={!selectedPreset || !editCommand.trim()}>应用</button>
+                {editCommandStatus ? <span>{editCommandStatus}</span> : null}
+              </div>
+            </form>
             <div className="plot-param-groups">
               {filteredBasicParameterGroups.length ? (
-                <section className="plot-param-stack" aria-label={t("basicParameters")}>
-                  <h3>{t("basicParameters")} <span>{basicParameterCount}</span></h3>
-                  {filteredBasicParameterGroups.map((group) => (
-                    <section className="plot-param-group" key={group.id}>
-                      <h4>{group.label}</h4>
-                      <div className="plot-param-controls">
-                        {group.parameters.map((parameter) => (
-                          <ParameterControl
-                            key={parameter.id}
-                            parameter={parameter}
-                            value={params[parameter.id]}
-                            tableSummary={tableSummary}
-                            plotId={selectedPreset?.id}
-                            onChange={updateParam}
-                            t={t}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  ))}
-                </section>
+                <details className="plot-param-advanced plot-param-basic">
+                  <summary>
+                    <span>{t("basicParameters")}</span>
+                    <em>{basicParameterCount}</em>
+                  </summary>
+                  <div className="plot-param-stack" aria-label={t("basicParameters")}>
+                    {filteredBasicParameterGroups.map((group) => (
+                      <section className="plot-param-group" key={group.id}>
+                        <h4>{group.label}</h4>
+                        <div className="plot-param-controls">
+                          {group.parameters.map((parameter) => (
+                            <ParameterControl
+                              key={parameter.id}
+                              parameter={parameter}
+                              value={params[parameter.id]}
+                              tableSummary={tableSummary}
+                              plotId={selectedPreset?.id}
+                              onChange={updateParam}
+                              t={t}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </details>
               ) : !hasParameterMatches ? <p className="muted">{parameterSearch ? t("noParameterMatches") : t("loadingPresets")}</p> : null}
               {advancedParameterGroups.length && filteredAdvancedParameterGroups.length ? (
                 <details className="plot-param-advanced">

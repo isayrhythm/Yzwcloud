@@ -58,17 +58,20 @@ def create_pca_result(source: DataObject, output_dir: Path, node_id: str) -> Dat
     html_path = output_dir / f"{node_id}_{run_stamp}.html"
     preview_path = output_dir / f"{node_id}_{run_stamp}_preview.svg"
     output_json = output_dir / f"{node_id}_{run_stamp}_output.json"
+    scores_path = output_dir / f"{node_id}_{run_stamp}_scores.csv"
     explained = {
         "pc1": round(max(pc1_value, 0.0) / total_variance * 100, 2),
         "pc2": round(max(pc2_value, 0.0) / total_variance * 100, 2),
     }
 
     condition_colors = source.meta.get("condition_colors") or condition_color_map(source.meta.get("conditions") or [])
+    write_pca_scores_table(scores_path, points)
     write_pca_html(html_path, points, explained, len(gene_vectors), condition_colors=condition_colors)
     write_pca_preview(preview_path, points)
     meta = {
         "html_file": str(html_path),
         "preview_file": str(preview_path),
+        "pca_scores_file": str(scores_path),
         "sample_count": len(sample_columns),
         "gene_count": len(gene_vectors),
         "explained_variance": explained,
@@ -267,7 +270,9 @@ def create_expression_heatmap_result(
     html_path = output_dir / f"{node_id}_{run_stamp}.html"
     preview_path = output_dir / f"{node_id}_{run_stamp}_preview.svg"
     output_json = output_dir / f"{node_id}_{run_stamp}_output.json"
+    plot_studio_table_path = output_dir / f"{node_id}_{run_stamp}_plot_studio_table.csv"
     condition_label = ", ".join(selected_conditions) if selected_conditions else "all samples"
+    write_heatmap_plot_studio_table(plot_studio_table_path, ordered_columns, genes)
     write_heatmap_html(
         html_path,
         f"Clustered top variable genes: {condition_label}",
@@ -284,6 +289,10 @@ def create_expression_heatmap_result(
     meta = {
         "html_file": str(html_path),
         "preview_file": str(preview_path),
+        "plot_studio_table_file": str(plot_studio_table_path),
+        "heatmap_table_file": str(plot_studio_table_path),
+        "matrix_file": str(matrix_path),
+        "sample_metadata_file": str(metadata_path),
         "gene_count": len(genes),
         "sample_count": len(ordered_columns),
         "selected_conditions": selected_conditions or sorted({column.condition for column in ordered_columns}),
@@ -321,11 +330,15 @@ def create_gene_expression_result(
     html_path = output_dir / f"{node_id}.html"
     preview_path = output_dir / f"{node_id}_preview.svg"
     output_json = output_dir / f"{node_id}_output.json"
+    plot_studio_table_path = output_dir / f"{node_id}_plot_studio_table.csv"
+    write_gene_expression_plot_studio_table(plot_studio_table_path, gene_payload)
     write_gene_expression_html(html_path, gene_payload)
     write_gene_expression_preview(preview_path, gene_payload)
     meta = {
         "html_file": str(html_path),
         "preview_file": str(preview_path),
+        "plot_studio_table_file": str(plot_studio_table_path),
+        "gene_expression_table_file": str(plot_studio_table_path),
         "gene": gene_payload["gene"],
         "gene_id": gene_payload["gene_id"],
         "sample_count": len(gene_payload["points"]),
@@ -486,6 +499,31 @@ def find_top_variable_gene(matrix_path: Path, columns: list[SampleColumn]) -> st
     return best[1]
 
 
+def write_heatmap_plot_studio_table(
+    path: Path,
+    columns: list[SampleColumn],
+    genes: list[dict[str, Any]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["gene", "gene_id", *[column.name for column in columns]]
+    with path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for gene in genes:
+            values = list(gene.get("values") or [])
+            row = {
+                "gene": gene.get("gene") or gene.get("gene_id") or "",
+                "gene_id": gene.get("gene_id") or gene.get("gene") or "",
+            }
+            row.update(
+                {
+                    column.name: values[index] if index < len(values) else ""
+                    for index, column in enumerate(columns)
+                }
+            )
+            writer.writerow(row)
+
+
 def transpose(rows: list[list[float]]) -> list[list[float]]:
     if not rows:
         return []
@@ -616,6 +654,35 @@ def find_gene_expression(
                 },
             }
     raise ValueError(f"没有在表达矩阵中找到基因：{gene_query}")
+
+
+def write_pca_scores_table(path: Path, points: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["sample", "condition", "group", "pc1", "pc2"]
+    with path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for point in points:
+            writer.writerow({key: point.get(key, "") for key in fieldnames})
+
+
+def write_gene_expression_plot_studio_table(path: Path, gene_payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["gene", "gene_id", "sample", "condition", "group", "value"]
+    with path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for point in gene_payload.get("points") or []:
+            writer.writerow(
+                {
+                    "gene": gene_payload.get("gene", ""),
+                    "gene_id": gene_payload.get("gene_id", ""),
+                    "sample": point.get("sample", ""),
+                    "condition": point.get("condition", ""),
+                    "group": point.get("group", ""),
+                    "value": point.get("value", ""),
+                }
+            )
 
 
 def write_pca_html(

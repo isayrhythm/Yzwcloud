@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 
 import { formatBytes } from "../workflow/format.js";
 import { Modal } from "./Modal.jsx";
@@ -18,13 +18,31 @@ export function ConfirmDeleteModal({ title, message, confirmLabel, onClose, onCo
   );
 }
 
-export function ResultModal({ title, url, onClose }) {
+export function ResultModal({ title, url, originalUrl, hasSavedPlot, source, onClose, onOpenPlotStudio }) {
   return (
     <div className="result-backdrop">
       <section className="result-shell">
         <div className="result-header">
-          <h2>{title}</h2>
-          <button onClick={onClose}>×</button>
+          <div>
+            <h2>{title}</h2>
+            {hasSavedPlot ? <span>已显示 Plot Studio 保存图</span> : null}
+          </div>
+          <div className="result-header-actions">
+            {originalUrl && hasSavedPlot ? (
+              <a href={originalUrl} target="_blank" rel="noreferrer">原始结果</a>
+            ) : null}
+            {source && onOpenPlotStudio ? (
+              <button
+                className="result-plot-send"
+                type="button"
+                onClick={() => onOpenPlotStudio(source)}
+                title="Send this result to Plot Studio"
+              >
+                Plot Studio
+              </button>
+            ) : null}
+            <button className="result-close" type="button" onClick={onClose}>×</button>
+          </div>
         </div>
         <iframe title={title} src={url} />
       </section>
@@ -41,7 +59,7 @@ export function AgentReportModal({ node, onClose }) {
     <Modal onClose={onClose}>
       <section className="modal agent-report-modal">
         <h2>{report.title || "数据处理报告"}</h2>
-        <p>{report.summary || "Agent 没有把这个文件规整成当前流程可用的数据对象。"}</p>
+        <p>{report.summary || "Agent 没有把这个文件整理成当前流程可用的数据对象。"}</p>
         {Array.isArray(report.reasons) && report.reasons.length ? (
           <div className="report-block">
             <strong>为什么现在不能分析</strong>
@@ -187,7 +205,7 @@ export function DatasetParamsModal({ payload, onClose, onSubmit }) {
             className={activeTab === "groups" ? "active" : ""}
             onClick={() => setActiveTab("groups")}
           >
-            矫正分组
+            修正分组
           </button>
           <button
             type="button"
@@ -288,7 +306,7 @@ export function GroupEditorModal({ payload, onClose, onSubmit }) {
   return (
     <Modal onClose={onClose}>
       <form className="modal group-modal" onSubmit={submit}>
-        <h2>矫正样本分组</h2>
+        <h2>修正样本分组</h2>
         <p>修改 condition 后会重新计算该数据节点的下一步分析入口。</p>
         <div className="condition-grid">
           {conditions.map((condition) => (

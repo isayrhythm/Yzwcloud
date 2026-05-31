@@ -80,7 +80,7 @@ const NODE_GROUPS = [
     level: 2,
     labelKey: "homeBoxplotNode",
     detailKey: "homeBoxplotNodeDetail",
-    x: 82,
+    x: 72,
     y: 68,
     chart: "boxplot",
   },

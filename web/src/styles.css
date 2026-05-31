@@ -297,8 +297,8 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.96fr);
   gap: 18px;
-  height: 540px;
-  min-height: 540px;
+  height: 600px;
+  min-height: 600px;
   align-self: center;
 }
 
@@ -314,8 +314,8 @@ button {
 }
 
 .workflow-board {
-  height: 540px;
-  min-height: 540px;
+  height: 100%;
+  min-height: 0;
   background-image:
     linear-gradient(rgba(217, 255, 247, 0.07) 1px, transparent 1px),
     linear-gradient(90deg, rgba(217, 255, 247, 0.07) 1px, transparent 1px);
@@ -385,7 +385,7 @@ button {
   position: absolute;
   display: grid;
   gap: 5px;
-  width: 138px;
+  width: 132px;
   min-height: 66px;
   padding: 12px 14px;
   border: 1px solid rgba(217, 255, 247, 0.24);
@@ -428,10 +428,10 @@ button {
 
 .workflow-inspector {
   display: grid;
-  grid-template-rows: 96px 80px minmax(0, 1fr);
+  grid-template-rows: 96px 78px minmax(0, 1fr);
   align-content: space-between;
   gap: 18px;
-  height: 540px;
+  height: 100%;
   min-height: 0;
   padding: 20px;
   transition: border-color 0.24s ease, box-shadow 0.24s ease, transform 0.24s ease;
@@ -497,9 +497,9 @@ button {
 
 .plot-card-preview {
   display: grid;
-  grid-template-rows: 76px 28px minmax(0, 1fr);
+  grid-template-rows: 72px 28px minmax(0, 1fr);
   gap: 12px;
-  height: 318px;
+  height: 100%;
   min-height: 0;
   padding: 14px;
   overflow: hidden;
@@ -514,7 +514,6 @@ button {
 .workflow-inspector.chart-expanded .plot-card-preview {
   border-color: rgba(121, 243, 242, 0.78);
   box-shadow: 0 24px 62px rgba(0, 0, 0, 0.26);
-  transform: scale(1.025);
 }
 
 .plot-card-top {
@@ -5615,7 +5614,7 @@ h2 {
   }
 
   .workflow-inspector {
-    height: 540px;
+    height: 600px;
   }
 
   .workflow-node {

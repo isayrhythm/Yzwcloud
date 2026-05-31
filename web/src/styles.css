@@ -297,6 +297,7 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.96fr);
   gap: 18px;
+  height: 540px;
   min-height: 540px;
   align-self: center;
 }
@@ -313,6 +314,7 @@ button {
 }
 
 .workflow-board {
+  height: 540px;
   min-height: 540px;
   background-image:
     linear-gradient(rgba(217, 255, 247, 0.07) 1px, transparent 1px),
@@ -426,8 +428,11 @@ button {
 
 .workflow-inspector {
   display: grid;
+  grid-template-rows: 96px 80px minmax(0, 1fr);
   align-content: space-between;
   gap: 18px;
+  height: 540px;
+  min-height: 0;
   padding: 20px;
   transition: border-color 0.24s ease, box-shadow 0.24s ease, transform 0.24s ease;
 }
@@ -492,9 +497,12 @@ button {
 
 .plot-card-preview {
   display: grid;
+  grid-template-rows: 76px 28px minmax(0, 1fr);
   gap: 12px;
-  min-height: 318px;
+  height: 318px;
+  min-height: 0;
   padding: 14px;
+  overflow: hidden;
   border: 1px solid rgba(217, 255, 247, 0.18);
   border-radius: 16px;
   background: rgba(245, 251, 252, 0.96);
@@ -519,19 +527,31 @@ button {
 .plot-card-top div {
   display: grid;
   gap: 5px;
+  min-width: 0;
 }
 
 .plot-card-top strong {
+  display: -webkit-box;
+  overflow: hidden;
   color: #07131f;
   font-size: 16px;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .plot-card-top span {
+  overflow: hidden;
   color: #617383;
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .plot-card-top button {
+  width: 92px;
+  min-width: 92px;
+  height: 58px;
   padding: 8px 10px;
   border: 1px solid rgba(15, 107, 87, 0.18);
   color: #0f6b57;
@@ -542,6 +562,8 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  height: 28px;
+  overflow: hidden;
 }
 
 .plot-preview-meta span {
@@ -555,7 +577,8 @@ button {
 
 .demo-chart {
   width: 100%;
-  min-height: 230px;
+  height: 100%;
+  min-height: 0;
   border-radius: 12px;
   background: #ffffff;
 }
@@ -5582,11 +5605,17 @@ h2 {
 
   .hero-workflow {
     grid-template-columns: 1fr;
+    height: auto;
     min-height: auto;
   }
 
   .workflow-board {
+    height: 430px;
     min-height: 430px;
+  }
+
+  .workflow-inspector {
+    height: 540px;
   }
 
   .workflow-node {

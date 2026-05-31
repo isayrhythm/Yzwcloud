@@ -108,6 +108,12 @@ class PlotStudioReportRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class PlotStudioSourceResolveRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    source: PlotStudioSource
+
+
 class PlotStudioSpecRequest(PlotStudioReportRequest):
     pass
 

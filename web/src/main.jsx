@@ -30,6 +30,11 @@ import { DocsPage } from "./pages/DocsPage.jsx";
 import { MolecularLabPage } from "./pages/MolecularLabPage.jsx";
 import { PlotStudioPage } from "./pages/PlotStudioPage.jsx";
 import { ReportsPage, buildReportModel } from "./pages/ReportsPage.jsx";
+import {
+  createPlotStudioSession,
+  createPlotStudioSessionFromSource,
+  updatePlotStudioSessionSource,
+} from "./plotStudio/session.js";
 import { outputUrl } from "./workflow/format.js";
 import {
   collectOccupiedNodeRects,
@@ -97,10 +102,10 @@ function App() {
   const [taskMenuPosition, setTaskMenuPosition] = useState(null);
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editingTaskName, setEditingTaskName] = useState("");
-  const [plotStudioSource, setPlotStudioSource] = useState(null);
-  const [plotStudioReturnTarget, setPlotStudioReturnTarget] = useState(null);
+  const [plotStudioSession, setPlotStudioSession] = useState(() => createPlotStudioSession());
   const flowPanelRef = useRef(null);
-  const miniMapTimerRef = useRef(null);   const reportModel = useMemo(() => buildReportModel(detail, logs), [detail, logs]);
+  const miniMapTimerRef = useRef(null);
+  const reportModel = useMemo(() => buildReportModel(detail, logs), [detail, logs]);
 
   const loadTasks = useCallback(async () => {
     const response = await api("/api/tasks");
@@ -153,8 +158,7 @@ function App() {
     const handleHashChange = () => {
       const nextPage = normalizePage(window.location.hash);
       if (nextPage === "plot") {
-        setPlotStudioSource(null);
-        setPlotStudioReturnTarget(null);
+        setPlotStudioSession(createPlotStudioSession());
       }
       setPage(nextPage);
     };
@@ -422,18 +426,16 @@ function App() {
 
   function openPlotStudio(source = null) {
     if (source && !source.currentTarget) {
-      setPlotStudioSource(source);
+      setPlotStudioSession(createPlotStudioSessionFromSource(source));
     } else {
-      setPlotStudioSource(null);
-      setPlotStudioReturnTarget(null);
+      setPlotStudioSession(createPlotStudioSession());
     }
     setPage("plot");
   }
 
   function navigatePage(nextPage) {
     if (nextPage === "plot") {
-      setPlotStudioSource(null);
-      setPlotStudioReturnTarget(null);
+      setPlotStudioSession(createPlotStudioSession());
     }
     setPage(nextPage);
   }
@@ -445,9 +447,9 @@ function App() {
 
   function openPlotStudioFromResult(source) {
     if (!source || !activeTaskId) return;
-    setPlotStudioReturnTarget(source);
     setModal(null);
-    openPlotStudio(source);
+    setPlotStudioSession(createPlotStudioSessionFromSource(source, { returnTarget: source }));
+    setPage("plot");
   }
 
   async function savePlotStudioBackToResult({ source, plotType, params }) {
@@ -465,7 +467,7 @@ function App() {
     );
     const updatedDetail = await response.json();
     setDetail(updatedDetail);
-    setPlotStudioReturnTarget(null);
+    setPlotStudioSession((current) => ({ ...current, returnTarget: null }));
     setPage("workbench");
     const updatedNode = updatedDetail.graph.nodes.find((item) => item.id === source.nodeId);
     if (updatedNode) {
@@ -711,12 +713,14 @@ function App() {
     return (
       <AppChrome page={page} onNavigate={navigatePage}>
         <PlotStudioPage
-          source={plotStudioSource}
+          session={plotStudioSession}
           report={reportModel}
           activeTaskId={activeTaskId}
-          onSelectSource={setPlotStudioSource}
+          onSessionChange={setPlotStudioSession}
+          onSelectSource={(nextSource) => {
+            setPlotStudioSession((current) => updatePlotStudioSessionSource(current, nextSource));
+          }}
           onOpenAnalysis={openWorkbench}
-          returnTarget={plotStudioReturnTarget}
           onSaveToResult={savePlotStudioBackToResult}
         />
       </AppChrome>

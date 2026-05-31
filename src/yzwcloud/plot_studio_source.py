@@ -7,6 +7,24 @@ from pathlib import Path
 from typing import Any
 
 from yzwcloud.config import PROJECT_ROOT
+from yzwcloud.plot_studio_presets import PLOT_STUDIO_VERSION, recommend_plot_types
+from yzwcloud.plot_studio_tables import inspect_table
+
+
+def resolve_plot_studio_source(source: dict[str, Any]) -> dict[str, Any]:
+    source_type = str(source.get("type") or source.get("output_type") or "")
+    data_path, path_reason = _select_source_table(source)
+    table_summary = inspect_table(data_path) if data_path else None
+    recommended_plot_ids = recommend_plot_types(source_type, table_summary)
+    return {
+        "version": PLOT_STUDIO_VERSION,
+        "source": _source_summary(source, data_path),
+        "path_reason": path_reason,
+        "table_summary": table_summary,
+        "recommended_plot_ids": recommended_plot_ids,
+        "default_plot_id": recommended_plot_ids[0] if recommended_plot_ids else "",
+        "ready": table_summary is not None,
+    }
 
 
 def _select_source_table(source: dict[str, Any]) -> tuple[Path | None, str]:

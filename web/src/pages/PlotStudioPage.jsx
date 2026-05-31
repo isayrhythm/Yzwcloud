@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n.jsx";
+import {
+  createPlotStudioAgentEdit,
+  createPlotStudioReport,
+  createPlotStudioSpec,
+  fetchPlotStudioJson,
+  loadPlotStudioExample,
+  resolvePlotStudioSource,
+} from "../plotStudio/api.js";
+import {
+  normalizePlotStudioSource,
+  plotStudioSourceKey,
+} from "../plotStudio/session.js";
 
 let plotlyLoader = null;
 
@@ -64,47 +76,6 @@ const FALLBACK_PARAMETER_GROUPS = [
   "Labels and annotations",
   "Export size and format",
 ];
-
-async function fetchJson(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  if (!response.ok) {
-    let detail = response.statusText;
-    try {
-      const payload = await response.json();
-      detail = payload.detail || detail;
-    } catch {
-      detail = await response.text();
-    }
-    throw new Error(detail);
-  }
-  return response.json();
-}
-
-function normalizeSource(source) {
-  if (!source) return null;
-  return {
-    sourceKind: source.sourceKind || source.source_kind || "analysis_output",
-    taskId: source.taskId || source.task_id || "",
-    taskName: source.taskName || source.task_name || "",
-    nodeId: source.nodeId || source.node_id || source.id || "",
-    name: source.name || "Untitled output",
-    status: source.status || "",
-    type: source.type || "",
-    summary: source.summary || source.type || "",
-    dataPath: source.dataPath || source.data_path || "",
-    previewUrl: source.previewUrl || source.preview_url || "",
-    htmlUrl: source.htmlUrl || source.html_url || "",
-    meta: source.meta || {},
-  };
-}
-
-function sourceKey(source) {
-  if (!source) return "empty";
-  return [source.taskId, source.nodeId, source.type, source.dataPath].join("::");
-}
 
 function valuePreview(value) {
   if (Array.isArray(value)) return value.join(", ");
@@ -1305,18 +1276,23 @@ function parameterCount(groups) {
   return groups.reduce((total, group) => total + (group.parameters?.length || 0), 0);
 }
 
-export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, onOpenAnalysis, returnTarget, onSaveToResult }) {
+export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, onSessionChange, onOpenAnalysis, onSaveToResult }) {
   const { t } = useI18n();
   const outputs = report?.outputs || [];
-  const selectedSource = useMemo(() => normalizeSource(source), [source]);
-  const selectedSourceKey = sourceKey(selectedSource);
-  const normalizedReturnTarget = useMemo(() => normalizeSource(returnTarget), [returnTarget]);
+  const selectedSource = useMemo(() => normalizePlotStudioSource(session?.source), [session?.source]);
+  const selectedSourceKey = plotStudioSourceKey(selectedSource);
+  const normalizedReturnTarget = useMemo(
+    () => normalizePlotStudioSource(session?.returnTarget),
+    [session?.returnTarget],
+  );
   const [manifest, setManifest] = useState(null);
-  const [selectedPlotId, setSelectedPlotId] = useState("");
-  const [params, setParams] = useState({});
+  const [selectedPlotId, setSelectedPlotId] = useState(session?.selectedPlotId || "");
+  const [params, setParams] = useState(session?.params || {});
   const [studioReport, setStudioReport] = useState(null);
+  const [sourceResolution, setSourceResolution] = useState(null);
   const [plotSpec, setPlotSpec] = useState(null);
   const [status, setStatus] = useState("idle");
+  const [sourceStatus, setSourceStatus] = useState("idle");
   const [specStatus, setSpecStatus] = useState("idle");
   const [error, setError] = useState("");
   const [specError, setSpecError] = useState("");
@@ -1334,11 +1310,11 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   const [exampleLoadingId, setExampleLoadingId] = useState("");
   const [saveBackStatus, setSaveBackStatus] = useState("idle");
   const [saveBackError, setSaveBackError] = useState("");
-  const [editHistory, setEditHistory] = useState([]);
+  const [editHistory, setEditHistory] = useState(session?.editHistory || []);
 
   useEffect(() => {
     let active = true;
-    fetchJson("/api/plot-studio/presets")
+    fetchPlotStudioJson("/api/plot-studio/presets")
       .then((payload) => {
         if (active) setManifest(payload);
       })
@@ -1356,23 +1332,70 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     const examplePlotId = selectedSource?.sourceKind === "plot_studio_example"
       ? selectedSource?.meta?.plot_id || ""
       : "";
-    setSelectedPlotId(examplePlotId);
-    setParams({});
+    setSelectedPlotId(session?.selectedPlotId || examplePlotId);
+    setParams(session?.params || {});
     setEditCommand("");
     setEditCommandStatus("");
-    setEditHistory([]);
+    setEditHistory(session?.editHistory || []);
     setPlotSearch("");
     setRecommendedOnly(Boolean(selectedSource));
   }, [selectedSourceKey]);
 
-  const tableSummary = studioReport?.table_summary || null;
+  useEffect(() => {
+    onSessionChange?.((current) => {
+      if (!current || plotStudioSourceKey(current.source) !== selectedSourceKey) return current;
+      if (
+        current.selectedPlotId === selectedPlotId &&
+        current.params === params &&
+        current.editHistory === editHistory
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        selectedPlotId,
+        params,
+        editHistory,
+      };
+    });
+  }, [editHistory, onSessionChange, params, selectedPlotId, selectedSourceKey]);
+
+  useEffect(() => {
+    if (!selectedSource) {
+      setSourceResolution(null);
+      setSourceStatus("idle");
+      return undefined;
+    }
+    const controller = new AbortController();
+    setSourceResolution(null);
+    setSourceStatus("loading");
+    resolvePlotStudioSource(selectedSource, {
+      signal: controller.signal,
+    })
+      .then((payload) => {
+        setSourceResolution(payload);
+        setSourceStatus("ready");
+        if (payload.default_plot_id) {
+          setSelectedPlotId((current) => current || payload.default_plot_id);
+        }
+      })
+      .catch((resolveError) => {
+        if (resolveError.name === "AbortError") return;
+        setSourceResolution(null);
+        setError(resolveError.message);
+        setSourceStatus("error");
+      });
+    return () => controller.abort();
+  }, [selectedSource]);
+
+  const tableSummary = sourceResolution?.table_summary || studioReport?.table_summary || null;
   const preferredPreviewNumericColumns = useMemo(() => preferredNumericColumns(tableSummary), [tableSummary]);
   const skippedPreviewNumericColumns = tableSummary?.signals?.matrix_profile?.excluded_numeric_columns || [];
-  const recommendedPlotIds = studioReport?.recommended_plot_ids || [];
+  const recommendedPlotIds = sourceResolution?.recommended_plot_ids || studioReport?.recommended_plot_ids || [];
   const filteredGroupedPresets = useMemo(() => {
     const query = plotSearch.trim().toLowerCase();
     const recommendedSet = new Set(recommendedPlotIds);
-    const waitingForRecommendations = recommendedOnly && selectedSource && status === "loading";
+    const waitingForRecommendations = recommendedOnly && selectedSource && sourceStatus === "loading";
     const applyRecommendedFilter = recommendedOnly && recommendedPlotIds.length > 0;
     if (waitingForRecommendations) return [];
     const filtered = plotPresets.filter((preset) => {
@@ -1383,7 +1406,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
         .some((value) => String(value).toLowerCase().includes(query));
     });
     return groupPlotPresets(sortPresetsByRecommendation(filtered, recommendedPlotIds));
-  }, [plotPresets, plotSearch, recommendedOnly, recommendedPlotIds, selectedSource, status]);
+  }, [plotPresets, plotSearch, recommendedOnly, recommendedPlotIds, selectedSource, sourceStatus]);
   const visiblePlotCount = filteredGroupedPresets.reduce((total, group) => total + group.items.length, 0);
   const filteredGroupSignature = filteredGroupedPresets
     .map((group) => `${group.category}:${group.items.map((item) => item.id).join(",")}`)
@@ -1457,7 +1480,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
       });
       return changed ? next : current;
     });
-  }, [selectedPreset?.id, sourceKey(selectedSource), tableSummary]);
+  }, [selectedPreset?.id, plotStudioSourceKey(selectedSource), tableSummary]);
 
   useEffect(() => {
     if (!selectedSource) {
@@ -1470,13 +1493,11 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     const controller = new AbortController();
     setStatus("loading");
     setError("");
-    fetchJson("/api/plot-studio/report", {
-      method: "POST",
-      body: JSON.stringify({
-        source: selectedSource,
-        plotType: selectedPlotId || undefined,
-        params,
-      }),
+    createPlotStudioReport({
+      source: selectedSource,
+      plotType: selectedPlotId || undefined,
+      params,
+    }, {
       signal: controller.signal,
     })
       .then((payload) => {
@@ -1501,13 +1522,11 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     const controller = new AbortController();
     setSpecStatus("loading");
     setSpecError("");
-    fetchJson("/api/plot-studio/spec", {
-      method: "POST",
-      body: JSON.stringify({
-        source: selectedSource,
-        plotType: selectedPlotId,
-        params,
-      }),
+    createPlotStudioSpec({
+      source: selectedSource,
+      plotType: selectedPlotId,
+      params,
+    }, {
       signal: controller.signal,
     })
       .then((payload) => {
@@ -1567,7 +1586,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
   useEffect(() => {
     setSaveBackStatus("idle");
     setSaveBackError("");
-  }, [sourceKey(selectedSource), selectedPreset?.id, params]);
+  }, [plotStudioSourceKey(selectedSource), selectedPreset?.id, params]);
 
   const updateParam = (paramId, value) => {
     setParams((current) => ({ ...current, [paramId]: value }));
@@ -1584,8 +1603,8 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     setExampleLoadingId(plot.id);
     setUploadError("");
     try {
-      const payload = await fetchJson(`/api/plot-studio/examples/${encodeURIComponent(plot.id)}`);
-      const nextSource = normalizeSource(payload.source);
+      const payload = await loadPlotStudioExample(plot.id);
+      const nextSource = normalizePlotStudioSource(payload.source);
       onSelectSource?.(nextSource);
       setSelectedPlotId(plot.id);
       setParams(defaultParamsFromPreset(plot));
@@ -1633,7 +1652,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
         throw new Error(detail);
       }
       const payload = await response.json();
-      const nextSource = normalizeSource(payload.source);
+      const nextSource = normalizePlotStudioSource(payload.source);
       onSelectSource?.(nextSource);
       setSelectedPlotId("");
       setParams({});
@@ -1668,26 +1687,23 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
     if (!selectedPreset || !editCommand.trim()) return;
     setEditCommandStatus("Agent 正在解析...");
     try {
-      const payload = await fetchJson("/api/plot-studio/agent-edit", {
-        method: "POST",
-        body: JSON.stringify({
-          plotType: selectedPreset.id || selectedPlotId,
-          params,
-          prompt: editCommand,
-          parameterSchema: selectedPreset,
-          outputTemplate: { param_patch: {}, applied: [], message: "" },
-          context: {
-            source: selectedSource,
-            tableSummary,
-            selectedPlot: {
-              id: selectedPreset.id,
-              label: selectedPreset.label,
-              description: selectedPreset.description,
-              use_case: selectedPreset.use_case,
-            },
-            editHistory,
+      const payload = await createPlotStudioAgentEdit({
+        plotType: selectedPreset.id || selectedPlotId,
+        params,
+        prompt: editCommand,
+        parameterSchema: selectedPreset,
+        outputTemplate: { param_patch: {}, applied: [], message: "" },
+        context: {
+          source: selectedSource,
+          tableSummary,
+          selectedPlot: {
+            id: selectedPreset.id,
+            label: selectedPreset.label,
+            description: selectedPreset.description,
+            use_case: selectedPreset.use_case,
           },
-        }),
+          editHistory,
+        },
       });
       const patch = payload.param_patch || {};
       if (!Object.keys(patch).length) {
@@ -1723,7 +1739,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
         <aside className="plot-agent-panel">
           <div className="panel-title">
             <h2>{t("figureTypes")}</h2>
-            <span className="muted">{status === "loading" ? t("updating") : selectedSource?.type || t("selectSourceFirst")}</span>
+            <span className="muted">{sourceStatus === "loading" ? t("updating") : selectedSource?.type || t("selectSourceFirst")}</span>
           </div>
           {error ? <p className="plot-error">{error}</p> : null}
           <label className={`plot-upload-card ${uploadStatus === "loading" ? "loading" : ""}`}>
@@ -1822,7 +1838,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
               </section>
             )) : (
               <p className="muted">
-                {recommendedOnly && selectedSource && status === "loading"
+                {recommendedOnly && selectedSource && sourceStatus === "loading"
                   ? "正在根据当前数据筛选图型..."
                   : plotPresets.length ? t("noPlotTypeMatches") : t("loadingPresets")}
               </p>
@@ -1842,7 +1858,7 @@ export function PlotStudioPage({ source, report, activeTaskId, onSelectSource, o
                     <span>{output.type}</span>
                   </div>
                   <p>{output.summary}</p>
-                  <button type="button" onClick={() => onSelectSource?.(normalizeSource(output))}>
+                  <button type="button" onClick={() => onSelectSource?.(normalizePlotStudioSource(output))}>
                     {t("useAsSource")}
                   </button>
                 </article>

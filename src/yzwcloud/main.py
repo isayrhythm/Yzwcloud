@@ -21,6 +21,7 @@ from yzwcloud.models import (
     PlotStudioAgentEditRequest,
     PlotStudioReportRequest,
     PlotStudioSaveResultRequest,
+    PlotStudioSourceResolveRequest,
     PlotStudioSpecRequest,
     SampleMetadataTextRequest,
     RunNodeRequest,
@@ -33,6 +34,7 @@ from yzwcloud.plot_studio import (
     create_plot_studio_report,
     create_plot_studio_spec,
     get_plot_studio_manifest,
+    resolve_plot_studio_source,
 )
 from yzwcloud.plot_studio_agent import create_plot_studio_agent_edit
 from yzwcloud.plot_studio_examples import example_source_for_plot
@@ -78,6 +80,11 @@ def health() -> HealthResponse:
 @app.get("/api/plot-studio/presets")
 def api_get_plot_studio_presets() -> dict[str, object]:
     return get_plot_studio_manifest()
+
+
+@app.post("/api/plot-studio/source/resolve")
+def api_resolve_plot_studio_source(payload: PlotStudioSourceResolveRequest) -> dict[str, object]:
+    return resolve_plot_studio_source(payload.source.model_dump(by_alias=False))
 
 
 @app.post("/api/plot-studio/report")

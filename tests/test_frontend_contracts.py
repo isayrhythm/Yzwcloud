@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLOT_STUDIO_PAGE = ROOT / "web" / "src" / "pages" / "PlotStudioPage.jsx"
+PLOT_STUDIO_MODULES = ROOT / "web" / "src" / "plotStudio"
+MAIN_PAGE = ROOT / "web" / "src" / "main.jsx"
 HOME_PAGE = ROOT / "web" / "src" / "pages" / "HomePage.jsx"
 STYLESHEET = ROOT / "web" / "src" / "styles.css"
 STATIC_INDEX = ROOT / "src" / "yzwcloud" / "static" / "index.html"
@@ -17,8 +19,16 @@ def _source(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _plot_studio_source() -> str:
+    module_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(PLOT_STUDIO_MODULES.glob("*.js*"))
+    )
+    return f"{_source(PLOT_STUDIO_PAGE)}\n{module_sources}"
+
+
 def test_plot_studio_preview_forces_safe_plotly_config() -> None:
-    source = _source(PLOT_STUDIO_PAGE)
+    source = _plot_studio_source()
 
     config_function = re.search(
         r"function fitPlotlyConfigToPreview\(config\) \{(?P<body>.*?)\n\}",
@@ -36,7 +46,7 @@ def test_plot_studio_preview_forces_safe_plotly_config() -> None:
 
 
 def test_plot_studio_preview_layout_is_container_bound() -> None:
-    source = _source(PLOT_STUDIO_PAGE)
+    source = _plot_studio_source()
     styles = _source(STYLESHEET)
 
     assert "function fitPlotlyLayoutToPreview" in source
@@ -101,7 +111,7 @@ def test_built_frontend_entry_references_existing_static_assets() -> None:
 
 
 def test_plot_studio_empty_preview_explains_renderability() -> None:
-    page_source = _source(PLOT_STUDIO_PAGE)
+    page_source = _plot_studio_source()
     styles = _source(STYLESHEET)
     i18n = _source(I18N)
 
@@ -121,7 +131,7 @@ def test_plot_studio_empty_preview_explains_renderability() -> None:
 
 
 def test_plot_studio_marks_modified_parameters() -> None:
-    page_source = _source(PLOT_STUDIO_PAGE)
+    page_source = _plot_studio_source()
     styles = _source(STYLESHEET)
     i18n = _source(I18N)
 
@@ -141,7 +151,7 @@ def test_plot_studio_marks_modified_parameters() -> None:
 
 
 def test_plot_studio_explains_unsupported_plot_cards() -> None:
-    page_source = _source(PLOT_STUDIO_PAGE)
+    page_source = _plot_studio_source()
     styles = _source(STYLESHEET)
 
     assert "const unsupportedReason = tableSuitabilityWarning(plot, tableSummary)" in page_source
@@ -159,7 +169,7 @@ def test_plot_studio_explains_unsupported_plot_cards() -> None:
 
 
 def test_plot_studio_surfaces_llm_report_guidance() -> None:
-    page_source = _source(PLOT_STUDIO_PAGE)
+    page_source = _plot_studio_source()
     styles = _source(STYLESHEET)
     i18n = _source(I18N)
 
@@ -169,7 +179,7 @@ def test_plot_studio_surfaces_llm_report_guidance() -> None:
         "guidance.avoid_claims",
         "guidance.next_checks",
         "const reportGuidance = studioReport?.agent_context?.report_guidance || null",
-        "<ReportGuidance guidance={reportGuidance} t={t} />",
+        "ReportGuidanceComponent={ReportGuidance}",
         "plot-report-guidance",
     ]:
         assert fragment in page_source
@@ -188,7 +198,7 @@ def test_plot_studio_surfaces_llm_report_guidance() -> None:
 
 
 def test_plot_studio_surfaces_copyable_report_prompt() -> None:
-    page_source = _source(PLOT_STUDIO_PAGE)
+    page_source = _plot_studio_source()
     styles = _source(STYLESHEET)
     i18n = _source(I18N)
 
@@ -219,7 +229,7 @@ def test_plot_studio_surfaces_copyable_report_prompt() -> None:
 
 
 def test_plot_studio_has_collapsed_categories_examples_and_upload() -> None:
-    page_source = _source(PLOT_STUDIO_PAGE)
+    page_source = _plot_studio_source()
     styles = _source(STYLESHEET)
     i18n = _source(I18N)
 
@@ -265,6 +275,20 @@ def test_plot_studio_has_collapsed_categories_examples_and_upload() -> None:
     ]:
         assert removed not in page_source
         assert removed not in i18n
+
+
+def test_plot_studio_navigation_uses_empty_session_unless_source_is_explicit() -> None:
+    main_source = _source(MAIN_PAGE)
+    session_source = _source(PLOT_STUDIO_MODULES / "session.js")
+
+    assert "createPlotStudioSession()" in main_source
+    assert "createPlotStudioSessionFromSource(source)" in main_source
+    assert "createPlotStudioSessionFromSource(source, { returnTarget: source })" in main_source
+    assert 'if (nextPage === "plot")' in main_source
+    assert "setPlotStudioSession(createPlotStudioSession())" in main_source
+    assert 'mode: source ? "analysis_result" : "scratch"' in session_source
+    assert "const source = normalizePlotStudioSource(overrides.source)" in session_source
+    assert "const returnTarget = normalizePlotStudioSource(overrides.returnTarget)" in session_source
 
 
 def test_homepage_keeps_agent_flow_animation_contract() -> None:

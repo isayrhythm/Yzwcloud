@@ -12,8 +12,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from yzwcloud.main import app  # noqa: E402
+from yzwcloud.main import _plot_studio_result_html, app  # noqa: E402
 from yzwcloud.plot_studio import inspect_table, recommend_plot_types  # noqa: E402
+from yzwcloud.plot_studio_agent import create_plot_studio_agent_edit  # noqa: E402
 from yzwcloud.plot_studio_presets import PLOT_PRESETS, SUPPORTED_PLOTLY_SPEC_TYPES  # noqa: E402
 
 
@@ -55,6 +56,7 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert recipes["presentation"]["params"]["title_font_size"] > recipes["publication"]["params"]["title_font_size"]
     assert recipes["exploration"]["params"]["display_modebar"] == "always"
     assert recipes["exploration"]["params"]["selection_tools"] is True
+
     presets = {item["id"]: item for item in manifest["presets"]}
     assert all(any(group["advanced"] is False for group in preset["parameter_groups"]) for preset in presets.values())
     assert all(any(group["advanced"] is True for group in preset["parameter_groups"]) for preset in presets.values())
@@ -649,6 +651,109 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
         "show_colorbar",
         "line_opacity",
     }
+
+
+def test_plot_studio_source_resolve_defaults_pca_to_scatter() -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / "source_resolve_pca_scores.csv"
+    table_file.write_text(
+        "sample,condition,group,pc1,pc2\n"
+        "S1,A,A,0.12,-0.20\n"
+        "S2,A,A,0.31,0.18\n"
+        "S3,B,B,-0.42,0.27\n",
+        encoding="utf-8",
+    )
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "PCA sample distribution",
+        "type": "pca_plot",
+        "dataPath": str(table_file),
+    }
+    client = TestClient(app)
+
+    resolved = _request(client, "POST", "/api/plot-studio/source/resolve", json={"source": source})
+    spec = _request(client, "POST", "/api/plot-studio/spec", json={"source": source, "plotType": resolved["default_plot_id"]})
+
+    assert resolved["ready"] is True
+    assert resolved["default_plot_id"] == "scatter"
+    assert resolved["recommended_plot_ids"][:4] == ["scatter", "grouped_dotplot", "raincloud", "boxplot"]
+    assert resolved["table_summary"]["numeric_columns"] == ["pc1", "pc2"]
+    assert spec["plot_type"] == "scatter"
+    assert spec["data"]
+    assert spec["layout"]["xaxis"]["title"]["text"] == "pc1"
+    assert spec["layout"]["yaxis"]["title"]["text"] == "pc2"
+
+
+def test_plot_studio_source_resolve_defaults_gene_expression_to_grouped_dotplot() -> None:
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / "source_resolve_gene_expression_long.csv"
+    table_file.write_text(
+        "gene,gene_id,sample,condition,group,value\n"
+        "SOCS4,ENSG000001,S1,LM,LM,8.2\n"
+        "SOCS4,ENSG000001,S2,LM,LM,8.6\n"
+        "SOCS4,ENSG000001,S3,Cancer,Cancer,3.1\n"
+        "SOCS4,ENSG000001,S4,Normal,Normal,6.7\n",
+        encoding="utf-8",
+    )
+    source = {
+        "sourceKind": "analysis_output",
+        "name": "Single gene expression",
+        "type": "gene_expression_plot",
+        "dataPath": str(table_file),
+    }
+    client = TestClient(app)
+
+    resolved = _request(client, "POST", "/api/plot-studio/source/resolve", json={"source": source})
+    report = _request(client, "POST", "/api/plot-studio/report", json={"source": source})
+
+    assert resolved["ready"] is True
+    assert resolved["default_plot_id"] == "grouped_dotplot"
+    assert resolved["recommended_plot_ids"][:6] == ["grouped_dotplot", "boxplot", "raincloud", "violin", "bar", "histogram"]
+    assert "heatmap" not in resolved["recommended_plot_ids"][:6]
+    assert report["selected_plot"]["id"] == "grouped_dotplot"
+    assert report["table_summary"]["columns"] == ["gene", "gene_id", "sample", "condition", "group", "value"]
+
+
+def test_plot_studio_agent_requires_deepseek_key_without_rule_fallback(monkeypatch: Any) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+
+    result = create_plot_studio_agent_edit(
+        "scatter",
+        params={"x": "pc1", "y": "pc2"},
+        prompt="把 X 标签改成 PC1",
+        parameter_schema={
+            "parameter_groups": [
+                {
+                    "parameters": [
+                        {"id": "x_label", "label": "X label", "type": "text", "default": ""},
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert result["param_patch"] == {}
+    assert result["applied"] == []
+    assert result["llm_status"] == "missing_api_key"
+    assert "DEEPSEEK_API_KEY" in result["message"]
+
+
+def test_plot_studio_saved_result_html_embeds_renderable_plotly_spec() -> None:
+    html = _plot_studio_result_html(
+        "PCA sample distribution",
+        {
+            "data": [{"type": "scattergl", "x": [0.1], "y": [0.2]}],
+            "layout": {"title": {"text": "PCA saved"}},
+            "config": {"responsive": True},
+        },
+    )
+
+    assert "Plot Studio saved figure" in html
+    assert "PCA saved" in html
+    assert "/static/vendor/plotly.min.js" in html
+    assert "Plotly.newPlot(\"plot\", spec.data || [], layout, config)" in html
 
 
 def test_plot_studio_report_is_data_driven_for_expression_matrix() -> None:

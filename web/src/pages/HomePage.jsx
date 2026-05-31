@@ -200,10 +200,28 @@ export function HomePage({ onStart, onOpenPlot }) {
               {t("openPlotStudio")}
             </button>
           </div>
+          <div className="hero-system-strip" aria-label="Platform capabilities">
+            <span>
+              <strong>Agent</strong>
+              data routing
+            </span>
+            <span>
+              <strong>Plot Studio</strong>
+              save-back charts
+            </span>
+            <span>
+              <strong>Report</strong>
+              context ready
+            </span>
           </div>
+        </div>
 
         <div className="hero-workflow" aria-label={t("homeWorkflowDemo")}>
           <div className="workflow-board">
+            <div className="workflow-hud" aria-hidden="true">
+              <span>Live pipeline</span>
+              <strong>{visibleNodes.length} nodes online</strong>
+            </div>
             <div className="demo-data-packet" aria-hidden="true">
               <span>{t("homeDataPacket")}</span>
               <strong>expression_matrix.csv</strong>

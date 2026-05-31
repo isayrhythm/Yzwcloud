@@ -204,9 +204,10 @@ button {
 
 .landing-hero {
   position: relative;
+  isolation: isolate;
   display: grid;
-  grid-template-columns: minmax(0, 0.82fr) minmax(560px, 1fr);
-  gap: 42px;
+  grid-template-columns: minmax(320px, 0.58fr) minmax(680px, 1.12fr);
+  gap: 34px;
   min-height: 680px;
   overflow: hidden;
   padding: clamp(34px, 6vw, 78px);
@@ -214,7 +215,7 @@ button {
   border-radius: 24px;
   color: #eefcff;
   background:
-    linear-gradient(135deg, rgba(18, 50, 74, 0.96) 0%, rgba(22, 77, 102, 0.94) 44%, rgba(15, 36, 54, 0.98) 100%);
+    linear-gradient(132deg, rgba(9, 31, 47, 0.98) 0%, rgba(20, 89, 110, 0.96) 46%, rgba(13, 24, 42, 0.99) 100%);
   box-shadow: 0 34px 120px rgba(16, 39, 58, 0.28);
 }
 
@@ -229,10 +230,33 @@ button {
   mask-image: radial-gradient(circle at 70% 42%, black, transparent 72%);
 }
 
+.landing-hero::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background:
+    linear-gradient(112deg, transparent 0 43%, rgba(121, 243, 242, 0.08) 49%, transparent 56%),
+    linear-gradient(180deg, rgba(232, 252, 255, 0.05), transparent 34%);
+  pointer-events: none;
+}
+
 .hero-copy {
   position: relative;
   z-index: 1;
   align-self: center;
+  padding-left: 18px;
+}
+
+.hero-copy::before {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  content: "";
+  border-radius: 999px;
+  background: linear-gradient(180deg, #79f3f2, #ee6c4d 54%, rgba(121, 243, 242, 0));
+  box-shadow: 0 0 28px rgba(121, 243, 242, 0.42);
 }
 
 .landing .eyebrow {
@@ -240,24 +264,26 @@ button {
 }
 
 .hero-copy h1 {
-  max-width: 860px;
-  font-size: clamp(46px, 7.4vw, 106px);
+  max-width: 620px;
+  font-size: clamp(34px, 4.4vw, 64px);
   letter-spacing: 0;
+  line-height: 1.08;
+  text-wrap: balance;
 }
 
 .hero-copy p {
-  max-width: 720px;
-  margin: 24px 0 0;
-  color: rgba(238, 252, 255, 0.78);
-  font-size: 19px;
-  line-height: 1.85;
+  max-width: 560px;
+  margin: 18px 0 0;
+  color: rgba(238, 252, 255, 0.8);
+  font-size: 16px;
+  line-height: 1.7;
 }
 
 .hero-actions {
   display: flex;
   gap: 18px;
   align-items: center;
-  margin-top: 34px;
+  margin-top: 30px;
 }
 
 .primary.launch {
@@ -291,6 +317,34 @@ button {
   box-shadow: 0 12px 34px rgba(121, 243, 242, 0.2);
 }
 
+.hero-system-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 560px;
+  margin-top: 24px;
+}
+
+.hero-system-strip span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(217, 255, 247, 0.2);
+  border-radius: 14px;
+  color: rgba(238, 252, 255, 0.64);
+  background: rgba(238, 252, 255, 0.08);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.16);
+}
+
+.hero-system-strip strong {
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hero-workflow {
   position: relative;
   z-index: 1;
@@ -322,11 +376,42 @@ button {
   background-size: 28px 28px;
 }
 
+.workflow-board::before {
+  position: absolute;
+  left: 24%;
+  top: 24%;
+  z-index: 1;
+  width: min(360px, 62%);
+  aspect-ratio: 1;
+  content: "";
+  border: 1px dashed rgba(121, 243, 242, 0.3);
+  border-radius: 50%;
+  background:
+    conic-gradient(from 210deg, rgba(121, 243, 242, 0.22), transparent 32%, rgba(238, 108, 77, 0.14), transparent 68%, rgba(121, 243, 242, 0.18)),
+    radial-gradient(circle, transparent 0 54%, rgba(121, 243, 242, 0.08) 55% 57%, transparent 58%);
+  opacity: 0.78;
+  transform: translate(-8%, -4%);
+  animation: workflow-radar 13s linear infinite;
+}
+
+.workflow-board::after {
+  position: absolute;
+  inset: -16% auto -16% -46%;
+  z-index: 2;
+  width: 40%;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(121, 243, 242, 0.12), transparent);
+  filter: blur(1px);
+  pointer-events: none;
+  transform: skewX(-13deg);
+  animation: workflow-scan 5.4s ease-in-out infinite;
+}
+
 .demo-data-packet {
   position: absolute;
   left: 4%;
   top: 15%;
-  z-index: 2;
+  z-index: 5;
   display: grid;
   gap: 3px;
   min-width: 172px;
@@ -337,6 +422,34 @@ button {
   color: #07131f;
   box-shadow: 0 18px 48px rgba(4, 14, 24, 0.3);
   animation: data-packet-drop 4.05s ease-in-out infinite;
+}
+
+.workflow-hud {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  z-index: 5;
+  display: grid;
+  gap: 4px;
+  min-width: 142px;
+  padding: 10px 12px;
+  border: 1px solid rgba(121, 243, 242, 0.32);
+  border-radius: 12px;
+  color: #eaffff;
+  background: rgba(4, 15, 24, 0.66);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.25);
+}
+
+.workflow-hud span {
+  color: #79f3f2;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.workflow-hud strong {
+  font-size: 13px;
 }
 
 .demo-data-packet::after {
@@ -367,6 +480,7 @@ button {
 .workflow-edges {
   position: absolute;
   inset: 0;
+  z-index: 3;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -383,11 +497,12 @@ button {
 
 .workflow-node {
   position: absolute;
+  z-index: 4;
   display: grid;
   gap: 5px;
-  width: 132px;
-  min-height: 66px;
-  padding: 12px 14px;
+  width: 150px;
+  min-height: 82px;
+  padding: 11px 13px;
   border: 1px solid rgba(217, 255, 247, 0.24);
   border-radius: 14px;
   color: #eefcff;
@@ -403,6 +518,7 @@ button {
 .workflow-node.active {
   border-color: rgba(121, 243, 242, 0.8);
   background: rgba(23, 68, 88, 0.98);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(121, 243, 242, 0.14) inset;
   transform: translateY(-2px);
 }
 
@@ -416,14 +532,17 @@ button {
 
 .workflow-node span {
   color: #ffffff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .workflow-node small {
   color: rgba(238, 252, 255, 0.68);
   font-size: 11px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .workflow-inspector {
@@ -434,6 +553,9 @@ button {
   height: 100%;
   min-height: 0;
   padding: 20px;
+  background:
+    linear-gradient(180deg, rgba(13, 36, 52, 0.82), rgba(7, 19, 31, 0.62)),
+    rgba(7, 19, 31, 0.48);
   transition: border-color 0.24s ease, box-shadow 0.24s ease, transform 0.24s ease;
 }
 
@@ -574,6 +696,11 @@ button {
   font-weight: 800;
 }
 
+.plot-preview-meta span:last-child {
+  color: #073f46;
+  background: rgba(121, 243, 242, 0.24);
+}
+
 .demo-chart {
   width: 100%;
   height: 100%;
@@ -617,6 +744,23 @@ button {
 @keyframes workflow-edge-flow {
   to {
     stroke-dashoffset: -22;
+  }
+}
+
+@keyframes workflow-scan {
+  0%,
+  24% {
+    transform: translateX(0) skewX(-13deg);
+  }
+  68%,
+  100% {
+    transform: translateX(410%) skewX(-13deg);
+  }
+}
+
+@keyframes workflow-radar {
+  to {
+    transform: translate(-8%, -4%) rotate(1turn);
   }
 }
 
@@ -5046,6 +5190,21 @@ h2 {
 
   .plot-library-panel {
     max-height: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  .landing-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-copy {
+    align-self: end;
+  }
+
+  .hero-workflow {
+    height: 620px;
+    min-height: 620px;
   }
 }
 

@@ -9,6 +9,8 @@ from yzwcloud.analysis_outputs import (
     create_expression_heatmap_result,
     create_gene_expression_result,
     create_heatmap_result,
+    create_metabolomics_differential_result,
+    create_metabolomics_normalization_result,
     create_metabolomics_statistics_result,
     create_pca_result,
     create_qc_result,
@@ -136,8 +138,24 @@ def execute_demo_node(
             params=params,
         )
 
+    if node_id.startswith("metabolomics_normalization__"):
+        return create_metabolomics_normalization_result(
+            source=_expression_source(inputs),
+            output_dir=output_dir,
+            node_id=node_id,
+            params=params,
+        )
+
     if node_id.startswith("metabolomics_statistics__"):
         return create_metabolomics_statistics_result(
+            source=_expression_source(inputs),
+            output_dir=output_dir,
+            node_id=node_id,
+            params=params,
+        )
+
+    if node_id.startswith("metabolomics_differential__"):
+        return create_metabolomics_differential_result(
             source=_expression_source(inputs),
             output_dir=output_dir,
             node_id=node_id,
@@ -173,6 +191,22 @@ def execute_demo_node(
             output_type="enrichment_result",
             message="MVP 示例富集分析结果",
             meta={"term_count": 18, "database": params.get("database", "GO")},
+            params=params,
+            output_dir=output_dir,
+        )
+
+    if node_id.startswith("analysis_report__"):
+        source = next(iter(inputs.values()))
+        return _execute_plot_node(
+            node_id=node_id,
+            output_type="planned_analysis",
+            message="Report-ready analysis summary node.",
+            meta={
+                "analysis_family": params.get("analysis_family", "analysis_report"),
+                "comparison_label": source.meta.get("comparison_label", ""),
+                "ready_for_agent": True,
+                "source_output_type": source.type,
+            },
             params=params,
             output_dir=output_dir,
         )

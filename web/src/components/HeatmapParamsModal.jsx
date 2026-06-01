@@ -8,8 +8,21 @@ function conditionEntries(detail) {
   return Object.entries(counts).map(([condition, count]) => ({ condition, count }));
 }
 
+function dataProfileForNode(node, detail) {
+  const nodes = detail?.graph?.nodes || [];
+  const byId = new Map(nodes.map((item) => [item.id, item]));
+  const sourceMeta =
+    node.depends_on?.map((id) => byId.get(id)?.output?.meta).find((meta) => meta?.data_type) ||
+    byId.get("upload_expression")?.output?.meta ||
+    {};
+  return sourceMeta.data_type === "metabolomics_matrix"
+    ? { featurePlural: "metabolites", featureSingular: "metabolite" }
+    : { featurePlural: "genes", featureSingular: "gene" };
+}
+
 export function HeatmapParamsModal({ node, detail, onClose, onSubmit }) {
   const conditions = useMemo(() => conditionEntries(detail), [detail]);
+  const profile = useMemo(() => dataProfileForNode(node, detail), [node, detail]);
   const defaultSelected = node.params?.selected_conditions?.length
     ? node.params.selected_conditions
     : conditions.map((item) => item.condition);
@@ -47,7 +60,7 @@ export function HeatmapParamsModal({ node, detail, onClose, onSubmit }) {
     <Modal onClose={onClose}>
       <form className="modal heatmap-param-modal" onSubmit={submit}>
         <h2>Heatmap samples</h2>
-        <p>Select which sample groups enter the top-variable-gene clustering heatmap.</p>
+        <p>Select which sample groups enter the top-variable-{profile.featureSingular} clustering heatmap.</p>
         <div className="condition-choice-grid">
           {conditions.map((item) => (
             <label key={item.condition} className="condition-choice">
@@ -62,7 +75,7 @@ export function HeatmapParamsModal({ node, detail, onClose, onSubmit }) {
           ))}
         </div>
         <label>
-          Top variable genes
+          Top variable {profile.featurePlural}
           <input
             type="number"
             min="5"

@@ -1986,6 +1986,64 @@ h2 {
   font-weight: 800;
 }
 
+.metabolomics-processing {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid rgba(15, 138, 143, 0.2);
+  border-radius: 14px;
+  background: #f4fbfb;
+}
+
+.modal .checkbox-line {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  color: var(--ink);
+}
+
+.checkbox-line input {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.checkbox-line span {
+  display: grid;
+  gap: 3px;
+}
+
+.checkbox-line small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.checkbox-line.compact {
+  align-items: center;
+}
+
+.checkbox-line.compact input {
+  margin-top: 0;
+}
+
+.processing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.processing-grid label {
+  margin-top: 0;
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
 .advanced-params {
   margin-top: 8px;
   padding-top: 4px;

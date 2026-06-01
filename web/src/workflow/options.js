@@ -4,10 +4,30 @@ export function nextAnalysisOptions(node, detail) {
     const hasQcGate = detail?.graph.edges.some(
       (edge) => edge.source === "upload_expression" && edge.target.startsWith("qc__"),
     );
-    return hasQcGate ? [] : [{ type: "qc", label: "Multi-sample QC" }];
+    const profile = dataProfile(node.output?.meta);
+    return hasQcGate ? [] : [{ type: "qc", label: `${profile.shortLabel} QC` }];
   }
   if (node.id.startsWith("qc__")) {
     const uploadNode = detail?.graph.nodes.find((item) => item.id === "upload_expression");
+    const profile = dataProfile(uploadNode?.output?.meta);
+    if (profile.qcProfile === "metabolomics") {
+      const created = (matcher) => detail?.graph.edges.some((edge) => edge.source === node.id && matcher(edge.target));
+      const options = [];
+      if (!created((target) => target.startsWith("pca__"))) options.push({ type: "pca", label: "PCA sample map" });
+      if (!created((target) => target.startsWith("correlation__"))) {
+        options.push({ type: "sample_correlation", label: "Sample correlation" });
+      }
+      if (!created((target) => target.startsWith("expression_heatmap__"))) {
+        options.push({ type: "expression_heatmap", label: "Top variable metabolites heatmap" });
+      }
+      if (!created((target) => target.startsWith("gene_expression__"))) {
+        options.push({ type: "gene_expression", label: "Single metabolite abundance" });
+      }
+      if (!created((target) => target.startsWith("metabolomics_differential__"))) {
+        options.push({ type: "metabolomics_differential", label: "Differential metabolites" });
+      }
+      return options;
+    }
     const capabilities = new Set(
       uploadNode?.output?.meta?.capabilities || [
         "sample_correlation",
@@ -19,6 +39,9 @@ export function nextAnalysisOptions(node, detail) {
         "wgcna",
       ],
     );
+    if (capabilities.has("metabolomics_statistics")) {
+      capabilities.add("metabolomics_differential");
+    }
     const qcPassedSampleCount = Number(node.output?.meta?.passed_sample_count || node.output?.meta?.sample_count || 0);
     if (qcPassedSampleCount > 20) {
       capabilities.add("wgcna");
@@ -39,26 +62,51 @@ export function nextAnalysisOptions(node, detail) {
       target.startsWith("multigroup_differential__"),
     );
     const hasWgcna = createdFromQc("wgcna", (target) => target.startsWith("wgcna__"));
-    const hasMetabolomicsStats = createdFromQc("metabolomics_statistics", (target) =>
-      target.startsWith("metabolomics_statistics__"),
+    const hasMetabolomicsDifferential = createdFromQc("metabolomics_differential", (target) =>
+      target.startsWith("metabolomics_differential__") || target.startsWith("metabolomics_statistics__"),
     );
     const options = [];
     if (!hasPca) options.push({ type: "pca", label: "PCA sample map" });
     if (!hasCorrelation) options.push({ type: "sample_correlation", label: "Sample correlation" });
-    if (!hasExpressionHeatmap) options.push({ type: "expression_heatmap", label: "Top variable genes heatmap" });
-    if (capabilities.has("gene_expression")) options.push({ type: "gene_expression", label: "Single gene expression" });
+    if (!hasExpressionHeatmap) options.push({ type: "expression_heatmap", label: `Top variable ${profile.featureLabel} heatmap` });
+    if (capabilities.has("gene_expression")) {
+      const label = profile.qcProfile === "metabolomics" ? "Single metabolite abundance" : "Single gene expression";
+      options.push({ type: "gene_expression", label });
+    }
     if (!hasSelector) options.push({ type: "diff_analysis", label: "Pairwise differential analysis" });
     if (!hasMultigroup) options.push({ type: "multigroup_differential", label: "Multi-group differential plan" });
     if (!hasWgcna) options.push({ type: "wgcna", label: "WGCNA modules" });
-    if (!hasMetabolomicsStats) options.push({ type: "metabolomics_statistics", label: "Metabolomics statistics" });
+    if (!hasMetabolomicsDifferential) {
+      options.push({ type: "metabolomics_differential", label: "Metabolomics differential analysis" });
+    }
     return options;
   }
-  if (node.id.startsWith("diff_analysis__")) {
+  if (node.id.startsWith("metabolomics_normalization__")) {
+    const created = (matcher) => detail?.graph.edges.some((edge) => edge.source === node.id && matcher(edge.target));
+    const options = [];
+    if (!created((target) => target.startsWith("pca__"))) options.push({ type: "pca", label: "PCA sample map" });
+    if (!created((target) => target.startsWith("correlation__"))) {
+      options.push({ type: "sample_correlation", label: "Sample correlation" });
+    }
+    if (!created((target) => target.startsWith("expression_heatmap__"))) {
+      options.push({ type: "expression_heatmap", label: "Top variable metabolites heatmap" });
+    }
+    if (!created((target) => target.startsWith("gene_expression__"))) {
+      options.push({ type: "gene_expression", label: "Single metabolite abundance" });
+    }
+    if (!created((target) => target.startsWith("metabolomics_differential__"))) {
+      options.push({ type: "metabolomics_differential", label: "Differential metabolites" });
+    }
+    return options;
+  }
+  if (node.id.startsWith("diff_analysis__") || node.id.startsWith("metabolomics_differential__")) {
+    const isMetabolomics = node.id.startsWith("metabolomics_differential__");
     return [
-      { type: "heatmap", label: "DE genes heatmap" },
+      { type: "heatmap", label: isMetabolomics ? "Diff metabolite heatmap" : "DE genes heatmap" },
       { type: "volcano", label: "Volcano plot" },
+      { type: "enrichment", label: isMetabolomics ? "Pathway analysis" : "Enrichment analysis" },
       { type: "diff_export", label: "Result export" },
-      { type: "enrichment", label: "Enrichment analysis" },
+      { type: "analysis_report", label: "Report" },
     ];
   }
   return [];
@@ -67,6 +115,18 @@ export function nextAnalysisOptions(node, detail) {
 export function summarizeOutput(output) {
   if (!output) return "None";
   const meta = output.meta || {};
+  if (output.type === "expression_matrix" && meta.analysis_family === "metabolomics_normalization") {
+    const featureCount = meta.metabolite_count || meta.gene_count || 0;
+    const steps = [meta.impute_method, meta.normalization_method, meta.transform, meta.scaling]
+      .filter(Boolean)
+      .join(" / ");
+    return `${steps || "normalized"} / ${featureCount} metabolites / ${meta.sample_count || 0} samples`;
+  }
+  if (output.type === "expression_matrix" && meta.data_type) {
+    const profile = dataProfile(meta);
+    const featureCount = meta.metabolite_count || meta.gene_count || 0;
+    return `${profile.fullLabel}${featureCount ? ` / ${featureCount} ${profile.featureLabel}` : ""} / ${meta.sample_count || 0} samples`;
+  }
   if (output.type === "expression_matrix" && meta.gene_count && meta.sample_count) {
     return `${meta.gene_count} genes / ${meta.sample_count} samples`;
   }
@@ -78,7 +138,8 @@ export function summarizeOutput(output) {
   }
   if (output.type === "qc_report" && meta.sample_count) {
     if (typeof meta.passed_sample_count === "number") {
-      return `${meta.passed_sample_count}/${meta.sample_count} samples passed QC`;
+      const suffix = meta.normalization_applied ? " + normalized" : "";
+      return `${meta.passed_sample_count}/${meta.sample_count} samples passed QC${suffix}`;
     }
     return `${meta.sample_count} samples QC`;
   }
@@ -94,7 +155,13 @@ export function summarizeOutput(output) {
   if (output.type === "wgcna_result" && meta.module_count) {
     return `${meta.module_count} modules / ${meta.gene_count || 0} genes`;
   }
-  if (output.type === "metabolomics_statistics_result" && meta.metabolite_count) {
+  if (
+    (output.type === "metabolomics_statistics_result" || output.type === "metabolomics_differential_result")
+    && meta.metabolite_count
+  ) {
+    if (typeof meta.significant_metabolite_count === "number") {
+      return `${meta.significant_metabolite_count}/${meta.metabolite_count} significant metabolites`;
+    }
     return `${meta.metabolite_count} metabolites / ${meta.sample_count || 0} samples`;
   }
   if (output.type === "diff_export" && meta.row_count) {
@@ -104,4 +171,23 @@ export function summarizeOutput(output) {
     return `${meta.analysis_family} planned`;
   }
   return output.type;
+}
+
+export function dataProfile(meta = {}) {
+  if (meta.data_type === "metabolomics_matrix") {
+    return {
+      shortLabel: "Metabolomics",
+      fullLabel: "Metabolomics matrix",
+      featureLabel: "metabolites",
+      qcProfile: "metabolomics",
+      analyses: ["PCA", "Sample correlation", "Heatmap", "Metabolite abundance", "Differential analysis"],
+    };
+  }
+  return {
+    shortLabel: "Expression",
+    fullLabel: "Expression matrix",
+    featureLabel: "genes",
+    qcProfile: "expression",
+    analyses: ["PCA", "Sample correlation", "Heatmap", "Differential analysis", "WGCNA"],
+  };
 }

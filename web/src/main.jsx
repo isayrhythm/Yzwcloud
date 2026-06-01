@@ -916,6 +916,7 @@ function App() {
       {modal?.kind === "nodeParams" ? (
         <NodeParamsModal
           node={modal.node}
+          detail={detail}
           onClose={() => setModal(null)}
           onSubmit={(params) => runNodeWithParams(modal.node.id, params)}
         />

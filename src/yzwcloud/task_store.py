@@ -6,6 +6,7 @@ import csv
 from io import StringIO
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from yzwcloud.config import TASKS_DIR
@@ -179,7 +180,8 @@ def update_sample_groups(
     is_metabolomics = upload_node.output.meta.get("data_type") == "metabolomics_matrix"
     capabilities = ["qc", "sample_correlation", "expression_heatmap", "gene_expression", "pca"]
     if is_metabolomics:
-        capabilities.append("metabolomics_statistics")
+        capabilities.append("metabolomics_normalization")
+        capabilities.append("metabolomics_differential")
     if sum(conditions.values()) > 20 and not is_metabolomics:
         capabilities.append("wgcna")
     if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()) and not is_metabolomics:
@@ -296,8 +298,15 @@ def save_task_inputs_auto(
             raise ValueError(f"Uploaded file is empty: {filename}")
         safe_name = _safe_filename(filename)
         lowered = safe_name.lower()
+        if _looks_like_metabolights_maf_upload(content):
+            data_files.append((safe_name, content))
+            continue
         if _looks_like_metadata_upload(safe_name, content):
             metadata_files.append((safe_name, content))
+            continue
+        support_reason = _metabolights_support_reason(safe_name, content)
+        if support_reason:
+            extras.append({"filename": safe_name, "size": len(content), "reason": support_reason})
             continue
         if _is_supported_expression_upload(lowered):
             data_files.append((safe_name, content))
@@ -307,7 +316,7 @@ def save_task_inputs_auto(
     if not data_files:
         raise ValueError("No supported data table was found in the upload batch")
 
-    ordered_data = sorted(data_files, key=lambda item: _data_upload_priority(item[0]))
+    ordered_data = sorted(data_files, key=lambda item: _data_upload_priority(item[0], item[1]))
     selected_data = ordered_data[0]
     for filename, content in metadata_files:
         save_task_input(task_id, "sample_metadata", filename, content)
@@ -487,7 +496,8 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
         "gene_expression",
         "multigroup_differential",
         "wgcna",
-        "metabolomics_statistics",
+        "metabolomics_normalization",
+        "metabolomics_differential",
     }:
         if analysis_type in {
             "pca",
@@ -496,7 +506,8 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
             "gene_expression",
             "multigroup_differential",
             "wgcna",
-            "metabolomics_statistics",
+            "metabolomics_normalization",
+            "metabolomics_differential",
         }:
             if analysis_type == "wgcna":
                 sample_count = int(
@@ -518,6 +529,18 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
             graph.edges.append({"source": source_node_id, "target": "diff_analysis"})
         save_graph(graph)
         append_log(task_id, "Analysis node enabled: diff_analysis")
+        return task, graph
+
+    if source_node_id.startswith("metabolomics_normalization__") and analysis_type in {
+        "pca",
+        "sample_correlation",
+        "expression_heatmap",
+        "gene_expression",
+        "metabolomics_differential",
+    }:
+        _add_expression_downstream_node(graph, analysis_type, source_node_id=source_node_id)
+        save_graph(graph)
+        append_log(task_id, f"Analysis node enabled: {analysis_type}")
         return task, graph
 
     if source_node_id == "upload_expression" and analysis_type in {
@@ -548,11 +571,15 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
         append_log(task_id, "Analysis node enabled: diff_analysis")
         return task, graph
 
-    if source_node_id.startswith("diff_analysis__") and analysis_type in {
+    if (
+        source_node_id.startswith("diff_analysis__")
+        or source_node_id.startswith("metabolomics_differential__")
+    ) and analysis_type in {
         "heatmap",
         "volcano",
         "enrichment",
         "diff_export",
+        "analysis_report",
     }:
         _add_diff_downstream_node(graph, source_node_id, analysis_type)
         save_graph(graph)
@@ -700,12 +727,25 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
                     "network_type": "signed",
                 },
             ),
-            "metabolomics_statistics": (
-                "metabolomics_statistics__matrix",
-                "Metabolomics statistics",
-                "Run R-based metabolomics preprocessing, QC, PCA, correlation, and univariate differential statistics.",
-                "metabolomics_statistics_result",
+            "metabolomics_differential": (
+                "metabolomics_differential__matrix",
+                "Metabolomics differential analysis",
+                "Compare two metabolomics conditions and report differential metabolites with fold change and p-values.",
+                "metabolomics_differential_result",
                 {"p_value": 0.05, "log2fc": 1.0},
+            ),
+            "metabolomics_normalization": (
+                "metabolomics_normalization__matrix",
+                "Normalize / impute / scale",
+                "Impute missing metabolite values, normalize sample signal, transform, and scale for downstream metabolomics analysis.",
+                "expression_matrix",
+                {
+                    "impute_method": "half_min",
+                    "normalization_method": "tic_median",
+                    "transform": "log2",
+                    "scaling": "pareto",
+                    "treat_zero_as_missing": True,
+                },
             ),
         }
     )
@@ -714,6 +754,40 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
         raise ValueError("Unsupported expression downstream analysis type")
 
     base_id, name, description, output_type, params = specs[analysis_type]
+    params = params.copy()
+    source_node = next((node for node in graph.nodes if node.id == source_node_id), None)
+    source_meta = source_node.output.meta if source_node and source_node.output else {}
+    if not source_meta.get("data_type"):
+        upload_node = next((node for node in graph.nodes if node.id == "upload_expression"), None)
+        if upload_node and upload_node.output:
+            source_meta = {**upload_node.output.meta, **source_meta}
+    if analysis_type == "qc":
+        params.update(_qc_defaults_for_data_type(source_meta))
+        name = _qc_node_name_for_data_type(source_meta)
+        description = _qc_node_description_for_data_type(source_meta)
+    elif analysis_type == "metabolomics_differential":
+        params.update(
+            {
+                "data_type": str(source_meta.get("data_type") or ""),
+                "analysis_profile": "metabolomics",
+            }
+        )
+    elif analysis_type == "metabolomics_normalization":
+        params.update(
+            {
+                "data_type": "metabolomics_matrix",
+                "analysis_profile": "metabolomics",
+            }
+        )
+    elif analysis_type == "gene_expression" and source_meta.get("data_type") == "metabolomics_matrix":
+        name = "单代谢物丰度"
+        description = "查看指定代谢物在不同分组中的丰度分布。"
+        params.update(
+            {
+                "data_type": "metabolomics_matrix",
+                "feature_label": "metabolite",
+            }
+        )
     node_id = _unique_node_id(graph, base_id)
     if analysis_type == "qc":
         input_types = ["expression_matrix"]
@@ -741,46 +815,98 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
     graph.edges.append({"source": source_node_id, "target": node_id})
 
 
+def _qc_defaults_for_data_type(meta: dict[str, Any]) -> dict[str, Any]:
+    if meta.get("data_type") == "metabolomics_matrix":
+        metabolite_count = int(meta.get("metabolite_count") or meta.get("gene_count") or 0)
+        return {
+            "qc_preset": "normal",
+            "qc_profile": "metabolomics",
+            "data_type": "metabolomics_matrix",
+            "feature_label": "metabolites",
+            "min_total_ratio": 0.20,
+            "max_zero_ratio": 0.60,
+            "min_detected_features": max(1, round(metabolite_count * 0.50)) if metabolite_count else 0,
+            "max_distribution_mad": 4.5,
+            "max_value_iqr_multiplier": 3.0,
+        }
+    return {
+        "qc_preset": "normal",
+        "qc_profile": "expression",
+        "data_type": str(meta.get("data_type") or "expression_matrix"),
+        "feature_label": "genes",
+        "min_total_ratio": 0.25,
+        "max_zero_ratio": 0.50,
+        "min_detected_features": 1000,
+        "max_distribution_mad": 3.5,
+        "max_value_iqr_multiplier": 1.5,
+    }
+
+
+def _qc_node_name_for_data_type(meta: dict[str, Any]) -> str:
+    if meta.get("data_type") == "metabolomics_matrix":
+        return "Metabolomics QC"
+    return "Expression matrix QC"
+
+
+def _qc_node_description_for_data_type(meta: dict[str, Any]) -> str:
+    if meta.get("data_type") == "metabolomics_matrix":
+        return "Inspect metabolomics sample totals, missing/zero ratios, detected metabolites, and distribution outliers."
+    return "Inspect expression sample totals, zero ratios, detected genes, and distribution outliers."
+
+
 def _add_diff_downstream_node(graph: Graph, diff_node_id: str, analysis_type: str) -> None:
     nodes = {node.id: node for node in graph.nodes}
     diff_node = nodes.get(diff_node_id)
     if diff_node is None or diff_node.output is None:
         return
 
-    suffix = diff_node_id.removeprefix("diff_analysis__")
+    suffix = diff_node_id
+    for prefix in ("diff_analysis__", "metabolomics_differential__"):
+        if suffix.startswith(prefix):
+            suffix = suffix.removeprefix(prefix)
+            break
     comparison = diff_node.output.meta.get("comparison_label", suffix.replace("_", " "))
+    is_metabolomics = diff_node.output.type == "metabolomics_differential_result"
+    feature_label = "metabolites" if is_metabolomics else "genes"
     specs = {
         "heatmap": (
             f"heatmap__{suffix}",
-            f"热图：{comparison}",
-            "基于该差异分析结果生成热图。",
+            f"Diff {feature_label} heatmap: {comparison}",
+            f"Plot the top differential {feature_label} across selected comparison samples.",
             "heatmap_plot",
             {"top_genes": 50, "cluster": True},
         ),
         "volcano": (
             f"volcano__{suffix}",
-            f"火山图：{comparison}",
-            "基于该差异分析结果生成火山图。",
+            f"Volcano plot: {comparison}",
+            f"Plot log2 fold-change and significance for differential {feature_label}.",
             "volcano_plot",
             {"p_value": 0.05, "log2fc": 1.0},
         ),
         "enrichment": (
             f"enrichment__{suffix}",
-            f"富集分析：{comparison}",
-            "基于该差异分析结果生成富集分析。",
+            f"{'Pathway' if is_metabolomics else 'Enrichment'} analysis: {comparison}",
+            "Check whether annotated differential features are concentrated in known pathways or terms.",
             "enrichment_result",
-            {"database": "GO", "p_adjust": 0.05},
+            {"database": "KEGG/HMDB" if is_metabolomics else "GO", "p_adjust": 0.05},
         ),
         "diff_export": (
             f"diff_export__{suffix}",
-            f"结果导出：{comparison}",
-            "导出该差异分析结果表，并提供结果预览。",
+            f"Result export: {comparison}",
+            "Export the differential result table and preview top rows.",
             "diff_export",
             {},
         ),
+        "analysis_report": (
+            f"analysis_report__{suffix}",
+            f"Report: {comparison}",
+            "Collect workflow outputs into a report-ready analysis summary.",
+            "planned_analysis",
+            {"analysis_family": "metabolomics_report" if is_metabolomics else "analysis_report"},
+        ),
     }
     if analysis_type not in specs:
-        raise ValueError("不支持的后续分析类型")
+        raise ValueError("Unsupported downstream analysis type")
 
     base_id, name, description, output_type, params = specs[analysis_type]
     node_id = _unique_node_id(graph, base_id)
@@ -790,7 +916,7 @@ def _add_diff_downstream_node(graph: Graph, diff_node_id: str, analysis_type: st
             name=name,
             description=description,
             status=NodeStatus.READY,
-            input_types=["diff_result"],
+            input_types=["diff_result", "metabolomics_differential_result"],
             output_type=output_type,
             default_params=params,
             params=params.copy(),
@@ -1038,15 +1164,60 @@ def _looks_like_metadata_upload(filename: str, content: bytes) -> bool:
     return True
 
 
-def _data_upload_priority(filename: str) -> tuple[int, str]:
+def _looks_like_metabolights_maf_upload(content: bytes) -> bool:
+    header = _decoded_first_row(content)
+    normalized = {value.strip().lower() for value in header}
+    markers = {
+        "metabolite_identification",
+        "chemical_formula",
+        "chemical_shift",
+        "smallmolecule_abundance_sub",
+    }
+    sample_like_columns = sum(1 for value in normalized if value.startswith(("adg", "mtbls", "sample")))
+    return "metabolite_identification" in normalized and (len(markers & normalized) >= 2 or sample_like_columns >= 3)
+
+
+def _metabolights_support_reason(filename: str, content: bytes) -> str | None:
     lowered = filename.lower()
-    if lowered.startswith("m_") or "maf" in lowered or "metabolite" in lowered or "metabolomics" in lowered:
+    suffix = Path(lowered).suffix
+    if suffix not in {".txt", ".tsv"}:
+        return None
+    header = {value.strip().lower() for value in _decoded_first_row(content)}
+    text_preview = _decoded_text_preview(content).lower()
+    if "metabolite assignment file" in header or "nmr assay name" in header or "derived spectral data file" in header:
+        return "metabolights_assay_file"
+    if "ontology source reference" in text_preview and "\ninvestigation\n" in text_preview:
+        return "metabolights_investigation_file"
+    if lowered.startswith(("a_", "i_")) or "investigation" in lowered or "assay" in lowered:
+        return "metabolights_support_file"
+    return None
+
+
+def _decoded_text_preview(content: bytes, limit: int = 8192) -> str:
+    return content[:limit].decode("utf-8-sig", errors="ignore")
+
+
+def _decoded_first_row(content: bytes) -> list[str]:
+    first_line = _decoded_text_preview(content, limit=16384).splitlines()[0:1]
+    if not first_line:
+        return []
+    delimiter = "\t" if "\t" in first_line[0] else ","
+    return [value.strip() for value in first_line[0].split(delimiter)]
+
+
+def _data_upload_priority(filename: str, content: bytes) -> tuple[int, str]:
+    lowered = filename.lower()
+    if _looks_like_metabolights_maf_upload(content):
         return (0, lowered)
-    if any(token in lowered for token in ("matrix", "expression", "count", "counts", "mrna", "gene")):
+    if lowered.startswith("m_") or "maf" in lowered:
         return (1, lowered)
-    if lowered.endswith((".csv", ".xlsx", ".xlsm")):
+    if "metabolite" in lowered or "metabolomics" in lowered:
         return (2, lowered)
-    return (3, lowered)
+    if any(token in lowered for token in ("matrix", "expression", "count", "counts", "mrna", "gene")):
+        return (3, lowered)
+    if lowered.endswith((".csv", ".xlsx", ".xlsm")):
+        return (4, lowered)
+    return (5, lowered)
 
 
 def _count_values(values) -> dict[str, int]:
@@ -1102,10 +1273,15 @@ def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, s
             "label": "结果导出",
             "description": "导出差异分析结果表并查看预览。",
         },
-        "metabolomics_statistics": {
-            "type": "metabolomics_statistics",
-            "label": "Metabolomics statistics",
-            "description": "Run R preprocessing, QC, PCA, correlation, and differential metabolite statistics.",
+        "metabolomics_normalization": {
+            "type": "metabolomics_normalization",
+            "label": "Normalize / impute / scale",
+            "description": "Prepare metabolomics intensities for downstream exploratory and differential analysis.",
+        },
+        "metabolomics_differential": {
+            "type": "metabolomics_differential",
+            "label": "Metabolomics differential analysis",
+            "description": "Compare two metabolomics conditions and report differential metabolites.",
         },
     }
     return [specs[item] for item in capabilities if item in specs]

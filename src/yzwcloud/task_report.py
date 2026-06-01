@@ -3,14 +3,31 @@ from __future__ import annotations
 import base64
 import html
 import json
+import os
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from yzwcloud.models import Graph, GraphNode
 from yzwcloud.task_store import get_task_dir, load_graph, load_task, read_log
+
+DEFAULT_REPORT_MODEL = "deepseek-chat"
+
+TASK_REPORT_SYSTEM_PROMPT = """You are YZW BioCloud Workflow Report Agent.
+Write a concise Chinese workflow-level report from node-level bioinformatics reports.
+
+Rules:
+- Return JSON only.
+- Use exactly these keys: summary, narrative, methods, results, limitations, next_steps.
+- narrative, methods, results, limitations, and next_steps must be arrays of short strings.
+- Base claims only on the provided node reports, workflow graph, methods, and metadata.
+- Do not invent biological conclusions, statistical significance, or visual patterns.
+- Explain how the current result was produced step by step.
+"""
 
 
 def build_task_report(task_id: str) -> dict[str, Any]:
@@ -23,17 +40,20 @@ def build_task_report(task_id: str) -> dict[str, Any]:
     log_lines = [line for line in read_log(task_id).splitlines() if line.strip()]
     workflow_svg_path = output_dir / "analysis_report_current_workflow.svg"
     workflow_svg_path.write_text(_workflow_svg(nodes, graph.edges), encoding="utf-8")
+    steps = [_node_report_entry(node, output_dir) for node in nodes]
+    figures = _figure_entries(nodes, output_dir)
     report = {
         "task": task.model_dump(mode="json"),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "summary": _task_summary(nodes),
+        "agent_summary": _create_task_agent_summary(task.model_dump(mode="json"), graph, steps, figures),
         "workflow": {
             "node_count": len(nodes),
             "edge_count": len(graph.edges),
             "svg_file": str(workflow_svg_path),
         },
-        "steps": [_node_report_entry(node, output_dir) for node in nodes],
-        "figures": _figure_entries(nodes, output_dir),
+        "steps": steps,
+        "figures": figures,
         "warnings": _collect_warnings(nodes),
         "next_steps": _collect_next_steps(nodes),
         "log_tail": log_lines[-16:],
@@ -213,6 +233,156 @@ def _method_lines(meta: dict[str, Any], params: dict[str, Any]) -> list[str]:
     return methods
 
 
+def _create_task_agent_summary(
+    task: dict[str, Any],
+    graph: Graph,
+    steps: list[dict[str, Any]],
+    figures: list[dict[str, Any]],
+) -> dict[str, Any]:
+    evidence = {
+        "task": {
+            "id": task.get("task_id", ""),
+            "name": task.get("name", ""),
+            "status": task.get("status", ""),
+        },
+        "workflow": {
+            "node_count": len(steps),
+            "edge_count": len(graph.edges),
+            "completed_nodes": sum(step["status"] == "completed" for step in steps),
+            "failed_nodes": sum(step["status"] == "failed" for step in steps),
+            "figure_count": len(figures),
+            "lineage": [
+                {
+                    "source": edge.get("source", ""),
+                    "target": edge.get("target", ""),
+                }
+                for edge in graph.edges
+            ],
+        },
+        "nodes": [
+            {
+                "id": step["id"],
+                "name": step["name"],
+                "status": step["status"],
+                "output_type": step["output_type"],
+                "summary": step["summary"],
+                "findings": step["findings"][:4],
+                "methods": step["methods"][:4],
+                "warnings": step["warnings"][:4],
+                "next_steps": step["next_steps"][:4],
+            }
+            for step in steps
+        ],
+        "figures": [
+            {
+                "node_id": figure["node_id"],
+                "title": figure["title"],
+                "output_type": figure["output_type"],
+                "summary": figure["summary"],
+            }
+            for figure in figures
+        ],
+    }
+    fallback = _rule_based_task_summary(evidence)
+    llm_result = _generate_task_llm_summary(evidence)
+    content = llm_result.get("report") if llm_result.get("llm_status") == "ok" else fallback
+    return {
+        "title": "流程报告 · Agent 总结",
+        "summary": content["summary"],
+        "narrative": content["narrative"],
+        "methods": content["methods"],
+        "results": content["results"],
+        "limitations": content["limitations"],
+        "next_steps": content["next_steps"],
+        "evidence": evidence,
+        "generated_by": "llm" if llm_result.get("llm_status") == "ok" else "rule_based_fallback",
+        "llm_status": llm_result.get("llm_status", "fallback"),
+        "llm_error": llm_result.get("llm_error", ""),
+        "model": llm_result.get("model", ""),
+    }
+
+
+def _rule_based_task_summary(evidence: dict[str, Any]) -> dict[str, Any]:
+    task = evidence["task"]
+    workflow = evidence["workflow"]
+    nodes = evidence["nodes"]
+    completed = [node for node in nodes if node["status"] == "completed"]
+    output_nodes = [node for node in completed if node["output_type"]]
+    method_lines = _dedupe([item for node in completed for item in node.get("methods", [])])[:8]
+    result_lines = _dedupe([node["summary"] for node in output_nodes if node.get("summary")])[:8]
+    limitation_lines = _dedupe([item for node in nodes for item in node.get("warnings", [])])[:8]
+    next_lines = _dedupe([item for node in nodes for item in node.get("next_steps", [])])[:8]
+    first_node = completed[0]["name"] if completed else "输入节点"
+    last_node = completed[-1]["name"] if completed else "当前节点"
+    return {
+        "summary": (
+            f"{task.get('name') or '当前任务'} 已形成包含 {workflow['node_count']} 个节点的分析流程，"
+            f"当前完成 {workflow['completed_nodes']} 个节点，产出 {workflow['figure_count']} 张可汇报结果图。"
+        ),
+        "narrative": [
+            f"用户当前围绕任务“{task.get('name') or task.get('id')}”构建分析流程，状态为 {task.get('status') or 'unknown'}。",
+            f"流程从 {first_node} 开始，沿依赖关系逐步生成到 {last_node} 等结果节点。",
+            f"当前报告由 {len(output_nodes)} 个节点级 Agent 总结组合而成，并嵌入 {workflow['figure_count']} 张实际分析图。",
+        ],
+        "methods": method_lines or ["当前节点报告中尚未记录可汇总的方法参数。"],
+        "results": result_lines or ["当前流程尚未产生可汇总的结果节点。"],
+        "limitations": limitation_lines or ["正式解释前仍需人工复核实验设计、统计阈值和样本分组。"],
+        "next_steps": next_lines or ["继续补齐下游分析，并复核关键结果图与节点级解释。"],
+    }
+
+
+def _generate_task_llm_summary(evidence: dict[str, Any]) -> dict[str, Any]:
+    api_key = _env_value("DEEPSEEK_API_KEY")
+    if not api_key:
+        return {"llm_status": "missing_api_key"}
+    base_url = _env_value("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    model = _env_value("DEEPSEEK_REPORT_MODEL", _env_value("DEEPSEEK_ROUTER_MODEL", DEFAULT_REPORT_MODEL))
+    payload = {
+        "model": model,
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": TASK_REPORT_SYSTEM_PROMPT},
+            {"role": "user", "content": json.dumps(evidence, ensure_ascii=False)},
+        ],
+    }
+    request = urllib.request.Request(
+        f"{base_url}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        content = body["choices"][0]["message"]["content"]
+        return {"llm_status": "ok", "report": _validate_task_llm_report(json.loads(content)), "model": model}
+    except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError, ValueError) as exc:
+        return {"llm_status": "error", "llm_error": str(exc), "model": model}
+
+
+def _validate_task_llm_report(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "summary": str(value["summary"])[:800],
+        "narrative": _clean_text_list(value["narrative"]),
+        "methods": _clean_text_list(value["methods"]),
+        "results": _clean_text_list(value["results"]),
+        "limitations": _clean_text_list(value["limitations"]),
+        "next_steps": _clean_text_list(value["next_steps"]),
+    }
+
+
+def _clean_text_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError("Expected list in task report LLM response")
+    return [str(item)[:500] for item in value if str(item).strip()][:12]
+
+
+def _env_value(name: str, default: str = "") -> str:
+    value = os.getenv(name)
+    return value.strip() if value else default
+
+
 def _compact_params(params: dict[str, Any]) -> dict[str, Any]:
     ignored = {"uploaded_inputs", "agent_progress", "agent_report"}
     return {
@@ -345,6 +515,7 @@ def _short_svg_text(value: Any, max_chars: int) -> str:
 
 def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
     summary = report["summary"]
+    agent_summary = report["agent_summary"]
     steps = report["steps"]
     figures = report["figures"]
     workflow_uri = _preview_data_uri(workflow_svg_path, workflow_svg_path.parent)
@@ -354,7 +525,8 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
             "分析任务总览",
             f"""<div class="cover"><p class="eyebrow">YZW BioCloud · Analysis Report</p>
 <h1>{html.escape(str(report["task"]["name"]))}</h1>
-<p class="lead">{html.escape(summary["status_text"])}</p>
+<p class="lead">{html.escape(agent_summary["summary"])}</p>
+<p class="stamp">{html.escape(summary["status_text"])}</p>
 <div class="metrics">{_metric("节点", summary["total_nodes"])}{_metric("已完成", summary["completed_nodes"])}
 {_metric("输出", summary["output_nodes"])}{_metric("结果图", summary["figure_count"])}</div>
 <p class="stamp">生成时间：{html.escape(report["generated_at"])}</p></div>""",
@@ -366,13 +538,21 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
 <div class="workflow-figure"><img src="{workflow_uri}" alt="workflow"/></div>""",
         ),
         _page("03", "方法与执行轨迹", _step_table(steps)),
+        _page(
+            "04",
+            "流程报告总结",
+            f"""<div class="summary-grid"><section><h2>用户做了什么</h2>{_list(agent_summary["narrative"])}</section>
+<section><h2>使用的方法</h2>{_list(agent_summary["methods"])}</section>
+<section><h2>当前结果</h2>{_list(agent_summary["results"])}</section>
+<section><h2>解释边界</h2>{_list(agent_summary["limitations"])}</section></div>""",
+        ),
     ]
     for index in range(0, len(figures), 2):
         chunk = figures[index : index + 2]
-        pages.append(_page(f"{4 + index // 2:02d}", "实际结果图", _figure_grid(chunk)))
+        pages.append(_page(f"{5 + index // 2:02d}", "实际结果图", _figure_grid(chunk)))
     pages.append(
         _page(
-            f"{4 + (len(figures) + 1) // 2:02d}",
+            f"{5 + (len(figures) + 1) // 2:02d}",
             "Agent 汇总与解释边界",
             f"""<div class="split"><section><h2>当前结论</h2>{_finding_cards(steps)}</section>
 <section><h2>需要注意</h2>{_list(report["warnings"])}</section></div>""",
@@ -380,9 +560,9 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
     )
     pages.append(
         _page(
-            f"{5 + (len(figures) + 1) // 2:02d}",
+            f"{6 + (len(figures) + 1) // 2:02d}",
             "建议的下一步",
-            f"""<div class="split"><section><h2>继续分析</h2>{_list(report["next_steps"])}</section>
+            f"""<div class="split"><section><h2>继续分析</h2>{_list(agent_summary["next_steps"] or report["next_steps"])}</section>
 <section><h2>执行日志末尾</h2><pre>{html.escape(chr(10).join(report["log_tail"]))}</pre></section></div>""",
         )
     )
@@ -449,10 +629,10 @@ main{padding-top:20px}.cover{display:grid;align-content:center;min-height:570px}
 .workflow-figure{height:520px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#f6fbfb}.workflow-figure img{display:block;width:100%;height:auto}
 table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}th,td{padding:10px;border-bottom:1px solid #e4eeee;text-align:left;vertical-align:top}th{color:#0f6b57;background:#f0f8f7}td small{display:block;margin-top:4px;color:#829198}
 .figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 300px auto;padding:16px;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.figure-card div{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#7b61b5;font-size:12px;font-weight:800}.figure-card img{width:100%;height:290px;object-fit:contain}.figure-card p{margin:8px 0 0;color:#546b75;font-size:14px;line-height:1.55}
-.split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split>section{max-height:560px;padding:16px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.note{margin:0 0 10px;padding:10px;border-left:4px solid #0f8a8f;background:#f4fbfb}.note strong{color:#0f6b57}.note ul,ul{margin:8px 0;padding-left:20px}li{margin:5px 0;line-height:1.45}pre{max-height:470px;padding:12px;overflow:auto;border-radius:12px;background:#102b35;color:#d8f5f0;font-size:11px;white-space:pre-wrap}
+.split,.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split>section,.summary-grid>section{padding:16px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.split>section{max-height:560px}.summary-grid>section{max-height:250px}.note{margin:0 0 10px;padding:10px;border-left:4px solid #0f8a8f;background:#f4fbfb}.note strong{color:#0f6b57}.note ul,ul{margin:8px 0;padding-left:20px}li{margin:5px 0;line-height:1.45}pre{max-height:470px;padding:12px;overflow:auto;border-radius:12px;background:#102b35;color:#d8f5f0;font-size:11px;white-space:pre-wrap}
 footer{position:absolute;right:44px;bottom:18px;color:#8b999e;font-size:11px}
-@media(max-width:760px){.slide{padding:26px 24px 34px}.cover h1{font-size:38px}.metrics{grid-template-columns:repeat(2,1fr)}.split,.figure-grid{grid-template-columns:1fr}.figure-card{grid-template-rows:auto 220px auto}.figure-card img{height:210px}}
-@media print{body{background:#fff}.print-button{display:none}.slide{width:1280px;height:720px;margin:0;padding:34px 44px 38px;overflow:hidden;box-shadow:none}.split,.figure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.slide{padding:26px 24px 34px}.cover h1{font-size:38px}.metrics{grid-template-columns:repeat(2,1fr)}.split,.summary-grid,.figure-grid{grid-template-columns:1fr}.figure-card{grid-template-rows:auto 220px auto}.figure-card img{height:210px}}
+@media print{body{background:#fff}.print-button{display:none}.slide{width:1280px;height:720px;margin:0;padding:34px 44px 38px;overflow:hidden;box-shadow:none}.split,.summary-grid,.figure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 """
 
 

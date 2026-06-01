@@ -52,6 +52,7 @@ def _report_task(tmp_path: Path, monkeypatch) -> str:
 
 
 def test_task_report_builds_slide_html_with_workflow_and_real_preview(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     task_id = _report_task(tmp_path, monkeypatch)
 
     report = build_task_report(task_id)
@@ -59,9 +60,14 @@ def test_task_report_builds_slide_html_with_workflow_and_real_preview(tmp_path: 
 
     assert report["summary"]["completed_nodes"] == 1
     assert report["summary"]["figure_count"] == 1
+    assert report["agent_summary"]["generated_by"] == "rule_based_fallback"
+    assert report["agent_summary"]["llm_status"] == "missing_api_key"
+    assert "节点级 Agent 总结组合" in report["agent_summary"]["narrative"][2]
     assert Path(report["workflow"]["svg_file"]).exists()
     assert "分析任务总览" in html_text
     assert "当前分析流程" in html_text
+    assert "流程报告总结" in html_text
+    assert "用户做了什么" in html_text
     assert "实际结果图" in html_text
     assert "data:image/svg+xml;base64," in html_text
     assert "打印 / 保存为 PDF" in html_text

@@ -686,7 +686,6 @@ function App() {
   const openWorkbench = () => navigatePage("workbench");
   const openReports = () => navigatePage("reports");
   const taskReportHtmlUrl = detail ? `/api/tasks/${encodeURIComponent(detail.task.task_id)}/report.html` : "";
-  const taskReportPdfUrl = detail ? `/api/tasks/${encodeURIComponent(detail.task.task_id)}/report.pdf` : "";
 
   if (page === "home") {
     return (
@@ -844,20 +843,17 @@ function App() {
         <section className="workspace workflow-workspace">
           <div className="workflow-topbar">
             <div>
-              <h1>流程节点</h1>
+              <div className="workflow-title-row">
+                <h1>流程节点</h1>
+                {detail ? (
+                  <a className="workflow-report-primary" href={taskReportHtmlUrl} target="_blank" rel="noreferrer">
+                    流程报告
+                  </a>
+                ) : null}
+              </div>
               <span className="muted">{detail ? `${detail.task.name} · ${detail.task.status}` : "未选择任务"}</span>
             </div>
             <div className="workflow-report-actions">
-              {detail ? (
-                <>
-                  <a className="workflow-report-primary" href={taskReportHtmlUrl} target="_blank" rel="noreferrer">
-                    出报告
-                  </a>
-                  <a className="workflow-report-secondary" href={taskReportPdfUrl} target="_blank" rel="noreferrer">
-                    PDF
-                  </a>
-                </>
-              ) : null}
               <span className="task-id">{detail ? detail.task.task_id : ""}</span>
             </div>
           </div>

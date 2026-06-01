@@ -1027,21 +1027,29 @@ h2 {
 }
 
 .workflow-topbar h1 {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 24px;
   line-height: 1.1;
   letter-spacing: 0;
 }
 
+.workflow-title-row,
 .workflow-report-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 10px;
   min-width: 0;
 }
 
-.workflow-report-actions a {
+.workflow-report-actions {
+  justify-content: flex-end;
+}
+
+.workflow-title-row {
+  margin: 0 0 4px;
+}
+
+.workflow-title-row a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1058,12 +1066,6 @@ h2 {
   color: #fff;
   background: linear-gradient(135deg, var(--accent), #0f6b57);
   box-shadow: 0 12px 26px rgba(15, 107, 87, 0.22);
-}
-
-.workflow-report-secondary {
-  border: 1px solid rgba(15, 107, 87, 0.22);
-  color: var(--accent-strong);
-  background: #eef8f7;
 }
 
 .panel-title {

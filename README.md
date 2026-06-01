@@ -204,7 +204,8 @@ The Reports workspace can also generate a task-level presentation report:
 
 - `GET /api/tasks/{task_id}/report.html` returns a 16:9 paginated HTML report with workflow lineage, method history, Agent summaries, and embedded result previews.
 - `GET /api/tasks/{task_id}/report.pdf` uses local Edge or Chrome headless printing when available.
-- The HTML report always keeps a `Print / Save as PDF` action as the portable fallback.
+- In the workflow canvas, the `流程报告` entry sits beside the `流程节点` title and opens the HTML report.
+- The HTML report always keeps a `打印 / 保存为 PDF` action as the portable PDF export path.
 
 ## 本地运行
 

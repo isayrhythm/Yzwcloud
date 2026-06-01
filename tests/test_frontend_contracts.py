@@ -426,18 +426,39 @@ def test_workflow_header_exposes_task_report_exports() -> None:
 
     for fragment in [
         "taskReportHtmlUrl",
-        "taskReportPdfUrl",
         "/report.html",
-        "/report.pdf",
+        "workflow-title-row",
         "workflow-report-actions",
         "workflow-report-primary",
-        "出报告",
+        "流程报告",
     ]:
         assert fragment in source
 
+    for removed in [
+        "taskReportPdfUrl",
+        "workflow-report-secondary",
+        ">PDF<",
+        "出报告",
+    ]:
+        assert removed not in source
+
     for fragment in [
+        ".workflow-title-row",
         ".workflow-report-actions",
         ".workflow-report-primary",
-        ".workflow-report-secondary",
     ]:
         assert fragment in styles
+
+    assert ".workflow-report-secondary" not in styles
+
+
+def test_output_urls_stay_same_origin_outside_explicit_api_base() -> None:
+    source = _source(ROOT / "web" / "src" / "workflow" / "format.js")
+    plot_source = _source(PLOT_STUDIO_PAGE)
+    main_source = _source(ROOT / "src" / "yzwcloud" / "main.py")
+
+    assert "VITE_YZWCLOUD_API_BASE" in source
+    assert 'port && port !== "8010"' not in source
+    assert ':8010${route}' not in source
+    assert 'port === "8011"' in plot_source
+    assert 'window.location.port === "8011"' in main_source

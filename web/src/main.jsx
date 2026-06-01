@@ -384,6 +384,7 @@ function App() {
       originalUrl: savedHtmlFile ? `${outputUrl(taskId, htmlFile)}?v=${version}` : "",
       hasSavedPlot: Boolean(savedHtmlFile),
       source,
+      agentReportNode: node.output?.meta?.agent_report ? node : null,
     });
   }
 
@@ -684,6 +685,7 @@ function App() {
 
   const openWorkbench = () => navigatePage("workbench");
   const openReports = () => navigatePage("reports");
+  const taskReportHtmlUrl = detail ? `/api/tasks/${encodeURIComponent(detail.task.task_id)}/report.html` : "";
 
   if (page === "home") {
     return (
@@ -841,10 +843,19 @@ function App() {
         <section className="workspace workflow-workspace">
           <div className="workflow-topbar">
             <div>
-              <h1>流程节点</h1>
+              <div className="workflow-title-row">
+                <h1>流程节点</h1>
+                {detail ? (
+                  <a className="workflow-report-primary" href={taskReportHtmlUrl} target="_blank" rel="noreferrer">
+                    流程报告
+                  </a>
+                ) : null}
+              </div>
               <span className="muted">{detail ? `${detail.task.name} · ${detail.task.status}` : "未选择任务"}</span>
             </div>
-            <span className="task-id">{detail ? detail.task.task_id : ""}</span>
+            <div className="workflow-report-actions">
+              <span className="task-id">{detail ? detail.task.task_id : ""}</span>
+            </div>
           </div>
           <div className="flow-panel" ref={flowPanelRef}>
             {detail ? (
@@ -906,8 +917,10 @@ function App() {
           originalUrl={modal.originalUrl}
           hasSavedPlot={modal.hasSavedPlot}
           source={modal.source}
+          agentReportNode={modal.agentReportNode}
           onClose={() => setModal(null)}
           onOpenPlotStudio={openPlotStudioFromResult}
+          onOpenAgentReport={openAgentReport}
         />
       ) : null}
       {modal?.kind === "agentReport" ? (
@@ -916,6 +929,7 @@ function App() {
       {modal?.kind === "nodeParams" ? (
         <NodeParamsModal
           node={modal.node}
+          detail={detail}
           onClose={() => setModal(null)}
           onSubmit={(params) => runNodeWithParams(modal.node.id, params)}
         />

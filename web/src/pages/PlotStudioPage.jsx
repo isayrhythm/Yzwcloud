@@ -26,7 +26,7 @@ let plotlyLoader = null;
 function plotlyScriptUrls() {
   const urls = ["/static/vendor/plotly.min.js"];
   const { protocol, hostname, port } = window.location;
-  if (hostname && port !== "8010") {
+  if (hostname && port === "8011") {
     urls.push(`${protocol}//${hostname}:8010/static/vendor/plotly.min.js`);
   }
   return Array.from(new Set(urls));

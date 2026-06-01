@@ -191,6 +191,22 @@ Current positioning:
 - Do not run project tests with short timeouts that can truncate a valid long run. If a test appears stuck, report how long it has been running and where it seems blocked, then ask before stopping it.
 - Do not delete test or demo workflows/tasks by default. Leave generated workflows for inspection unless cleanup is explicitly requested.
 
+## Node Report Agent
+
+Every completed workflow node writes a structured Agent summary in JSON and a printable HTML report.
+The report records the node output, method metadata, evidence-backed findings, interpretation boundaries, and next-step suggestions.
+
+- When `DEEPSEEK_API_KEY` is configured, the node report agent requests a concise LLM interpretation from DeepSeek.
+- When the key is missing or the request fails, the workflow keeps a rule-based fallback report so results remain inspectable and exportable.
+- `DEEPSEEK_REPORT_MODEL` can override the report model independently from `DEEPSEEK_ROUTER_MODEL`.
+
+The Reports workspace can also generate a task-level presentation report:
+
+- `GET /api/tasks/{task_id}/report.html` returns a 16:9 paginated HTML report with workflow lineage, method history, Agent summaries, and embedded result previews.
+- `GET /api/tasks/{task_id}/report.pdf` uses local Edge or Chrome headless printing when available.
+- In the workflow canvas, the `流程报告` entry sits beside the `流程节点` title and opens the HTML report.
+- The HTML report always keeps a `打印 / 保存为 PDF` action as the portable PDF export path.
+
 ## 本地运行
 
 要求：

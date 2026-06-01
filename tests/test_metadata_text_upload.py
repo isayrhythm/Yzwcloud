@@ -130,3 +130,31 @@ def test_batch_upload_classifies_metadata_and_data_files() -> None:
     batch = upload_node["params"]["uploaded_inputs"]["upload_batch"]
     assert batch["selected_data_file"] == "expression_matrix.csv"
     assert batch["metadata_files"] == ["sample_metadata.csv"]
+
+
+def test_batch_upload_prefers_metabolights_maf_over_isa_support_files() -> None:
+    fixture_dir = ROOT / "testdata" / "tmp_metabolomics_small"
+    client = TestClient(app)
+    created = _request(client, "POST", "/api/tasks", json={"name": "metabolights-batch-upload-test"})
+    task_id = created["task"]["task_id"]
+
+    files = [
+        ("files", ("a_MTBLS1_metabolite_profiling_NMR_spectroscopy.txt", (fixture_dir / "a_MTBLS1_metabolite_profiling_NMR_spectroscopy.txt").read_bytes(), "text/plain")),
+        ("files", ("i_Investigation.txt", (fixture_dir / "i_Investigation.txt").read_bytes(), "text/plain")),
+        ("files", ("m_MTBLS1_metabolite_profiling_NMR_spectroscopy_v2_maf.tsv", (fixture_dir / "m_MTBLS1_metabolite_profiling_NMR_spectroscopy_v2_maf.tsv").read_bytes(), "text/tab-separated-values")),
+        ("files", ("s_MTBLS1.txt", (fixture_dir / "s_MTBLS1.txt").read_bytes(), "text/plain")),
+    ]
+    response = client.post(f"/api/tasks/{task_id}/inputs", files=files)
+
+    assert response.status_code < 400, response.text
+    upload_node = _upload_node(response.json())
+    assert upload_node["params"]["source_path"].endswith("m_MTBLS1_metabolite_profiling_NMR_spectroscopy_v2_maf.tsv")
+    assert upload_node["params"]["sample_metadata_path"].endswith("s_MTBLS1.txt")
+    batch = upload_node["params"]["uploaded_inputs"]["upload_batch"]
+    assert batch["selected_data_file"] == "m_MTBLS1_metabolite_profiling_NMR_spectroscopy_v2_maf.tsv"
+    assert batch["data_files"] == ["m_MTBLS1_metabolite_profiling_NMR_spectroscopy_v2_maf.tsv"]
+    assert batch["metadata_files"] == ["s_MTBLS1.txt"]
+    assert {item["filename"] for item in batch["ignored_files"]} == {
+        "a_MTBLS1_metabolite_profiling_NMR_spectroscopy.txt",
+        "i_Investigation.txt",
+    }

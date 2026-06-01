@@ -168,6 +168,8 @@ export function ReportsPage({ tasks, activeTaskId, report, onSelectTask, onOpenA
   const outputs = report?.outputs || [];
   const sections = report?.sections || [];
   const logPreview = report?.logTail || "";
+  const reportHtmlUrl = task ? `/api/tasks/${encodeURIComponent(task.task_id)}/report.html` : "";
+  const reportPdfUrl = task ? `/api/tasks/${encodeURIComponent(task.task_id)}/report.pdf` : "";
 
   return (
     <main className="reports-page shell">
@@ -177,7 +179,11 @@ export function ReportsPage({ tasks, activeTaskId, report, onSelectTask, onOpenA
           <h1>{t("reportWorkspace")}</h1>
           <p className="summary">{t("reportSummary")}</p>
         </div>
-        <button className="primary" onClick={onOpenAnalysis}>{t("backToAnalysis")}</button>
+        <div className="report-hero-actions">
+          {task ? <a href={reportHtmlUrl} target="_blank" rel="noreferrer">演示版 HTML</a> : null}
+          {task ? <a href={reportPdfUrl} target="_blank" rel="noreferrer">导出 PDF</a> : null}
+          <button className="primary" onClick={onOpenAnalysis}>{t("backToAnalysis")}</button>
+        </div>
       </section>
 
       <section className="layout reports-layout">

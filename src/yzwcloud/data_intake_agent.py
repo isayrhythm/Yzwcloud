@@ -153,7 +153,8 @@ def run_data_intake_agent(
     standardized_data_type = str(success_strategy.get("data_type", "expression_matrix"))
     validated_capabilities = _capabilities_for_validation(validation)
     if standardized_data_type == "metabolomics_matrix" and validation["valid"]:
-        validated_capabilities.append("metabolomics_statistics")
+        validated_capabilities.append("metabolomics_normalization")
+        validated_capabilities.append("metabolomics_differential")
     capabilities = direct_capabilities_for_data_type(
         data_type=standardized_data_type,
         capabilities=validated_capabilities,
@@ -1015,10 +1016,15 @@ def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, s
             "label": "差异分析",
             "description": "选择两个样本分组进行差异表达分析。",
         },
-        "metabolomics_statistics": {
-            "type": "metabolomics_statistics",
-            "label": "Metabolomics statistics",
-            "description": "Run R preprocessing, QC, PCA, correlation, and differential metabolite statistics.",
+        "metabolomics_normalization": {
+            "type": "metabolomics_normalization",
+            "label": "Normalize / impute / scale",
+            "description": "Prepare metabolomics intensities for downstream exploratory and differential analysis.",
+        },
+        "metabolomics_differential": {
+            "type": "metabolomics_differential",
+            "label": "Metabolomics differential analysis",
+            "description": "Compare two metabolomics conditions and report differential metabolites.",
         },
     }
     return [specs[item] for item in capabilities if item in specs]
@@ -1033,7 +1039,7 @@ def _heuristic_plan(inspection: dict[str, Any]) -> dict[str, Any]:
     likely_feature_table = not inspection.get("likely_gene_columns") and inspection.get("numeric_column_ratio", 0) > 0.6
     if likely_metabolomics:
         data_type = "metabolomics_matrix"
-        capabilities = ["pca", "metabolomics_statistics"]
+        capabilities = ["pca", "metabolomics_normalization", "metabolomics_differential"]
     elif likely_single_cell:
         data_type = "single_cell_matrix"
         capabilities: list[str] = []

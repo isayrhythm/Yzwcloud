@@ -1,7 +1,7 @@
 import { Handle, Position } from "@xyflow/react";
 
 import { formatBytes, formatDateTime, outputUrl } from "../workflow/format.js";
-import { nextAnalysisOptions, summarizeOutput } from "../workflow/options.js";
+import { dataProfile, nextAnalysisOptions, summarizeOutput } from "../workflow/options.js";
 import { statusLabel } from "../workflow/status.js";
 
 export function AnalysisNode({ data }) {
@@ -13,25 +13,33 @@ export function AnalysisNode({ data }) {
     ? outputUrl(data.detail.task.task_id, node.output.meta.preview_file)
     : null;
   const canOpenResult = Boolean(node.output?.meta?.html_file);
+  const recognizedMeta = node.output?.meta?.data_type ? node.output.meta : null;
+  const recognizedProfile = recognizedMeta ? dataProfile(recognizedMeta) : null;
+  const recognizedFeatureCount = recognizedMeta?.metabolite_count || recognizedMeta?.gene_count || 0;
   const uploadedInputs = node.params?.uploaded_inputs || {};
   const uploadedInput = uploadedInputs.expression_matrix;
   const uploadBatch = uploadedInputs.upload_batch;
   const uploadedFileCount = uploadBatch?.files?.length || (uploadedInput ? 1 : 0);
   const dataFileCount = uploadBatch?.data_files?.length || (uploadedInput ? 1 : 0);
   const metadataFileCount = uploadBatch?.metadata_files?.length || (uploadedInputs.sample_metadata ? 1 : 0);
-  const ignoredFileCount = uploadBatch?.ignored_files?.length || 0;
+  const ignoredFiles = uploadBatch?.ignored_files || [];
+  const supportFileCount = ignoredFiles.filter((item) => item.reason?.startsWith("metabolights_")).length;
+  const ignoredFileCount = Math.max(0, ignoredFiles.length - supportFileCount);
   const extraDataCount = uploadBatch?.extra_data_files?.length || 0;
   const uploadBatchFiles = uploadBatch?.files
     ? uploadBatch.files.map((file) => {
         const filename = file.filename || "";
         let role = "已上传";
+        const ignoredFile = ignoredFiles.find((item) => item.filename === filename);
         if (filename === uploadBatch.selected_data_file) {
           role = "主数据";
         } else if (uploadBatch.metadata_files?.includes(filename)) {
           role = "metadata";
         } else if (uploadBatch.extra_data_files?.some((item) => item.filename === filename)) {
           role = "备用数据";
-        } else if (uploadBatch.ignored_files?.some((item) => item.filename === filename)) {
+        } else if (ignoredFile?.reason?.startsWith("metabolights_")) {
+          role = "辅助文件";
+        } else if (ignoredFile) {
           role = "未识别";
         } else if (uploadBatch.data_files?.includes(filename)) {
           role = "数据表";
@@ -39,7 +47,9 @@ export function AnalysisNode({ data }) {
         return { filename, role, size: file.size };
       })
     : [];
-  const uploadStateLabel = uploadedInput
+  const uploadStateLabel = recognizedMeta
+    ? "数据已识别"
+    : uploadedInput
     ? uploadedFileCount > 1
       ? `已上传 ${uploadedFileCount} 个文件`
       : "数据已识别："
@@ -62,17 +72,26 @@ export function AnalysisNode({ data }) {
           {uploadedInput ? (
             <label className="uploaded-file-card upload-file-picker">
               <span>{uploadStateLabel}</span>
-              <strong title={uploadedInput.filename}>主数据：{uploadedInput.filename}</strong>
-              <small>
-                {formatBytes(uploadedInput.size)}
-                {uploadedInput.uploaded_at ? ` 上传于 ${formatDateTime(uploadedInput.uploaded_at)}` : ""}
-              </small>
-              {uploadBatch ? (
+              {recognizedMeta ? (
                 <>
+                  <strong>{recognizedProfile.fullLabel}</strong>
+                  <small>
+                    {recognizedFeatureCount ? `${recognizedFeatureCount} ${recognizedProfile.featureLabel} / ` : ""}
+                    {recognizedMeta.sample_count || 0} samples
+                  </small>
+                </>
+              ) : (
+                <>
+                  <strong title={uploadedInput.filename}>主数据：{uploadedInput.filename}</strong>
+                  <small>
+                    {formatBytes(uploadedInput.size)}
+                    {uploadedInput.uploaded_at ? ` 上传于 ${formatDateTime(uploadedInput.uploaded_at)}` : ""}
+                  </small>
                   <div className="upload-batch-summary">
                     <span>数据表 {dataFileCount}</span>
                     <span>metadata {metadataFileCount}</span>
                     {extraDataCount ? <span>备用数据 {extraDataCount}</span> : null}
+                    {supportFileCount ? <span>辅助文件 {supportFileCount}</span> : null}
                     {ignoredFileCount ? <span>未识别 {ignoredFileCount}</span> : null}
                   </div>
                   <div className="upload-batch-files">
@@ -84,7 +103,7 @@ export function AnalysisNode({ data }) {
                     ))}
                   </div>
                 </>
-              ) : null}
+              )}
               <input
                 type="file"
                 accept=".csv,.tsv,.txt,.xlsx,.xlsm,.zip,.tar,.tgz,.gz,.tar.gz"
@@ -116,7 +135,7 @@ export function AnalysisNode({ data }) {
           ) : null}
         </div>
       ) : null}
-      {node.id === "upload_expression" && (node.status === "running" || node.params?.agent_progress) ? (
+      {node.id === "upload_expression" && (node.status === "running" || node.status === "failed") ? (
         <AgentProgress
           progress={node.params?.agent_progress}
           failed={node.status === "failed"}
@@ -124,10 +143,14 @@ export function AnalysisNode({ data }) {
         />
       ) : null}
       {previewUrl ? (
-        <button className="result-preview nodrag" onClick={() => data.onOpenResult(node)}>
-          <img src={previewUrl} alt={`${node.name} 预览`} />
-          {canOpenResult ? <span>点击查看结果</span> : null}
-        </button>
+        <div className="result-preview nodrag">
+          <button className="result-preview-main" type="button" onClick={() => data.onOpenResult(node)}>
+            <img src={previewUrl} alt={`${node.name} 预览`} />
+          </button>
+          <div className="result-preview-footer">
+            {canOpenResult ? <button type="button" onClick={() => data.onOpenResult(node)}>点击查看结果</button> : <span />}
+          </div>
+        </div>
       ) : null}
       <div className="node-actions">
         <button className="run" disabled={!canRun} onClick={() => data.onRun(node.id)}>

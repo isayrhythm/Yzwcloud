@@ -20,6 +20,7 @@ from yzwcloud.analyses.common import (
     variance,
     write_data_output,
 )
+from yzwcloud.analyses.metabolomics import create_metabolomics_normalization_result
 from yzwcloud.analyses.rendering import write_heatmap_html, write_heatmap_preview
 from yzwcloud.color_palette import condition_color_map
 from yzwcloud.models import DataObject
@@ -87,12 +88,18 @@ def create_qc_result(
     node_id: str,
     params: dict[str, Any] | None = None,
 ) -> DataObject:
-    qc_params = resolve_qc_params(params or {})
+    output_dir.mkdir(parents=True, exist_ok=True)
     matrix_path = Path(str(source.meta["matrix_file"]))
     metadata_path = Path(str(source.meta["sample_metadata_file"]))
     sample_columns = load_sample_columns(matrix_path, metadata_path)
     series = load_sample_series(matrix_path, sample_columns)
-    stats = [sample_qc_stats(column, values) for column, values in zip(sample_columns, series, strict=False)]
+    stats = [sample_qc_stats(column, values) for column, values in zip(sample_columns, series)]
+    feature_count = int(stats[0]["count"]) if stats else int(source.meta.get("gene_count") or source.meta.get("metabolite_count") or 0)
+    qc_params = resolve_qc_params(
+        params or {},
+        data_type=str(source.meta.get("data_type") or ""),
+        feature_count=feature_count,
+    )
     median_total = quantile(sorted(item["total"] for item in stats), 0.5) if stats else 0.0
     min_total = median_total * float(qc_params["min_total_ratio"])
     max_values = sorted(item["max"] for item in stats)
@@ -111,8 +118,8 @@ def create_qc_result(
             reasons.append("low_total")
         if item["zero_ratio"] > float(qc_params["max_zero_ratio"]):
             reasons.append("high_zero_ratio")
-        if item["detected_genes"] < int(qc_params["min_detected_genes"]):
-            reasons.append("low_detected_genes")
+        if item["detected_genes"] < int(qc_params["min_detected_features"]):
+            reasons.append("low_detected_features")
         if distribution_score > float(qc_params["max_distribution_mad"]):
             reasons.append("expression_distribution_outlier")
         if item["max"] > max_value_upper:
@@ -167,49 +174,151 @@ def create_qc_result(
             "min_total": round(min_total, 4),
             "max_distribution_mad": float(qc_params["max_distribution_mad"]),
             "max_value_upper": round(max_value_upper, 4),
+            "min_detected_features": int(qc_params["min_detected_features"]),
         },
     }
+    if qc_params.get("normalize_after_qc") and qc_params.get("qc_profile") == "metabolomics" and passed_columns:
+        normalized_output = create_metabolomics_normalization_result(
+            source=DataObject(
+                type="expression_matrix",
+                data=str(matrix_path),
+                meta={
+                    **source.meta,
+                    "data_type": "metabolomics_matrix",
+                    "matrix_file": str(matrix_path),
+                    "sample_metadata_file": str(filtered_metadata_path),
+                    "condition_colors": meta["condition_colors"],
+                },
+            ),
+            output_dir=output_dir,
+            node_id=f"{node_id}_{run_stamp}_normalize",
+            params=qc_params,
+        )
+        meta.update(
+            {
+                "matrix_file": normalized_output.meta["matrix_file"],
+                "differential_matrix_file": normalized_output.meta.get("differential_matrix_file", ""),
+                "normalization_applied": True,
+                "normalization_method": normalized_output.meta.get("normalization_method", ""),
+                "impute_method": normalized_output.meta.get("impute_method", ""),
+                "transform": normalized_output.meta.get("transform", ""),
+                "scaling": normalized_output.meta.get("scaling", ""),
+                "imputed_value_count": normalized_output.meta.get("imputed_value_count", 0),
+                "normalization_html_file": normalized_output.meta.get("html_file", ""),
+                "normalization_preview_file": normalized_output.meta.get("preview_file", ""),
+            }
+        )
     return write_data_output(output_json, "qc_report", meta)
 
 
-def resolve_qc_params(params: dict[str, Any]) -> dict[str, Any]:
-    presets = {
+def resolve_qc_params(
+    params: dict[str, Any],
+    data_type: str = "",
+    feature_count: int = 0,
+) -> dict[str, Any]:
+    expression_presets = {
         "loose": {
             "min_total_ratio": 0.15,
             "max_zero_ratio": 0.7,
-            "min_detected_genes": 500,
+            "min_detected_features": 500,
             "max_distribution_mad": 5.0,
             "max_value_iqr_multiplier": 3.0,
         },
         "normal": {
             "min_total_ratio": 0.25,
             "max_zero_ratio": 0.5,
-            "min_detected_genes": 1000,
+            "min_detected_features": 1000,
             "max_distribution_mad": 3.5,
             "max_value_iqr_multiplier": 1.5,
         },
         "strict": {
             "min_total_ratio": 0.4,
             "max_zero_ratio": 0.35,
-            "min_detected_genes": 1500,
+            "min_detected_features": 1500,
             "max_distribution_mad": 2.5,
             "max_value_iqr_multiplier": 1.0,
         },
     }
+    metabolomics_presets = {
+        "loose": {
+            "min_total_ratio": 0.10,
+            "max_zero_ratio": 0.75,
+            "min_detected_feature_ratio": 0.35,
+            "max_distribution_mad": 6.0,
+            "max_value_iqr_multiplier": 5.0,
+        },
+        "normal": {
+            "min_total_ratio": 0.20,
+            "max_zero_ratio": 0.60,
+            "min_detected_feature_ratio": 0.50,
+            "max_distribution_mad": 4.5,
+            "max_value_iqr_multiplier": 3.0,
+        },
+        "strict": {
+            "min_total_ratio": 0.30,
+            "max_zero_ratio": 0.45,
+            "min_detected_feature_ratio": 0.65,
+            "max_distribution_mad": 3.0,
+            "max_value_iqr_multiplier": 2.0,
+        },
+    }
+    legacy_detected_defaults = {"loose": 500, "normal": 1000, "strict": 1500}
     preset = str(params.get("qc_preset") or "normal").lower()
-    if preset not in presets:
+    if preset not in expression_presets:
         preset = "normal"
-    resolved = {"qc_preset": preset, **presets[preset]}
-    for key in [
-        "min_total_ratio",
-        "max_zero_ratio",
-        "min_detected_genes",
-        "max_distribution_mad",
-        "max_value_iqr_multiplier",
-    ]:
+    qc_profile = "metabolomics" if data_type == "metabolomics_matrix" else "expression"
+    if qc_profile == "metabolomics":
+        base = metabolomics_presets[preset].copy()
+        ratio = float(base.pop("min_detected_feature_ratio"))
+        detected_default = max(1, round(int(feature_count or 0) * ratio)) if feature_count else 0
+        resolved = {
+            "qc_preset": preset,
+            "qc_profile": qc_profile,
+            "feature_label": "metabolites",
+            **base,
+            "min_detected_features": detected_default,
+        }
+    else:
+        resolved = {
+            "qc_preset": preset,
+            "qc_profile": qc_profile,
+            "feature_label": "genes",
+            **expression_presets[preset],
+        }
+    for key in ["min_total_ratio", "max_zero_ratio", "max_distribution_mad", "max_value_iqr_multiplier"]:
         if key in params and params[key] not in {None, ""}:
             resolved[key] = params[key]
+    detected_value = params.get("min_detected_features", params.get("min_detected_genes"))
+    legacy_default = legacy_detected_defaults[preset]
+    should_ignore_legacy_detected = (
+        qc_profile == "metabolomics"
+        and "min_detected_features" not in params
+        and _numeric_equal(detected_value, legacy_default)
+    )
+    if detected_value not in {None, ""} and not should_ignore_legacy_detected:
+        resolved["min_detected_features"] = detected_value
+    if feature_count:
+        resolved["min_detected_features"] = min(max(0, int(float(resolved["min_detected_features"]))), int(feature_count))
+    else:
+        resolved["min_detected_features"] = max(0, int(float(resolved["min_detected_features"])))
+    resolved["min_detected_genes"] = resolved["min_detected_features"]
+    if qc_profile == "metabolomics":
+        resolved["normalize_after_qc"] = bool(params.get("normalize_after_qc", True))
+        resolved["impute_method"] = str(params.get("impute_method") or "half_min").lower()
+        resolved["normalization_method"] = str(params.get("normalization_method") or "tic_median").lower()
+        resolved["transform"] = str(params.get("transform") or "log2").lower()
+        resolved["scaling"] = str(params.get("scaling") or "pareto").lower()
+        resolved["treat_zero_as_missing"] = bool(params.get("treat_zero_as_missing", True))
+    else:
+        resolved["normalize_after_qc"] = False
     return resolved
+
+
+def _numeric_equal(value: Any, expected: int | float) -> bool:
+    try:
+        return float(value) == float(expected)
+    except (TypeError, ValueError):
+        return False
 
 
 def create_sample_correlation_result(source: DataObject, output_dir: Path, node_id: str) -> DataObject:
@@ -315,6 +424,9 @@ def create_gene_expression_result(
     node_id: str,
 ) -> DataObject:
     gene_query = str(params.get("gene") or "").strip()
+    is_metabolomics = source.meta.get("data_type") == "metabolomics_matrix" or params.get("data_type") == "metabolomics_matrix"
+    feature_label = "metabolite" if is_metabolomics else "gene"
+    feature_label_plural = "metabolites" if is_metabolomics else "genes"
     matrix_path = Path(str(source.meta["matrix_file"]))
     metadata_path = Path(str(source.meta["sample_metadata_file"]))
     sample_columns = load_sample_columns(matrix_path, metadata_path)
@@ -323,6 +435,10 @@ def create_gene_expression_result(
         gene_query = find_top_variable_gene(matrix_path, sample_columns)
         auto_selected = True
     gene_payload = find_gene_expression(matrix_path, sample_columns, gene_query)
+    gene_payload["feature_label"] = feature_label
+    gene_payload["feature_label_plural"] = feature_label_plural
+    gene_payload["plot_title"] = "Single metabolite abundance" if is_metabolomics else "Single gene expression"
+    gene_payload["value_label"] = "Abundance" if is_metabolomics else "Expression"
     gene_payload["condition_colors"] = condition_color_map(
         [column.condition for column in sample_columns],
         source.meta.get("condition_colors") or {},
@@ -341,9 +457,11 @@ def create_gene_expression_result(
         "gene_expression_table_file": str(plot_studio_table_path),
         "gene": gene_payload["gene"],
         "gene_id": gene_payload["gene_id"],
+        "feature_label": feature_label,
+        "value_label": gene_payload["value_label"],
         "sample_count": len(gene_payload["points"]),
         "auto_selected": auto_selected,
-        "selection_method": "top_variable_gene" if auto_selected else "manual",
+        "selection_method": f"top_variable_{feature_label}" if auto_selected else "manual",
     }
     return write_data_output(output_json, "gene_expression_plot", meta)
 
@@ -862,20 +980,25 @@ body{{margin:0;font-family:Inter,'Segoe UI','Microsoft YaHei',sans-serif;backgro
 .tip{{position:fixed;display:none;z-index:20;max-width:280px;padding:10px 12px;border-radius:10px;background:#172635;color:white;font-size:12px;line-height:1.5;box-shadow:0 12px 28px rgba(23,38,53,.22);pointer-events:none}}
 </style></head><body><div class="wrap"><h1>Multi-sample QC</h1>
 <div class="grid" id="summary"></div><div class="plots"><canvas id="before" width="1200" height="500"></canvas><canvas id="after" width="1200" height="500"></canvas></div>
-<section class="flagged"><table><thead><tr><th>Sample</th><th>Condition</th><th>Status</th><th>Total</th><th>Zero %</th><th>Detected genes</th><th>Outlier / reason</th></tr></thead><tbody id="rows"></tbody></table></section>
+<section class="flagged"><table><thead><tr><th>Sample</th><th>Condition</th><th>Status</th><th>Total</th><th>Zero %</th><th>Detected features</th><th>Outlier / reason</th></tr></thead><tbody id="rows"></tbody></table></section>
 </div><div class="tip" id="tip"></div><script>
 const data = {payload};
 const before = data.before;
 const after = data.after;
 const failed = before.filter(x => !x.qc_pass);
 const tip = document.getElementById('tip');
+const featureLabel = data.params.feature_label || 'features';
 const chartState = {{}};
 const mean = (items, key) => items.reduce((s, x) => s + Number(x[key] || 0), 0) / Math.max(items.length, 1);
+const postQcMatrix = data.params.normalize_after_qc ? `
+  <div class="card"><strong>Post-QC matrix</strong><div>impute: ${{data.params.impute_method || 'half_min'}}, normalize: ${{data.params.normalization_method || 'tic_median'}}, transform: ${{data.params.transform || 'log2'}}, scale: ${{data.params.scaling || 'pareto'}}</div></div>
+` : '';
 document.getElementById('summary').innerHTML = `
   <div class="card"><strong>Before QC</strong><div>${{before.length}} samples</div></div>
   <div class="card"><strong>After QC</strong><div>${{after.length}} samples</div></div>
   <div class="card"><strong>Flagged</strong><div>${{failed.length}} samples</div></div>
-  <div class="card"><strong>Parameters</strong><div>total >= median * ${{data.params.min_total_ratio}}, zero <= ${{data.params.max_zero_ratio}}, detected >= ${{data.params.min_detected_genes}}, outlier score <= ${{data.params.max_distribution_mad}}, max <= Q3 + ${{data.params.max_value_iqr_multiplier}} * IQR</div></div>
+  <div class="card"><strong>Parameters</strong><div>${{data.params.qc_profile || 'expression'}} QC: total >= median * ${{data.params.min_total_ratio}}, zero <= ${{data.params.max_zero_ratio}}, detected >= ${{data.params.min_detected_features || data.params.min_detected_genes}}, outlier score <= ${{data.params.max_distribution_mad}}, max <= Q3 + ${{data.params.max_value_iqr_multiplier}} * IQR</div></div>
+  ${{postQcMatrix}}
 `;
 document.getElementById('rows').innerHTML = before.map(item => `
   <tr><td>${{item.sample}}</td><td>${{item.condition}}</td><td class="${{item.qc_pass ? 'pass' : 'fail'}}">${{item.qc_pass ? 'pass' : 'flagged'}}</td>
@@ -889,12 +1012,12 @@ function draw(canvasId, items, title) {{
   ctx.fillStyle = '#172635'; ctx.font = '18px Inter, sans-serif'; ctx.fillText(title, left, 25);
   ctx.strokeStyle = '#d8e5ee'; ctx.beginPath(); ctx.moveTo(left, top); ctx.lineTo(left, top+height); ctx.lineTo(left+width, top+height); ctx.stroke();
   ctx.fillStyle = '#172635'; ctx.font = '700 14px Inter, sans-serif';
-  ctx.fillText('Y: expression value per gene', left, 52);
+  ctx.fillText(`Y: value per ${{featureLabel.slice(0, -1) || 'feature'}}`, left, 52);
   ctx.fillText('X: samples ordered as input metadata', left + width / 2 - 128, top + height + 98);
   ctx.save();
   ctx.translate(28, top + height / 2 + 92);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillText('expression value per gene', 0, 0);
+  ctx.fillText(`value per ${{featureLabel.slice(0, -1) || 'feature'}}`, 0, 0);
   ctx.restore();
   const vmax = Math.max(...before.map(x => x.max), 1);
   const sy = v => top + height - Number(v || 0) / vmax * height;
@@ -964,7 +1087,7 @@ function bindHover(canvasId) {{
       condition: ${{item.condition}} / group: ${{item.group}}<br>
       status: ${{item.qc_pass ? 'pass' : 'flagged'}}<br>
       total: ${{Number(item.total).toFixed(2)}} / zero: ${{(Number(item.zero_ratio) * 100).toFixed(1)}}%<br>
-      detected genes: ${{item.detected_genes}}<br>
+      detected features: ${{item.detected_genes}}<br>
       median: ${{Number(item.median).toFixed(2)}} / max: ${{Number(item.max).toFixed(2)}}<br>
       reason: ${{(item.qc_reasons || []).join(', ') || '-'}}
     `;
@@ -1032,20 +1155,25 @@ svg{{display:block;min-width:1080px;width:100%;height:auto}}
   <section class="plot-card"><div id="beforePlot"></div></section>
   <section class="plot-card"><div id="afterPlot"></div></section>
 </div>
-<section class="flagged"><table><thead><tr><th>Sample</th><th>Condition</th><th>Status</th><th>Total</th><th>Zero %</th><th>Detected genes</th><th>Outlier / reason</th></tr></thead><tbody id="rows"></tbody></table></section>
+<section class="flagged"><table><thead><tr><th>Sample</th><th>Condition</th><th>Status</th><th>Total</th><th>Zero %</th><th>Detected features</th><th>Outlier / reason</th></tr></thead><tbody id="rows"></tbody></table></section>
 </div><div class="tip" id="tip"></div><script>
 const data = {payload};
 const before = data.before;
 const after = data.after;
 const failed = before.filter(item => !item.qc_pass);
 const tip = document.getElementById('tip');
+const featureLabel = data.params.feature_label || 'features';
 const mean = (items, key) => items.reduce((sum, item) => sum + Number(item[key] || 0), 0) / Math.max(items.length, 1);
+const postQcMatrix = data.params.normalize_after_qc ? `
+  <div class="card"><strong>Post-QC matrix</strong><div>impute: ${{data.params.impute_method || 'half_min'}}, normalize: ${{data.params.normalization_method || 'tic_median'}}, transform: ${{data.params.transform || 'log2'}}, scale: ${{data.params.scaling || 'pareto'}}</div></div>
+` : '';
 document.getElementById('summary').innerHTML = `
   <div class="card"><strong>Before QC</strong><div>${{before.length}} samples</div></div>
   <div class="card"><strong>After QC</strong><div>${{after.length}} samples</div></div>
   <div class="card"><strong>Flagged</strong><div>${{failed.length}} samples</div></div>
   <div class="card"><strong>QC preset</strong><div>${{data.params.qc_preset || 'normal'}}</div></div>
-  <div class="card"><strong>Parameters</strong><div>total >= median * ${{data.params.min_total_ratio}}, zero <= ${{data.params.max_zero_ratio}}, detected >= ${{data.params.min_detected_genes}}, max <= Q3 + ${{data.params.max_value_iqr_multiplier}} * IQR</div></div>
+  <div class="card"><strong>Parameters</strong><div>${{data.params.qc_profile || 'expression'}} QC: total >= median * ${{data.params.min_total_ratio}}, zero <= ${{data.params.max_zero_ratio}}, detected >= ${{data.params.min_detected_features || data.params.min_detected_genes}}, max <= Q3 + ${{data.params.max_value_iqr_multiplier}} * IQR</div></div>
+  ${{postQcMatrix}}
 `;
 document.getElementById('rows').innerHTML = before.map(item => `
   <tr><td>${{item.sample}}</td><td>${{item.condition}}</td><td class="${{item.qc_pass ? 'pass' : 'fail'}}">${{item.qc_pass ? 'pass' : 'flagged'}}</td>
@@ -1066,9 +1194,9 @@ function renderPlot(containerId, items, title) {{
   const vmax = Math.max(...before.map(item => Number(item.max || 0)), 1);
   const sy = value => top + plotHeight - Number(value || 0) / vmax * plotHeight;
   svg.appendChild(svgEl('text', {{x: left, y: 28, fill: '#172635', 'font-size': 20, 'font-weight': 700}}, title));
-  svg.appendChild(svgEl('text', {{x: left, y: 54, class: 'axis-label'}}, 'Y: expression value per gene'));
+  svg.appendChild(svgEl('text', {{x: left, y: 54, class: 'axis-label'}}, `Y: value per ${{featureLabel.slice(0, -1) || 'feature'}}`));
   svg.appendChild(svgEl('text', {{x: left + plotWidth / 2 - 138, y: top + plotHeight + 104, class: 'axis-label'}}, 'X: samples ordered as input metadata'));
-  const yLabel = svgEl('text', {{x: 24, y: top + plotHeight / 2 + 90, class: 'axis-label', transform: `rotate(-90 24 ${{top + plotHeight / 2 + 90}})`}}, 'expression value per gene');
+  const yLabel = svgEl('text', {{x: 24, y: top + plotHeight / 2 + 90, class: 'axis-label', transform: `rotate(-90 24 ${{top + plotHeight / 2 + 90}})`}}, `value per ${{featureLabel.slice(0, -1) || 'feature'}}`);
   svg.appendChild(yLabel);
   svg.appendChild(svgEl('line', {{x1: left, y1: top, x2: left, y2: top + plotHeight, class: 'axis'}}));
   svg.appendChild(svgEl('line', {{x1: left, y1: top + plotHeight, x2: left + plotWidth, y2: top + plotHeight, class: 'axis'}}));
@@ -1092,7 +1220,7 @@ function renderPlot(containerId, items, title) {{
       tip.style.display = 'block';
       tip.style.left = `${{event.clientX + 14}}px`;
       tip.style.top = `${{event.clientY + 14}}px`;
-      tip.innerHTML = `<strong>${{item.sample}}</strong><br>condition: ${{item.condition}} / group: ${{item.group}}<br>status: ${{item.qc_pass ? 'pass' : 'flagged'}}<br>total: ${{Number(item.total).toFixed(2)}} / zero: ${{(Number(item.zero_ratio) * 100).toFixed(1)}}%<br>detected genes: ${{item.detected_genes}}<br>median: ${{Number(item.median).toFixed(2)}} / max: ${{Number(item.max).toFixed(2)}}<br>reason: ${{(item.qc_reasons || []).join(', ') || '-'}}`;
+      tip.innerHTML = `<strong>${{item.sample}}</strong><br>condition: ${{item.condition}} / group: ${{item.group}}<br>status: ${{item.qc_pass ? 'pass' : 'flagged'}}<br>total: ${{Number(item.total).toFixed(2)}} / zero: ${{(Number(item.zero_ratio) * 100).toFixed(1)}}%<br>detected features: ${{item.detected_genes}}<br>median: ${{Number(item.median).toFixed(2)}} / max: ${{Number(item.max).toFixed(2)}}<br>reason: ${{(item.qc_reasons || []).join(', ') || '-'}}`;
     }});
     group.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
     svg.appendChild(group);
@@ -1243,9 +1371,12 @@ def write_correlation_preview(path: Path, matrix: list[list[float]]) -> None:
 
 def write_gene_expression_html(path: Path, gene_payload: dict[str, Any]) -> None:
     payload = json.dumps(gene_payload, ensure_ascii=False)
+    plot_title = str(gene_payload.get("plot_title") or "Single gene expression")
+    value_label = str(gene_payload.get("value_label") or "Expression")
+    file_slug = "metabolite-abundance" if gene_payload.get("feature_label") == "metabolite" else "gene-expression"
     path.write_text(
         f"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>Gene Expression</title>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>{html.escape(plot_title)}</title>
 <script src="/static/vendor/plotly.min.js"></script>
 <style>
 body{{margin:0;font-family:Inter,'Noto Sans SC',Arial,sans-serif;background:#f4f8fb;color:#07131f}}
@@ -1263,6 +1394,7 @@ p{{margin:0;color:#52616b}}
 </head><body><div class="wrap"><div class="head"><div><h1>单基因表达：{html.escape(str(gene_payload["gene"]))}</h1><p>{html.escape(str(gene_payload["gene_id"]))}</p></div><div class="summary" id="summary"></div></div><div class="plot-frame"><div id="plot"></div></div></div>
 <script>
 const data = {payload};
+document.querySelector('h1').textContent = `${{data.plot_title || 'Single gene expression'}}: ${{data.gene || 'feature'}}`;
 const palette = ['#0f8a8f', '#315fd6', '#c44f3a', '#7b61b5', '#20804f', '#c27a18', '#b33d7a', '#52616b'];
 const conditionColors = data.condition_colors || {{}};
 const groups = Object.keys(data.groups || {{}});
@@ -1296,21 +1428,21 @@ const traces = groups.map((name, index) => {{
     marker: {{color, size: 8, opacity: 0.72, line: {{color: '#ffffff', width: 1}}}},
     line: {{color, width: 2}},
     fillcolor: transparentColor(color, 0.2),
-    hovertemplate: '<b>%{{text}}</b><br>condition=%{{x}}<br>expression=%{{y:.4f}}<br>group=%{{customdata[0]}}<br>mean=%{{customdata[1]}}<br>median=%{{customdata[2]}}<extra></extra>',
+    hovertemplate: '<b>%{{text}}</b><br>condition=%{{x}}<br>{html.escape(value_label).lower()}=%{{y:.4f}}<br>group=%{{customdata[0]}}<br>mean=%{{customdata[1]}}<br>median=%{{customdata[2]}}<extra></extra>',
     boxmean: true,
   }};
 }});
 try {{
 if (!window.Plotly) throw new Error('Plotly library did not load');
 Plotly.newPlot(plotEl, traces, {{
-  title: {{text: 'Expression distribution by condition', x: 0.02, xanchor: 'left'}},
+  title: {{text: '{html.escape(value_label)} distribution by condition', x: 0.02, xanchor: 'left'}},
   width: 1180,
   height: 680,
   paper_bgcolor: '#ffffff',
   plot_bgcolor: '#ffffff',
   margin: {{l: 74, r: 28, t: 70, b: 86}},
   xaxis: {{title: 'Condition', zeroline: false, tickangle: groups.length > 5 ? -30 : 0}},
-  yaxis: {{title: 'Expression', zeroline: false, gridcolor: '#e8f0f5'}},
+  yaxis: {{title: '{html.escape(value_label)}', zeroline: false, gridcolor: '#e8f0f5'}},
   boxmode: 'group',
   hovermode: 'closest',
   showlegend: groups.length <= 8,
@@ -1319,7 +1451,7 @@ Plotly.newPlot(plotEl, traces, {{
   responsive: false,
   displayModeBar: false,
   displaylogo: false,
-  toImageButtonOptions: {{format: 'png', filename: `gene-expression-${{data.gene || 'gene'}}`, height: 900, width: 1400, scale: 2}},
+  toImageButtonOptions: {{format: 'png', filename: `{file_slug}-${{data.gene || 'feature'}}`, height: 900, width: 1400, scale: 2}},
 }});
 }} catch (error) {{
   plotEl.className = 'plot-error';
@@ -1332,6 +1464,7 @@ Plotly.newPlot(plotEl, traces, {{
 
 def write_gene_expression_preview(path: Path, gene_payload: dict[str, Any]) -> None:
     boxes = []
+    preview_label = "Abundance boxplot" if gene_payload.get("feature_label") == "metabolite" else "Expression boxplot"
     groups = list(gene_payload["groups"].items())
     max_mean = max((item["mean"] for _, item in groups), default=1)
     min_mean = min((item["mean"] for _, item in groups), default=0)
@@ -1346,7 +1479,7 @@ def write_gene_expression_preview(path: Path, gene_payload: dict[str, Any]) -> N
             f'<line x1="{x - 8}" x2="{x + 8}" y1="{median_y:.1f}" y2="{median_y:.1f}" stroke="#07131f" stroke-width="2"/>'
         )
     path.write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f4f8fb"/><text x="12" y="17" font-size="11" fill="#17211b">{html.escape(str(gene_payload["gene"]))}</text><text x="12" y="31" font-size="9" fill="#52616b">Interactive boxplot</text>{"".join(boxes)}</svg>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f4f8fb"/><text x="12" y="17" font-size="11" fill="#17211b">{html.escape(str(gene_payload["gene"]))}</text><text x="12" y="31" font-size="9" fill="#52616b">{html.escape(preview_label)}</text>{"".join(boxes)}</svg>',
         encoding="utf-8",
     )
 

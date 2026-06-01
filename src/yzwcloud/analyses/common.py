@@ -28,16 +28,34 @@ def load_sample_columns(matrix_path: Path, metadata_path: Path) -> list[SampleCo
     with metadata_path.open(encoding="utf-8-sig", newline="") as metadata_file:
         metadata = list(csv.DictReader(metadata_file))
 
-    raw_columns = [
-        SampleColumn(
-            index=GENE_INFO_COLUMNS + idx,
-            name=meta["sample"],
-            condition=meta["condition"],
-            group=meta.get("group", ""),
-        )
-        for idx, meta in enumerate(metadata)
-        if GENE_INFO_COLUMNS + idx < len(header)
-    ]
+    header_indexes: dict[str, list[int]] = {}
+    for index, name in enumerate(header[GENE_INFO_COLUMNS:], start=GENE_INFO_COLUMNS):
+        header_indexes.setdefault(name, []).append(index)
+
+    raw_columns = []
+    for idx, meta in enumerate(metadata):
+        fallback_index = GENE_INFO_COLUMNS + idx
+        sample_name = meta["sample"]
+        matched_indexes = header_indexes.get(sample_name) or []
+        if matched_indexes:
+            for matched_index in matched_indexes:
+                raw_columns.append(
+                    SampleColumn(
+                        index=matched_index,
+                        name=sample_name,
+                        condition=meta["condition"],
+                        group=meta.get("group", ""),
+                    )
+                )
+        elif fallback_index < len(header):
+            raw_columns.append(
+                SampleColumn(
+                    index=fallback_index,
+                    name=sample_name,
+                    condition=meta["condition"],
+                    group=meta.get("group", ""),
+                )
+            )
 
     counts: dict[str, int] = {}
     for item in raw_columns:
@@ -84,16 +102,33 @@ def read_diff_rows(path: Path) -> list[dict[str, Any]]:
     with path.open(encoding="utf-8-sig", newline="") as file:
         rows = []
         for row in csv.DictReader(file):
+            gene = row.get("gene") or row.get("metabolite") or row.get("feature_name") or row.get("feature_id") or ""
+            gene_id = row.get("gene_id") or row.get("feature_id") or gene
+            p_value = _float_value(row.get("p_value"), row.get("pvalue"), row.get("p_adjust"), default=1.0)
+            neg_log10_p = _float_value(row.get("neg_log10_p"), default=-math.log10(max(p_value, 1e-300)))
             rows.append(
                 {
-                    "gene": row["gene"],
-                    "gene_id": row["gene_id"],
-                    "log2fc": float(row["log2fc"]),
-                    "p_value": float(row["p_value"]),
-                    "neg_log10_p": float(row["neg_log10_p"]),
+                    "gene": gene,
+                    "gene_id": gene_id,
+                    "log2fc": _float_value(row.get("log2fc"), row.get("log2_fc")),
+                    "p_value": p_value,
+                    "neg_log10_p": neg_log10_p,
                 }
             )
         return rows
+
+
+def _float_value(*values: Any, default: float = 0.0) -> float:
+    for value in values:
+        if value in {None, ""}:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            return number
+    return default
 
 
 def load_sample_series(matrix_path: Path, columns: list[SampleColumn]) -> list[list[float]]:

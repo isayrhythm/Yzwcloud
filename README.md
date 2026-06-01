@@ -200,6 +200,12 @@ The report records the node output, method metadata, evidence-backed findings, i
 - When the key is missing or the request fails, the workflow keeps a rule-based fallback report so results remain inspectable and exportable.
 - `DEEPSEEK_REPORT_MODEL` can override the report model independently from `DEEPSEEK_ROUTER_MODEL`.
 
+The Reports workspace can also generate a task-level presentation report:
+
+- `GET /api/tasks/{task_id}/report.html` returns a 16:9 paginated HTML report with workflow lineage, method history, Agent summaries, and embedded result previews.
+- `GET /api/tasks/{task_id}/report.pdf` uses local Edge or Chrome headless printing when available.
+- The HTML report always keeps a `Print / Save as PDF` action as the portable fallback.
+
 ## 本地运行
 
 要求：

@@ -18,28 +18,40 @@ export function ConfirmDeleteModal({ title, message, confirmLabel, onClose, onCo
   );
 }
 
-export function ResultModal({ title, url, originalUrl, hasSavedPlot, source, onClose, onOpenPlotStudio }) {
+export function ResultModal({ title, url, originalUrl, hasSavedPlot, source, agentReportNode, onClose, onOpenPlotStudio, onOpenAgentReport }) {
   return (
     <div className="result-backdrop">
       <section className="result-shell">
         <div className="result-header">
           <div>
-            <h2>{title}</h2>
+            <div className="result-title-row">
+              <h2>{title}</h2>
+              {source && onOpenPlotStudio ? (
+                <button
+                  className="result-plot-send"
+                  type="button"
+                  onClick={() => onOpenPlotStudio(source)}
+                  title="Send this result to Plot Studio"
+                >
+                  Plot Studio
+                </button>
+              ) : null}
+              {agentReportNode && onOpenAgentReport ? (
+                <button
+                  className="result-agent-summary"
+                  type="button"
+                  onClick={() => onOpenAgentReport(agentReportNode)}
+                  title="Open the agent summary for this result"
+                >
+                  Agent 总结
+                </button>
+              ) : null}
+            </div>
             {hasSavedPlot ? <span>已显示 Plot Studio 保存图</span> : null}
           </div>
           <div className="result-header-actions">
             {originalUrl && hasSavedPlot ? (
               <a href={originalUrl} target="_blank" rel="noreferrer">原始结果</a>
-            ) : null}
-            {source && onOpenPlotStudio ? (
-              <button
-                className="result-plot-send"
-                type="button"
-                onClick={() => onOpenPlotStudio(source)}
-                title="Send this result to Plot Studio"
-              >
-                Plot Studio
-              </button>
             ) : null}
             <button className="result-close" type="button" onClick={onClose}>×</button>
           </div>

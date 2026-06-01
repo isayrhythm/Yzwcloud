@@ -13,7 +13,6 @@ export function AnalysisNode({ data }) {
     ? outputUrl(data.detail.task.task_id, node.output.meta.preview_file)
     : null;
   const canOpenResult = Boolean(node.output?.meta?.html_file);
-  const canOpenAgentSummary = Boolean(node.output?.meta?.agent_report);
   const recognizedMeta = node.output?.meta?.data_type ? node.output.meta : null;
   const recognizedProfile = recognizedMeta ? dataProfile(recognizedMeta) : null;
   const recognizedFeatureCount = recognizedMeta?.metabolite_count || recognizedMeta?.gene_count || 0;
@@ -144,20 +143,19 @@ export function AnalysisNode({ data }) {
         />
       ) : null}
       {previewUrl ? (
-        <button className="result-preview nodrag" onClick={() => data.onOpenResult(node)}>
-          <img src={previewUrl} alt={`${node.name} 预览`} />
-          {canOpenResult ? <span>点击查看结果</span> : null}
-        </button>
+        <div className="result-preview nodrag">
+          <button className="result-preview-main" type="button" onClick={() => data.onOpenResult(node)}>
+            <img src={previewUrl} alt={`${node.name} 预览`} />
+          </button>
+          <div className="result-preview-footer">
+            {canOpenResult ? <button type="button" onClick={() => data.onOpenResult(node)}>点击查看结果</button> : <span />}
+          </div>
+        </div>
       ) : null}
       <div className="node-actions">
         <button className="run" disabled={!canRun} onClick={() => data.onRun(node.id)}>
           {node.id === "diff_analysis" ? "创建下游分析" : node.status === "failed" ? "重新运行" : "运行节点"}
         </button>
-        {canOpenAgentSummary ? (
-          <button className="agent-summary" type="button" onClick={() => data.onOpenAgentReport(node)}>
-            Agent 总结
-          </button>
-        ) : null}
         {options.length ? (
           <button className="add-next" onClick={() => data.onAddNext(node.id)} title="添加下游节点">
             +

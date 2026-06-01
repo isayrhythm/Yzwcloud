@@ -59,6 +59,7 @@ from yzwcloud.task_store import (
     save_task_inputs_auto,
     update_sample_groups,
 )
+from yzwcloud.task_report import build_task_report, render_task_report_pdf
 
 app = FastAPI(title="Yzwcloud Bioinformatics Platform", version="0.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -329,6 +330,35 @@ def api_get_task(task_id: str) -> TaskDetail:
         return TaskDetail(task=load_task(task_id), graph=load_graph(task_id))
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc
+
+
+@app.get("/api/tasks/{task_id}/report.html", include_in_schema=False)
+def api_get_task_report_html(task_id: str) -> FileResponse:
+    try:
+        report = build_task_report(task_id)
+        return FileResponse(report["html_file"], media_type="text/html")
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+
+
+@app.get("/api/tasks/{task_id}/report.json")
+def api_get_task_report_json(task_id: str) -> dict[str, object]:
+    try:
+        return build_task_report(task_id)
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+
+
+@app.get("/api/tasks/{task_id}/report.pdf", include_in_schema=False)
+def api_get_task_report_pdf(task_id: str) -> FileResponse:
+    try:
+        report = build_task_report(task_id)
+        pdf_path = render_task_report_pdf(report)
+        return FileResponse(pdf_path, media_type="application/pdf", filename=f"{task_id}_analysis_report.pdf")
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.delete("/api/tasks/{task_id}", status_code=204)

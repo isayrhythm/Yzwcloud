@@ -384,6 +384,7 @@ function App() {
       originalUrl: savedHtmlFile ? `${outputUrl(taskId, htmlFile)}?v=${version}` : "",
       hasSavedPlot: Boolean(savedHtmlFile),
       source,
+      agentReportNode: node.output?.meta?.agent_report ? node : null,
     });
   }
 
@@ -684,6 +685,8 @@ function App() {
 
   const openWorkbench = () => navigatePage("workbench");
   const openReports = () => navigatePage("reports");
+  const taskReportHtmlUrl = detail ? `/api/tasks/${encodeURIComponent(detail.task.task_id)}/report.html` : "";
+  const taskReportPdfUrl = detail ? `/api/tasks/${encodeURIComponent(detail.task.task_id)}/report.pdf` : "";
 
   if (page === "home") {
     return (
@@ -844,7 +847,19 @@ function App() {
               <h1>流程节点</h1>
               <span className="muted">{detail ? `${detail.task.name} · ${detail.task.status}` : "未选择任务"}</span>
             </div>
-            <span className="task-id">{detail ? detail.task.task_id : ""}</span>
+            <div className="workflow-report-actions">
+              {detail ? (
+                <>
+                  <a className="workflow-report-primary" href={taskReportHtmlUrl} target="_blank" rel="noreferrer">
+                    出报告
+                  </a>
+                  <a className="workflow-report-secondary" href={taskReportPdfUrl} target="_blank" rel="noreferrer">
+                    PDF
+                  </a>
+                </>
+              ) : null}
+              <span className="task-id">{detail ? detail.task.task_id : ""}</span>
+            </div>
           </div>
           <div className="flow-panel" ref={flowPanelRef}>
             {detail ? (
@@ -906,8 +921,10 @@ function App() {
           originalUrl={modal.originalUrl}
           hasSavedPlot={modal.hasSavedPlot}
           source={modal.source}
+          agentReportNode={modal.agentReportNode}
           onClose={() => setModal(null)}
           onOpenPlotStudio={openPlotStudioFromResult}
+          onOpenAgentReport={openAgentReport}
         />
       ) : null}
       {modal?.kind === "agentReport" ? (

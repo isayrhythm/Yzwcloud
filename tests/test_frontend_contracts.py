@@ -15,6 +15,7 @@ STATIC_ASSETS = ROOT / "src" / "yzwcloud" / "static" / "assets"
 I18N = ROOT / "web" / "src" / "i18n.jsx"
 ANALYSIS_NODE = ROOT / "web" / "src" / "components" / "AnalysisNode.jsx"
 WORKFLOW_MODALS = ROOT / "web" / "src" / "components" / "WorkflowModals.jsx"
+REPORTS_PAGE = ROOT / "web" / "src" / "pages" / "ReportsPage.jsx"
 
 
 def _source(path: Path) -> str:
@@ -332,12 +333,14 @@ def test_analysis_nodes_surface_agent_summary_reports() -> None:
     modal_source = _source(WORKFLOW_MODALS)
     styles = _source(STYLESHEET)
 
-    for fragment in [
+    for removed in [
         "const canOpenAgentSummary = Boolean(node.output?.meta?.agent_report)",
-        'className="agent-summary"',
-        "data.onOpenAgentReport(node)",
+        "result-preview-agent",
+        "inline-agent-summary",
+        "upload-agent-summary",
+        "node-output-tools",
     ]:
-        assert fragment in node_source
+        assert removed not in node_source
 
     for fragment in [
         "const analysisReport = node.output?.meta?.agent_report || null",
@@ -349,10 +352,92 @@ def test_analysis_nodes_surface_agent_summary_reports() -> None:
     ]:
         assert fragment in modal_source
 
-    for fragment in [
+    for removed in [
         ".analysis-node .agent-summary",
+        ".result-preview-agent",
+        ".analysis-node .inline-agent-summary",
+        ".upload-agent-summary",
+        ".node-output-tools",
+    ]:
+        assert removed not in styles
+
+    for fragment in [
         ".analysis-agent-report-modal",
         ".agent-report-badge.fallback",
         ".analysis-agent-report-grid",
+    ]:
+        assert fragment in styles
+
+
+def test_result_modal_keeps_plot_studio_next_to_title() -> None:
+    modal_source = _source(WORKFLOW_MODALS)
+    main_source = _source(MAIN_PAGE)
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        "result-title-row",
+        "result-plot-send",
+        "result-agent-summary",
+        "Plot Studio",
+        "Agent 总结",
+    ]:
+        assert fragment in modal_source
+
+    assert "agentReportNode={modal.agentReportNode}" in main_source
+    assert "onOpenAgentReport={openAgentReport}" in main_source
+
+    title_row = modal_source.index("result-title-row")
+    plot_button = modal_source.index("result-plot-send")
+    agent_button = modal_source.index("result-agent-summary")
+    header_actions = modal_source.index("result-header-actions")
+    assert title_row < plot_button < agent_button < header_actions
+
+    for fragment in [
+        ".result-title-row",
+        ".result-title-row .result-plot-send",
+        ".result-title-row .result-agent-summary",
+    ]:
+        assert fragment in styles
+
+
+def test_reports_page_links_slide_html_and_pdf_exports() -> None:
+    source = _source(REPORTS_PAGE)
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        "/report.html",
+        "/report.pdf",
+        "演示版 HTML",
+        "导出 PDF",
+        "report-hero-actions",
+    ]:
+        assert fragment in source
+
+    for fragment in [
+        ".report-hero-actions",
+        ".report-hero-actions a",
+    ]:
+        assert fragment in styles
+
+
+def test_workflow_header_exposes_task_report_exports() -> None:
+    source = _source(MAIN_PAGE)
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        "taskReportHtmlUrl",
+        "taskReportPdfUrl",
+        "/report.html",
+        "/report.pdf",
+        "workflow-report-actions",
+        "workflow-report-primary",
+        "出报告",
+    ]:
+        assert fragment in source
+
+    for fragment in [
+        ".workflow-report-actions",
+        ".workflow-report-primary",
+        ".workflow-report-secondary",
     ]:
         assert fragment in styles

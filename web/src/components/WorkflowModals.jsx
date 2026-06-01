@@ -52,9 +52,54 @@ export function ResultModal({ title, url, originalUrl, hasSavedPlot, source, onC
 
 export function AgentReportModal({ node, onClose }) {
   const progress = node.params?.agent_progress || {};
-  const report = node.params?.agent_report || {};
+  const analysisReport = node.output?.meta?.agent_report || null;
+  const report = analysisReport || node.params?.agent_report || {};
   const history = progress.history || [];
   const uploaded = node.params?.uploaded_inputs?.expression_matrix;
+  if (analysisReport) {
+    const sections = [
+      ["关键发现", report.findings],
+      ["方法与参数", report.methods],
+      ["解释边界", report.warnings],
+      ["下一步建议", report.next_steps],
+    ];
+    return (
+      <Modal onClose={onClose}>
+        <section className="modal agent-report-modal analysis-agent-report-modal">
+          <div className="agent-report-heading">
+            <div>
+              <h2>{report.title || `${node.name} · Agent 总结`}</h2>
+              <p>{report.summary}</p>
+            </div>
+            <span className={`agent-report-badge ${report.generated_by === "llm" ? "llm" : "fallback"}`}>
+              {report.generated_by === "llm" ? "LLM" : "规则化回退"}
+            </span>
+          </div>
+          <div className="analysis-agent-report-grid">
+            {sections.map(([title, items]) => (
+              <div className="report-block" key={title}>
+                <strong>{title}</strong>
+                <ul className="report-list">
+                  {(items || []).map((item, index) => <li key={`${title}-${index}`}>{item}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <div className="report-grid">
+            <span>输出类型</span>
+            <strong>{report.output_type || node.output?.type || "-"}</strong>
+            <span>生成方式</span>
+            <strong>{report.generated_by || "-"}</strong>
+            <span>LLM 状态</span>
+            <strong>{report.llm_status || "-"}</strong>
+          </div>
+          <div className="modal-actions">
+            <button type="button" onClick={onClose}>关闭</button>
+          </div>
+        </section>
+      </Modal>
+    );
+  }
   return (
     <Modal onClose={onClose}>
       <section className="modal agent-report-modal">

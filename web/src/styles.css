@@ -1703,6 +1703,17 @@ h2 {
   font-weight: 800;
 }
 
+.analysis-node .agent-summary {
+  padding: 5px 9px;
+  border: 1px solid rgba(123, 97, 181, 0.28);
+  border-radius: 999px;
+  color: #5b3f9b;
+  background: rgba(123, 97, 181, 0.09);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .run:disabled {
   cursor: not-allowed;
   opacity: 0.45;
@@ -2128,6 +2139,54 @@ h2 {
 
 .agent-report-modal {
   width: min(620px, 100%);
+}
+
+.analysis-agent-report-modal {
+  width: min(820px, 100%);
+}
+
+.agent-report-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.agent-report-heading h2 {
+  margin-bottom: 8px;
+}
+
+.agent-report-heading p {
+  margin: 0;
+  line-height: 1.65;
+}
+
+.agent-report-badge {
+  align-self: flex-start;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: #0f6b57;
+  background: #e8f7f4;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.agent-report-badge.fallback {
+  color: #6b4d12;
+  background: #fff6dd;
+}
+
+.analysis-agent-report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.analysis-agent-report-grid .report-block {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfdfd;
 }
 
 .report-block {

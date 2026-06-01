@@ -191,6 +191,15 @@ Current positioning:
 - Do not run project tests with short timeouts that can truncate a valid long run. If a test appears stuck, report how long it has been running and where it seems blocked, then ask before stopping it.
 - Do not delete test or demo workflows/tasks by default. Leave generated workflows for inspection unless cleanup is explicitly requested.
 
+## Node Report Agent
+
+Every completed workflow node writes a structured Agent summary in JSON and a printable HTML report.
+The report records the node output, method metadata, evidence-backed findings, interpretation boundaries, and next-step suggestions.
+
+- When `DEEPSEEK_API_KEY` is configured, the node report agent requests a concise LLM interpretation from DeepSeek.
+- When the key is missing or the request fails, the workflow keeps a rule-based fallback report so results remain inspectable and exportable.
+- `DEEPSEEK_REPORT_MODEL` can override the report model independently from `DEEPSEEK_ROUTER_MODEL`.
+
 ## 本地运行
 
 要求：

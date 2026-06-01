@@ -6,6 +6,7 @@ from datetime import datetime
 from yzwcloud.data_intake_agent import build_failure_report
 from yzwcloud.models import DataObject, Graph, GraphNode, NodeStatus, TaskStatus
 from yzwcloud.node_registry import execute_demo_node
+from yzwcloud.report_agent import attach_node_agent_report
 from yzwcloud.task_store import (
     append_log,
     get_task_dir,
@@ -65,6 +66,16 @@ def run_node(task_id: str, node_id: str, params: dict) -> None:
             progress_callback=_make_progress_callback(task_id, node_id)
             if node_id == "upload_expression"
             else None,
+        )
+        output = attach_node_agent_report(
+            node_id=node_id,
+            node_name=node.name,
+            node_description=node.description,
+            output=output,
+            params=merged_params,
+            inputs=inputs,
+            output_dir=get_task_dir(task_id) / "outputs",
+            use_llm=bool(merged_params.get("use_llm_report", True)),
         )
 
         graph = load_graph(task_id)

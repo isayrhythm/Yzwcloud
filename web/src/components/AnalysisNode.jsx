@@ -13,6 +13,7 @@ export function AnalysisNode({ data }) {
     ? outputUrl(data.detail.task.task_id, node.output.meta.preview_file)
     : null;
   const canOpenResult = Boolean(node.output?.meta?.html_file);
+  const canOpenAgentSummary = Boolean(node.output?.meta?.agent_report);
   const recognizedMeta = node.output?.meta?.data_type ? node.output.meta : null;
   const recognizedProfile = recognizedMeta ? dataProfile(recognizedMeta) : null;
   const recognizedFeatureCount = recognizedMeta?.metabolite_count || recognizedMeta?.gene_count || 0;
@@ -152,6 +153,11 @@ export function AnalysisNode({ data }) {
         <button className="run" disabled={!canRun} onClick={() => data.onRun(node.id)}>
           {node.id === "diff_analysis" ? "创建下游分析" : node.status === "failed" ? "重新运行" : "运行节点"}
         </button>
+        {canOpenAgentSummary ? (
+          <button className="agent-summary" type="button" onClick={() => data.onOpenAgentReport(node)}>
+            Agent 总结
+          </button>
+        ) : null}
         {options.length ? (
           <button className="add-next" onClick={() => data.onAddNext(node.id)} title="添加下游节点">
             +

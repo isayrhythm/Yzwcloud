@@ -13,6 +13,8 @@ STYLESHEET = ROOT / "web" / "src" / "styles.css"
 STATIC_INDEX = ROOT / "src" / "yzwcloud" / "static" / "index.html"
 STATIC_ASSETS = ROOT / "src" / "yzwcloud" / "static" / "assets"
 I18N = ROOT / "web" / "src" / "i18n.jsx"
+ANALYSIS_NODE = ROOT / "web" / "src" / "components" / "AnalysisNode.jsx"
+WORKFLOW_MODALS = ROOT / "web" / "src" / "components" / "WorkflowModals.jsx"
 
 
 def _source(path: Path) -> str:
@@ -323,3 +325,34 @@ def test_homepage_keeps_agent_flow_animation_contract() -> None:
         assert fragment in styles
 
     assert "homeWorkflowDemo" in i18n
+
+
+def test_analysis_nodes_surface_agent_summary_reports() -> None:
+    node_source = _source(ANALYSIS_NODE)
+    modal_source = _source(WORKFLOW_MODALS)
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        "const canOpenAgentSummary = Boolean(node.output?.meta?.agent_report)",
+        'className="agent-summary"',
+        "data.onOpenAgentReport(node)",
+    ]:
+        assert fragment in node_source
+
+    for fragment in [
+        "const analysisReport = node.output?.meta?.agent_report || null",
+        "关键发现",
+        "方法与参数",
+        "解释边界",
+        "下一步建议",
+        "规则化回退",
+    ]:
+        assert fragment in modal_source
+
+    for fragment in [
+        ".analysis-node .agent-summary",
+        ".analysis-agent-report-modal",
+        ".agent-report-badge.fallback",
+        ".analysis-agent-report-grid",
+    ]:
+        assert fragment in styles

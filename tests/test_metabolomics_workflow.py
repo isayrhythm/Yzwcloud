@@ -129,6 +129,27 @@ def test_metabolomics_intake_accepts_wide_feature_matrix(tmp_path: Path) -> None
     assert "metabolomics_normalization" in result.meta["capabilities"]
 
 
+def test_intake_detects_comma_delimited_protein_group_tsv(tmp_path: Path) -> None:
+    source_path = ROOT / "testdata" / "Leaf.report.pg_matrix.tsv"
+
+    result = run_data_intake_agent(
+        source_path=source_path,
+        output_dir=tmp_path / "outputs",
+        params={"use_llm": False},
+    )
+
+    assert result.meta["data_type"] == "metabolomics_matrix"
+    assert result.meta["assay_profile"] == "protein"
+    assert result.meta["feature_label"] == "proteins"
+    assert result.meta["sample_count"] == 6
+    assert 12000 <= result.meta["metabolite_count"] <= 13286
+    assert result.meta["conditions"] == {"MT": 3, "WT": 3}
+    assert result.meta["standardization"]["mode"] == "protein_group_matrix"
+    assert result.meta["standardization"]["source_encoding"] == "utf-8-sig"
+    assert result.meta["standardization"]["selected_sample_count"] == 6
+    assert "metabolomics_differential" in result.meta["capabilities"]
+
+
 def test_metabolomics_statistics_runs_r_outputs_tables(tmp_path: Path) -> None:
     maf, sample = _write_metabolights_fixture(tmp_path)
     source = run_data_intake_agent(

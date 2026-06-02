@@ -765,7 +765,10 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
         description = _qc_node_description_for_data_type(source_meta)
     elif analysis_type == "metabolomics_differential":
         profile = _matrix_profile(source_meta)
-        if profile["assay_profile"] == "feature_intensity":
+        if profile["assay_profile"] == "protein":
+            name = "Protein differential analysis"
+            description = "Compare two protein-group conditions and report differential proteins with fold change and p-values."
+        elif profile["assay_profile"] == "feature_intensity":
             name = "Feature differential analysis"
             description = "Compare two feature-intensity conditions and report differential features with fold change and p-values."
         params.update(
@@ -777,7 +780,9 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
         )
     elif analysis_type == "metabolomics_normalization":
         profile = _matrix_profile(source_meta)
-        if profile["assay_profile"] == "feature_intensity":
+        if profile["assay_profile"] == "protein":
+            description = "Impute missing protein intensities, normalize sample signal, transform, and scale for downstream protein analysis."
+        elif profile["assay_profile"] == "feature_intensity":
             description = "Impute missing feature values, normalize sample signal, transform, and scale for downstream feature analysis."
         params.update(
             {
@@ -788,7 +793,10 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
         )
     elif analysis_type == "gene_expression" and source_meta.get("data_type") == "metabolomics_matrix":
         profile = _matrix_profile(source_meta)
-        if profile["assay_profile"] == "feature_intensity":
+        if profile["assay_profile"] == "protein":
+            name = "Single protein abundance"
+            description = "View one quantified protein across sample groups."
+        elif profile["assay_profile"] == "feature_intensity":
             name = "Single feature abundance"
             description = "View one quantified feature across sample groups."
         else:
@@ -858,7 +866,10 @@ def _qc_defaults_for_data_type(meta: dict[str, Any]) -> dict[str, Any]:
 
 def _qc_node_name_for_data_type(meta: dict[str, Any]) -> str:
     if meta.get("data_type") == "metabolomics_matrix":
-        if _matrix_profile(meta)["assay_profile"] == "feature_intensity":
+        profile = _matrix_profile(meta)
+        if profile["assay_profile"] == "protein":
+            return "Protein matrix QC"
+        if profile["assay_profile"] == "feature_intensity":
             return "Feature matrix QC"
         return "Metabolomics QC"
     return "Expression matrix QC"
@@ -866,7 +877,10 @@ def _qc_node_name_for_data_type(meta: dict[str, Any]) -> str:
 
 def _qc_node_description_for_data_type(meta: dict[str, Any]) -> str:
     if meta.get("data_type") == "metabolomics_matrix":
-        if _matrix_profile(meta)["assay_profile"] == "feature_intensity":
+        profile = _matrix_profile(meta)
+        if profile["assay_profile"] == "protein":
+            return "Inspect protein-group sample totals, missing/zero ratios, detected proteins, and distribution outliers."
+        if profile["assay_profile"] == "feature_intensity":
             return "Inspect feature-matrix sample totals, missing/zero ratios, detected features, and distribution outliers."
         return "Inspect metabolomics sample totals, missing/zero ratios, detected metabolites, and distribution outliers."
     return "Inspect expression sample totals, zero ratios, detected genes, and distribution outliers."
@@ -874,6 +888,13 @@ def _qc_node_description_for_data_type(meta: dict[str, Any]) -> str:
 
 def _matrix_profile(meta: dict[str, Any]) -> dict[str, str]:
     assay_profile = str(meta.get("assay_profile") or "")
+    if assay_profile == "protein":
+        return {
+            "assay_profile": "protein",
+            "analysis_profile": "feature_intensity",
+            "feature_label": "proteins",
+            "feature_singular": "protein",
+        }
     if assay_profile == "feature_intensity":
         return {
             "assay_profile": "feature_intensity",

@@ -4,6 +4,7 @@ import csv
 import gzip
 import json
 import os
+import re
 import shutil
 import tarfile
 import time
@@ -352,6 +353,7 @@ def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any
     numeric_ratios = _numeric_ratios(preview, len(header))
     likely_gene_columns = [name for name in GENE_COLUMNS if name in header]
     likely_metabolomics_columns = _likely_metabolomics_columns(header)
+    likely_protein_columns = _likely_protein_group_columns(header)
     likely_feature_matrix = _looks_like_quantitative_feature_matrix(header, preview, likely_gene_columns)
     raw_sample_metadata = _read_sample_metadata(metadata_path) if metadata_path and metadata_path.exists() else []
     sample_metadata = _dedupe_metadata_by_sample(raw_sample_metadata)
@@ -377,19 +379,21 @@ def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any
         "numeric_sample_column_ratio": _numeric_sample_ratio(preview, sample_column_indices),
         "likely_gene_columns": likely_gene_columns,
         "likely_metabolomics_columns": likely_metabolomics_columns,
+        "likely_protein_group_columns": likely_protein_columns,
+        "likely_protein_group_matrix": bool(likely_protein_columns) and likely_feature_matrix,
         "likely_quantitative_feature_matrix": likely_feature_matrix,
     }
 
 
 def _infer_delimiter(path: Path) -> str:
-    if path.suffix.lower() in {".tsv", ".txt"}:
-        return "\t"
     try:
         sample = path.read_text(encoding=_detect_text_encoding(path), errors="ignore")[:4096]
         dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
+        return str(dialect.delimiter)
     except (OSError, csv.Error):
+        if path.suffix.lower() in {".tsv", ".txt"}:
+            return "\t"
         return ","
-    return str(dialect.delimiter)
 
 
 def _detect_text_encoding(path: Path) -> str:
@@ -412,6 +416,20 @@ def _likely_metabolomics_columns(header: list[str]) -> list[str]:
         "smiles",
         "inchi",
         "smallmolecule_abundance_sub",
+    }
+    return [normalized[item] for item in markers if item in normalized]
+
+
+def _likely_protein_group_columns(header: list[str]) -> list[str]:
+    normalized = {_metadata_key(name): name for name in header}
+    markers = {
+        "protein_names",
+        "protein_ids",
+        "protein_group",
+        "genes",
+        "first_protein_description",
+        "n_sequences",
+        "n_proteotypic_sequences",
     }
     return [normalized[item] for item in markers if item in normalized]
 
@@ -771,12 +789,13 @@ def _standardize_metabolomics_table(
         if not selected_samples:
             raise ValueError("No usable metabolomics sample columns were detected")
 
+        is_protein_group_matrix = bool(inspection.get("likely_protein_group_matrix"))
         is_generic_feature_matrix = bool(inspection.get("likely_quantitative_feature_matrix")) and not bool(
             inspection.get("likely_metabolomics_columns")
         )
-        assay_profile = "feature_intensity" if is_generic_feature_matrix else "metabolomics"
-        feature_kind = "feature" if is_generic_feature_matrix else "metabolite"
-        feature_label = "features" if is_generic_feature_matrix else "metabolites"
+        assay_profile = "protein" if is_protein_group_matrix else "feature_intensity" if is_generic_feature_matrix else "metabolomics"
+        feature_kind = "protein" if is_protein_group_matrix else "feature" if is_generic_feature_matrix else "metabolite"
+        feature_label = "proteins" if is_protein_group_matrix else "features" if is_generic_feature_matrix else "metabolites"
         header_lookup = {name.strip().lower(): index for index, name in enumerate(header)}
         header_key_lookup = {_metadata_key(name): index for index, name in enumerate(header)}
         sample_indices = {index for _, index in selected_samples}
@@ -811,14 +830,18 @@ def _standardize_metabolomics_table(
                 if not any(_is_number(value) for value in values):
                     continue
                 feature_name = _first_text(
+                    _value_by_header_key(row, header_key_lookup, "genes"),
                     _value_by_header(row, header_lookup, "metabolite_identification"),
                     _value_by_header_key(row, header_key_lookup, "compound_name"),
                     _value_by_header_key(row, header_key_lookup, "compound_name_nmol_l"),
+                    _value_by_header_key(row, header_key_lookup, "first_protein_description"),
                     _first_non_sample_text(row, sample_indices),
                     _value_by_header(row, header_lookup, "chemical_shift"),
                     f"metabolite_{index}",
                 )
                 feature_id = _first_text(
+                    _value_by_header_key(row, header_key_lookup, "protein_names"),
+                    _value_by_header_key(row, header_key_lookup, "protein_ids"),
                     _value_by_header(row, header_lookup, "database_identifier"),
                     _value_by_header_key(row, header_key_lookup, "feature_id"),
                     _value_by_header_key(row, header_key_lookup, "id"),
@@ -856,7 +879,7 @@ def _standardize_metabolomics_table(
         "sample_metadata_file": str(sample_meta_path),
         "gene_annotation_file": str(annotation_path),
         "standardization": {
-            "mode": "feature_intensity_matrix" if is_generic_feature_matrix else "metabolomics_matrix_from_maf",
+            "mode": "protein_group_matrix" if is_protein_group_matrix else "feature_intensity_matrix" if is_generic_feature_matrix else "metabolomics_matrix_from_maf",
             "assay_profile": assay_profile,
             "feature_label": feature_label,
             "selected_sample_count": len(selected_samples),
@@ -909,6 +932,19 @@ def _metabolomics_sample_columns(
         "smallmolecule_abundance_sub",
         "smallmolecule_abundance_stdev_sub",
         "smallmolecule_abundance_std_error_sub",
+        "protein.names",
+        "protein_names",
+        "protein ids",
+        "protein_ids",
+        "protein group",
+        "protein_group",
+        "genes",
+        "first.protein.description",
+        "first_protein_description",
+        "n.sequences",
+        "n_sequences",
+        "n.proteotypic.sequences",
+        "n_proteotypic_sequences",
     }
     selected = []
     for index, name in enumerate(header):
@@ -1021,6 +1057,8 @@ def _validate_expression_matrix(matrix_path: Path, metadata_path: Path) -> dict[
     for row in preview:
         for idx in sample_indices:
             if idx >= len(row):
+                continue
+            if _is_missing_value(row[idx]):
                 continue
             numeric_total += 1
             if _is_number(row[idx]):
@@ -1362,6 +1400,7 @@ def _infer_group_from_sample_name(sample: str) -> str:
     else:
         prefix = name.strip()
     prefix = prefix.removeprefix("Group ").strip()
+    prefix = re.sub(r"(?<=[A-Za-z])\d+$", "", prefix).strip()
     return prefix or "unknown"
 
 

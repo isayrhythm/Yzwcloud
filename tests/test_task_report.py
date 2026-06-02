@@ -78,6 +78,9 @@ def test_task_report_builds_slide_html_with_workflow_and_real_preview(tmp_path: 
     assert "用户做了什么" in html_text
     assert "实际结果图" in html_text
     assert '<iframe class="result-frame"' in html_text
+    assert 'scrolling="no"' in html_text
+    assert "transform:scale(var(--frame-scale))" in html_text
+    assert "fitResultFrames" in html_text
     assert f"/api/tasks/{task_id}/outputs/upload_result.html" in html_text
     assert 'class="print-fallback"' in html_text
     assert "data:image/svg+xml;base64," in html_text

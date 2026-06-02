@@ -619,6 +619,7 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
 <style>{_report_css()}</style></head><body>
 <button class="print-button" onclick="window.print()">打印 / 保存为 PDF</button>
 {"".join(pages)}
+<script>{_report_script()}</script>
 </body></html>"""
 
 
@@ -649,7 +650,7 @@ def _figure_grid(figures: list[dict[str, Any]]) -> str:
             media += (
                 f'<iframe class="result-frame" src="{html.escape(figure["html_url"])}" '
                 f'title="{html.escape(figure["title"])}" loading="lazy" '
-                'sandbox="allow-scripts allow-same-origin"></iframe>'
+                'scrolling="no" sandbox="allow-scripts allow-same-origin"></iframe>'
             )
         if figure.get("preview"):
             fallback_class = "print-fallback" if figure.get("html_url") else ""
@@ -689,11 +690,29 @@ main{padding-top:20px}.cover{display:grid;align-content:center;min-height:570px}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:34px 0}.metrics div{padding:16px;border:1px solid #d8e6e7;border-radius:16px;background:#f8fbfb}.metrics span{display:block;color:#68808a;font-size:13px}.metrics strong{display:block;margin-top:6px;color:#0f6b57;font-size:30px}
 .workflow-figure{height:520px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#f6fbfb}.workflow-figure img{display:block;width:100%;height:auto}
 table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}th,td{padding:10px;border-bottom:1px solid #e4eeee;text-align:left;vertical-align:top}th{color:#0f6b57;background:#f0f8f7}td small{display:block;margin-top:4px;color:#829198}
-.figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 330px auto;padding:16px;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.figure-card>div:first-child{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#7b61b5;font-size:12px;font-weight:800}.result-media{position:relative;overflow:hidden;border:1px solid #e2ecec;border-radius:14px;background:#fff}.result-frame{width:100%;height:100%;border:0;background:#fff}.figure-card img{width:100%;height:100%;object-fit:contain}.print-fallback{display:none}.figure-card p{margin:8px 0 0;color:#546b75;font-size:14px;line-height:1.55}
+.figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 330px auto;padding:16px;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.figure-card>div:first-child{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#7b61b5;font-size:12px;font-weight:800}.result-media{--frame-width:1280px;--frame-height:760px;--frame-scale:.4;position:relative;overflow:hidden;border:1px solid #e2ecec;border-radius:14px;background:#fff}.result-frame{width:var(--frame-width);height:var(--frame-height);border:0;background:#fff;transform:scale(var(--frame-scale));transform-origin:top left}.figure-card img{width:100%;height:100%;object-fit:contain}.print-fallback{display:none}.figure-card p{margin:8px 0 0;color:#546b75;font-size:14px;line-height:1.55}
 .split,.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split>section,.summary-grid>section{padding:16px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.split>section{max-height:560px}.summary-grid>section{max-height:250px}.note{margin:0 0 10px;padding:10px;border-left:4px solid #0f8a8f;background:#f4fbfb}.note strong{color:#0f6b57}.note ul,ul{margin:8px 0;padding-left:20px}li{margin:5px 0;line-height:1.45}pre{max-height:470px;padding:12px;overflow:auto;border-radius:12px;background:#102b35;color:#d8f5f0;font-size:11px;white-space:pre-wrap}
 footer{position:absolute;right:44px;bottom:18px;color:#8b999e;font-size:11px}
-@media(max-width:760px){.slide{padding:26px 24px 34px}.cover h1{font-size:38px}.metrics{grid-template-columns:repeat(2,1fr)}.split,.summary-grid,.figure-grid{grid-template-columns:1fr}.figure-card{grid-template-rows:auto 220px auto}.figure-card img{height:210px}}
+@media(max-width:760px){.slide{padding:26px 24px 34px}.cover h1{font-size:38px}.metrics{grid-template-columns:repeat(2,1fr)}.split,.summary-grid,.figure-grid{grid-template-columns:1fr}.figure-card{grid-template-rows:auto 220px auto}.result-media{--frame-scale:.26}.figure-card img{height:210px}}
 @media print{body{background:#fff}.print-button{display:none}.slide{width:1280px;height:720px;margin:0;padding:34px 44px 38px;overflow:hidden;box-shadow:none}.split,.summary-grid,.figure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.result-frame{display:none}.print-fallback{display:block}}
+"""
+
+
+def _report_script() -> str:
+    return """
+function fitResultFrames(){
+  document.querySelectorAll('.result-media').forEach(function(media){
+    var frame = media.querySelector('.result-frame');
+    if (!frame) return;
+    var frameWidth = parseFloat(getComputedStyle(media).getPropertyValue('--frame-width')) || 1280;
+    var frameHeight = parseFloat(getComputedStyle(media).getPropertyValue('--frame-height')) || 760;
+    var scale = Math.min(media.clientWidth / frameWidth, media.clientHeight / frameHeight);
+    media.style.setProperty('--frame-scale', Math.max(0.18, Math.min(0.6, scale)).toFixed(4));
+  });
+}
+window.addEventListener('load', fitResultFrames);
+window.addEventListener('resize', fitResultFrames);
+setTimeout(fitResultFrames, 250);
 """
 
 

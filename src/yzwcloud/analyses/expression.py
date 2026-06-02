@@ -425,8 +425,27 @@ def create_gene_expression_result(
 ) -> DataObject:
     gene_query = str(params.get("gene") or "").strip()
     is_metabolomics = source.meta.get("data_type") == "metabolomics_matrix" or params.get("data_type") == "metabolomics_matrix"
-    feature_label = "metabolite" if is_metabolomics else "gene"
-    feature_label_plural = "metabolites" if is_metabolomics else "genes"
+    assay_profile = str(source.meta.get("assay_profile") or params.get("assay_profile") or "")
+    if is_metabolomics and assay_profile == "protein":
+        feature_label = "protein"
+        feature_label_plural = "proteins"
+        plot_title = "Single protein abundance"
+        value_label = "Intensity"
+    elif is_metabolomics and assay_profile == "feature_intensity":
+        feature_label = "feature"
+        feature_label_plural = "features"
+        plot_title = "Single feature abundance"
+        value_label = "Intensity"
+    elif is_metabolomics:
+        feature_label = "metabolite"
+        feature_label_plural = "metabolites"
+        plot_title = "Single metabolite abundance"
+        value_label = "Abundance"
+    else:
+        feature_label = "gene"
+        feature_label_plural = "genes"
+        plot_title = "Single gene expression"
+        value_label = "Expression"
     matrix_path = Path(str(source.meta["matrix_file"]))
     metadata_path = Path(str(source.meta["sample_metadata_file"]))
     sample_columns = load_sample_columns(matrix_path, metadata_path)
@@ -437,8 +456,8 @@ def create_gene_expression_result(
     gene_payload = find_gene_expression(matrix_path, sample_columns, gene_query)
     gene_payload["feature_label"] = feature_label
     gene_payload["feature_label_plural"] = feature_label_plural
-    gene_payload["plot_title"] = "Single metabolite abundance" if is_metabolomics else "Single gene expression"
-    gene_payload["value_label"] = "Abundance" if is_metabolomics else "Expression"
+    gene_payload["plot_title"] = plot_title
+    gene_payload["value_label"] = value_label
     gene_payload["condition_colors"] = condition_color_map(
         [column.condition for column in sample_columns],
         source.meta.get("condition_colors") or {},

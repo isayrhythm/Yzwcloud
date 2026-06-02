@@ -105,8 +105,6 @@ export function nextAnalysisOptions(node, detail) {
       { type: "heatmap", label: isMetabolomics ? "Diff metabolite heatmap" : "DE genes heatmap" },
       { type: "volcano", label: "Volcano plot" },
       { type: "enrichment", label: isMetabolomics ? "Pathway analysis" : "Enrichment analysis" },
-      { type: "diff_export", label: "Result export" },
-      { type: "analysis_report", label: "Report" },
     ];
   }
   return [];

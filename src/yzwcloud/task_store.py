@@ -578,8 +578,6 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
         "heatmap",
         "volcano",
         "enrichment",
-        "diff_export",
-        "analysis_report",
     }:
         _add_diff_downstream_node(graph, source_node_id, analysis_type)
         save_graph(graph)
@@ -889,20 +887,6 @@ def _add_diff_downstream_node(graph: Graph, diff_node_id: str, analysis_type: st
             "Check whether annotated differential features are concentrated in known pathways or terms.",
             "enrichment_result",
             {"database": "KEGG/HMDB" if is_metabolomics else "GO", "p_adjust": 0.05},
-        ),
-        "diff_export": (
-            f"diff_export__{suffix}",
-            f"Result export: {comparison}",
-            "Export the differential result table and preview top rows.",
-            "diff_export",
-            {},
-        ),
-        "analysis_report": (
-            f"analysis_report__{suffix}",
-            f"Report: {comparison}",
-            "Collect workflow outputs into a report-ready analysis summary.",
-            "planned_analysis",
-            {"analysis_family": "metabolomics_report" if is_metabolomics else "analysis_report"},
         ),
     }
     if analysis_type not in specs:

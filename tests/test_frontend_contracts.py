@@ -16,6 +16,7 @@ I18N = ROOT / "web" / "src" / "i18n.jsx"
 ANALYSIS_NODE = ROOT / "web" / "src" / "components" / "AnalysisNode.jsx"
 WORKFLOW_MODALS = ROOT / "web" / "src" / "components" / "WorkflowModals.jsx"
 REPORTS_PAGE = ROOT / "web" / "src" / "pages" / "ReportsPage.jsx"
+WORKFLOW_OPTIONS = ROOT / "web" / "src" / "workflow" / "options.js"
 
 
 def _source(path: Path) -> str:
@@ -326,6 +327,22 @@ def test_homepage_keeps_agent_flow_animation_contract() -> None:
         assert fragment in styles
 
     assert "homeWorkflowDemo" in i18n
+
+
+def test_diff_followup_options_do_not_show_export_or_report_nodes() -> None:
+    source = _source(WORKFLOW_OPTIONS)
+    diff_options = re.search(
+        r'if \(node\.id\.startsWith\("diff_analysis__"\).*?return \[(?P<body>.*?)\];',
+        source,
+        flags=re.S,
+    )
+    assert diff_options, "Differential follow-up options must stay explicit."
+    body = diff_options.group("body")
+
+    assert "diff_export" not in body
+    assert "analysis_report" not in body
+    assert "Result export" not in body
+    assert "Report" not in body
 
 
 def test_analysis_nodes_surface_agent_summary_reports() -> None:

@@ -15,6 +15,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from yzwcloud.main import app  # noqa: E402
+from yzwcloud.models import DataObject, GraphNode, NodeStatus  # noqa: E402
+from yzwcloud.task_store import create_analysis_node, create_task, delete_task, load_graph, save_graph  # noqa: E402
 
 
 DATA_FILE = ROOT / "expression_matrix.csv"
@@ -96,6 +98,47 @@ def _first_gene_name() -> str:
             if row and (row[0] or row[1]):
                 return row[0] or row[1]
     raise AssertionError("No gene name found in expression matrix")
+
+
+def test_diff_followup_rejects_export_and_report_nodes() -> None:
+    task, graph = create_task("diff-followup-options-test")
+    try:
+        diff_node = GraphNode(
+            id="diff_analysis__case_vs_control",
+            name="Diff analysis: case vs control",
+            description="Synthetic completed differential node.",
+            status=NodeStatus.COMPLETED,
+            input_types=["expression_matrix"],
+            output_type="diff_result",
+            depends_on=["upload_expression"],
+            output=DataObject(
+                type="diff_result",
+                data="diff.csv",
+                meta={"comparison_label": "case vs control"},
+            ),
+        )
+        graph.nodes.append(diff_node)
+        graph.edges.append({"source": "upload_expression", "target": diff_node.id})
+        save_graph(graph)
+
+        for allowed_type in ("heatmap", "volcano", "enrichment"):
+            create_analysis_node(task.task_id, diff_node.id, allowed_type)
+        allowed_graph = load_graph(task.task_id)
+        allowed_output_types = {
+            node.output_type
+            for node in allowed_graph.nodes
+            if node.depends_on == [diff_node.id]
+        }
+        assert allowed_output_types == {"heatmap_plot", "volcano_plot", "enrichment_result"}
+
+        for removed_type in ("diff_export", "analysis_report"):
+            try:
+                create_analysis_node(task.task_id, diff_node.id, removed_type)
+            except ValueError:
+                continue
+            raise AssertionError(f"{removed_type} should not be creatable from differential results")
+    finally:
+        delete_task(task.task_id)
 
 
 def test_transcriptome_workflow() -> None:
@@ -227,7 +270,6 @@ def test_transcriptome_workflow() -> None:
         for analysis_type, output_type in [
             ("volcano", "volcano_plot"),
             ("heatmap", "heatmap_plot"),
-            ("diff_export", "diff_export"),
         ]:
             _create_analysis_node(client, task_id, diff_node_id, analysis_type)
             detail = _request(client, "GET", f"/api/tasks/{task_id}")
@@ -241,6 +283,13 @@ def test_transcriptome_workflow() -> None:
             assert result_node["output"]["type"] == output_type
             _assert_output_file(result_node, "html_file")
             _assert_output_file(result_node, "preview_file")
+
+        for removed_type in ("diff_export", "analysis_report"):
+            response = client.post(
+                f"/api/tasks/{task_id}/analysis-nodes",
+                json={"source_node_id": diff_node_id, "analysis_type": removed_type},
+            )
+            assert response.status_code == 400
 
     finally:
         print(f"Kept transcriptome test task: {task_id}")

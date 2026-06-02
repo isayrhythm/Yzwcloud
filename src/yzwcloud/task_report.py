@@ -240,7 +240,17 @@ def _method_lines(meta: dict[str, Any], params: dict[str, Any]) -> list[str]:
     methods = []
     if meta.get("method"):
         methods.append(f"方法：{meta['method']}。")
-    for key in ("qc_preset", "p_value", "log2fc", "cluster_method", "normalization_method", "transform", "scaling"):
+    for key in (
+        "qc_preset",
+        "p_value",
+        "log2fc",
+        "univariate_method",
+        "vip_threshold",
+        "cluster_method",
+        "normalization_method",
+        "transform",
+        "scaling",
+    ):
         value = (meta.get("params") or {}).get(key, meta.get(key, params.get(key)))
         if value not in {None, ""}:
             methods.append(f"{key}={value}")

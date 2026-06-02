@@ -728,9 +728,9 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             "metabolomics_differential": (
                 "metabolomics_differential__matrix",
                 "Metabolomics differential analysis",
-                "Compare two metabolomics conditions and report differential metabolites with fold change and p-values.",
+                "Compare two metabolomics conditions and report differential metabolites with fold change, p-values, PLS-DA scores, and VIP values.",
                 "metabolomics_differential_result",
-                {"p_value": 0.05, "log2fc": 1.0},
+                {"p_value": 0.05, "log2fc": 1.0, "univariate_method": "t_test", "vip_threshold": 1.0},
             ),
             "metabolomics_normalization": (
                 "metabolomics_normalization__matrix",

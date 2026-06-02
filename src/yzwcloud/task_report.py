@@ -15,7 +15,7 @@ from typing import Any
 from yzwcloud.models import Graph, GraphNode
 from yzwcloud.task_store import get_task_dir, load_graph, load_task, read_log
 
-DEFAULT_REPORT_MODEL = "deepseek-chat"
+DEFAULT_REPORT_MODEL = "deepseek-v4-flash"
 
 TASK_REPORT_SYSTEM_PROMPT = """You are YZW BioCloud Workflow Report Agent.
 Write a concise Chinese workflow-level report from node-level bioinformatics reports.

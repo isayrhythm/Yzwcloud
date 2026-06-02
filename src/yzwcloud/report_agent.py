@@ -13,7 +13,7 @@ from yzwcloud.config import PROJECT_ROOT
 from yzwcloud.models import DataObject
 
 
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-v4-flash"
 
 NODE_REPORT_SYSTEM_PROMPT = """You are YZW BioCloud Node Report Agent.
 Write a concise Chinese report for one bioinformatics workflow node.

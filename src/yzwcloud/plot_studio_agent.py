@@ -11,7 +11,7 @@ from yzwcloud.config import PROJECT_ROOT
 from yzwcloud.plot_studio_presets import list_plot_presets
 
 
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-v4-flash"
 
 PLOT_STUDIO_AGENT_SYSTEM_PROMPT = """You are Plot Studio Param Agent.
 Your only job is to convert a user's natural-language chart editing request into a JSON parameter patch.

@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -41,7 +42,7 @@ def build_task_report(task_id: str) -> dict[str, Any]:
     workflow_svg_path = output_dir / "analysis_report_current_workflow.svg"
     workflow_svg_path.write_text(_workflow_svg(nodes, graph.edges), encoding="utf-8")
     steps = [_node_report_entry(node, output_dir) for node in nodes]
-    figures = _figure_entries(nodes, output_dir)
+    figures = _figure_entries(nodes, output_dir, task.task_id)
     report = {
         "task": task.model_dump(mode="json"),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -145,7 +146,17 @@ def _task_summary(nodes: list[GraphNode]) -> dict[str, Any]:
         "completed_nodes": len(completed),
         "failed_nodes": len(failed),
         "output_nodes": len(outputs),
-        "figure_count": sum(bool(node.output and node.output.meta.get("preview_file")) for node in nodes),
+        "figure_count": sum(
+            bool(
+                node.output
+                and (
+                    node.output.meta.get("html_file")
+                    or node.output.meta.get("plot_studio_result", {}).get("html_file")
+                    or node.output.meta.get("preview_file")
+                )
+            )
+            for node in nodes
+        ),
         "status_text": (
             f"当前流程包含 {len(nodes)} 个节点，已完成 {len(completed)} 个，"
             f"已形成 {len(outputs)} 个结果输出，失败节点 {len(failed)} 个。"
@@ -175,13 +186,14 @@ def _node_report_entry(node: GraphNode, output_dir: Path) -> dict[str, Any]:
     }
 
 
-def _figure_entries(nodes: list[GraphNode], output_dir: Path) -> list[dict[str, Any]]:
+def _figure_entries(nodes: list[GraphNode], output_dir: Path, task_id: str) -> list[dict[str, Any]]:
     figures = []
     for node in nodes:
         if not node.output:
             continue
         preview = _preview_data_uri(node.output.meta.get("preview_file"), output_dir)
-        if not preview:
+        html_url = _result_html_url(node.output.meta, output_dir, task_id)
+        if not preview and not html_url:
             continue
         report = node.output.meta.get("agent_report") or {}
         figures.append(
@@ -190,6 +202,7 @@ def _figure_entries(nodes: list[GraphNode], output_dir: Path) -> list[dict[str, 
                 "title": node.name,
                 "output_type": node.output.type,
                 "summary": report.get("summary") or _fallback_node_summary(node),
+                "html_url": html_url,
                 "preview": preview,
             }
         )
@@ -396,13 +409,10 @@ def _compact_params(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _preview_data_uri(value: Any, output_dir: Path) -> str:
-    if not value:
+    resolved = _resolve_output_path(value, output_dir)
+    if not resolved:
         return ""
-    path = Path(str(value))
     try:
-        resolved = path.resolve()
-        if output_dir.resolve() not in resolved.parents or not resolved.exists():
-            return ""
         suffix = resolved.suffix.lower()
         mime = {
             ".svg": "image/svg+xml",
@@ -417,6 +427,30 @@ def _preview_data_uri(value: Any, output_dir: Path) -> str:
         return f"data:{mime};base64,{encoded}"
     except OSError:
         return ""
+
+
+def _result_html_url(meta: dict[str, Any], output_dir: Path, task_id: str) -> str:
+    html_file = (meta.get("plot_studio_result") or {}).get("html_file") or meta.get("html_file")
+    if not html_file:
+        return ""
+    path = _resolve_output_path(html_file, output_dir)
+    if not path or not path.exists() or path.suffix.lower() not in {".html", ".htm"}:
+        return ""
+    filename = urllib.parse.quote(path.name, safe="")
+    return f"/api/tasks/{urllib.parse.quote(task_id, safe='')}/outputs/{filename}"
+
+
+def _resolve_output_path(value: Any, output_dir: Path) -> Path | None:
+    if not value:
+        return None
+    path = Path(str(value))
+    try:
+        resolved = path.resolve()
+        if output_dir.resolve() not in resolved.parents or not resolved.exists():
+            return None
+        return resolved
+    except OSError:
+        return None
 
 
 def _workflow_svg(nodes: list[GraphNode], edges: list[dict[str, str]]) -> str:
@@ -599,9 +633,22 @@ def _step_table(steps: list[dict[str, Any]]) -> str:
 def _figure_grid(figures: list[dict[str, Any]]) -> str:
     cards = []
     for figure in figures:
+        media = ""
+        if figure.get("html_url"):
+            media += (
+                f'<iframe class="result-frame" src="{html.escape(figure["html_url"])}" '
+                f'title="{html.escape(figure["title"])}" loading="lazy" '
+                'sandbox="allow-scripts allow-same-origin"></iframe>'
+            )
+        if figure.get("preview"):
+            fallback_class = "print-fallback" if figure.get("html_url") else ""
+            media += (
+                f'<img class="{fallback_class}" src="{figure["preview"]}" '
+                f'alt="{html.escape(figure["title"])}"/>'
+            )
         cards.append(
             f"""<section class="figure-card"><div><h2>{html.escape(figure["title"])}</h2>
-<span>{html.escape(figure["output_type"])}</span></div><img src="{figure["preview"]}" alt="{html.escape(figure["title"])}"/>
+<span>{html.escape(figure["output_type"])}</span></div><div class="result-media">{media}</div>
 <p>{html.escape(figure["summary"])}</p></section>"""
         )
     return f'<div class="figure-grid">{"".join(cards)}</div>'
@@ -631,11 +678,11 @@ main{padding-top:20px}.cover{display:grid;align-content:center;min-height:570px}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:34px 0}.metrics div{padding:16px;border:1px solid #d8e6e7;border-radius:16px;background:#f8fbfb}.metrics span{display:block;color:#68808a;font-size:13px}.metrics strong{display:block;margin-top:6px;color:#0f6b57;font-size:30px}
 .workflow-figure{height:520px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#f6fbfb}.workflow-figure img{display:block;width:100%;height:auto}
 table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}th,td{padding:10px;border-bottom:1px solid #e4eeee;text-align:left;vertical-align:top}th{color:#0f6b57;background:#f0f8f7}td small{display:block;margin-top:4px;color:#829198}
-.figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 300px auto;padding:16px;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.figure-card div{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#7b61b5;font-size:12px;font-weight:800}.figure-card img{width:100%;height:290px;object-fit:contain}.figure-card p{margin:8px 0 0;color:#546b75;font-size:14px;line-height:1.55}
+.figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 330px auto;padding:16px;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.figure-card>div:first-child{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#7b61b5;font-size:12px;font-weight:800}.result-media{position:relative;overflow:hidden;border:1px solid #e2ecec;border-radius:14px;background:#fff}.result-frame{width:100%;height:100%;border:0;background:#fff}.figure-card img{width:100%;height:100%;object-fit:contain}.print-fallback{display:none}.figure-card p{margin:8px 0 0;color:#546b75;font-size:14px;line-height:1.55}
 .split,.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split>section,.summary-grid>section{padding:16px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.split>section{max-height:560px}.summary-grid>section{max-height:250px}.note{margin:0 0 10px;padding:10px;border-left:4px solid #0f8a8f;background:#f4fbfb}.note strong{color:#0f6b57}.note ul,ul{margin:8px 0;padding-left:20px}li{margin:5px 0;line-height:1.45}pre{max-height:470px;padding:12px;overflow:auto;border-radius:12px;background:#102b35;color:#d8f5f0;font-size:11px;white-space:pre-wrap}
 footer{position:absolute;right:44px;bottom:18px;color:#8b999e;font-size:11px}
 @media(max-width:760px){.slide{padding:26px 24px 34px}.cover h1{font-size:38px}.metrics{grid-template-columns:repeat(2,1fr)}.split,.summary-grid,.figure-grid{grid-template-columns:1fr}.figure-card{grid-template-rows:auto 220px auto}.figure-card img{height:210px}}
-@media print{body{background:#fff}.print-button{display:none}.slide{width:1280px;height:720px;margin:0;padding:34px 44px 38px;overflow:hidden;box-shadow:none}.split,.summary-grid,.figure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media print{body{background:#fff}.print-button{display:none}.slide{width:1280px;height:720px;margin:0;padding:34px 44px 38px;overflow:hidden;box-shadow:none}.split,.summary-grid,.figure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.result-frame{display:none}.print-fallback{display:block}}
 """
 
 

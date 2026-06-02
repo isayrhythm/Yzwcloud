@@ -148,7 +148,7 @@ def _task_summary(nodes: list[GraphNode]) -> dict[str, Any]:
         "figure_count": sum(bool(node.output and node.output.meta.get("preview_file")) for node in nodes),
         "status_text": (
             f"当前流程包含 {len(nodes)} 个节点，已完成 {len(completed)} 个，"
-            f"有 {len(outputs)} 个可汇报输出，失败节点 {len(failed)} 个。"
+            f"已形成 {len(outputs)} 个结果输出，失败节点 {len(failed)} 个。"
         ),
     }
 
@@ -163,6 +163,7 @@ def _node_report_entry(node: GraphNode, output_dir: Path) -> dict[str, Any]:
         "description": node.description,
         "status": str(node.status.value if hasattr(node.status, "value") else node.status),
         "depends_on": node.depends_on,
+        "has_output": output is not None,
         "output_type": output.type if output else node.output_type,
         "params": _compact_params(node.params),
         "summary": report.get("summary") or _fallback_node_summary(node),
@@ -250,6 +251,7 @@ def _create_task_agent_summary(
             "edge_count": len(graph.edges),
             "completed_nodes": sum(step["status"] == "completed" for step in steps),
             "failed_nodes": sum(step["status"] == "failed" for step in steps),
+            "output_nodes": sum(bool(step["has_output"]) for step in steps),
             "figure_count": len(figures),
             "lineage": [
                 {
@@ -264,6 +266,7 @@ def _create_task_agent_summary(
                 "id": step["id"],
                 "name": step["name"],
                 "status": step["status"],
+                "has_output": step["has_output"],
                 "output_type": step["output_type"],
                 "summary": step["summary"],
                 "findings": step["findings"][:4],
@@ -307,7 +310,7 @@ def _rule_based_task_summary(evidence: dict[str, Any]) -> dict[str, Any]:
     workflow = evidence["workflow"]
     nodes = evidence["nodes"]
     completed = [node for node in nodes if node["status"] == "completed"]
-    output_nodes = [node for node in completed if node["output_type"]]
+    output_nodes = [node for node in completed if node["has_output"]]
     method_lines = _dedupe([item for node in completed for item in node.get("methods", [])])[:8]
     result_lines = _dedupe([node["summary"] for node in output_nodes if node.get("summary")])[:8]
     limitation_lines = _dedupe([item for node in nodes for item in node.get("warnings", [])])[:8]
@@ -317,12 +320,12 @@ def _rule_based_task_summary(evidence: dict[str, Any]) -> dict[str, Any]:
     return {
         "summary": (
             f"{task.get('name') or '当前任务'} 已形成包含 {workflow['node_count']} 个节点的分析流程，"
-            f"当前完成 {workflow['completed_nodes']} 个节点，产出 {workflow['figure_count']} 张可汇报结果图。"
+            f"当前完成 {workflow['completed_nodes']} 个节点，已有 {workflow['output_nodes']} 个结果输出。"
         ),
         "narrative": [
             f"用户当前围绕任务“{task.get('name') or task.get('id')}”构建分析流程，状态为 {task.get('status') or 'unknown'}。",
             f"流程从 {first_node} 开始，沿依赖关系逐步生成到 {last_node} 等结果节点。",
-            f"当前报告由 {len(output_nodes)} 个节点级 Agent 总结组合而成，并嵌入 {workflow['figure_count']} 张实际分析图。",
+            f"本报告按流程顺序整理 {len(output_nodes)} 个结果节点，展示当前分析已经得到的图表、方法和结论。",
         ],
         "methods": method_lines or ["当前节点报告中尚未记录可汇总的方法参数。"],
         "results": result_lines or ["当前流程尚未产生可汇总的结果节点。"],
@@ -553,7 +556,7 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
     pages.append(
         _page(
             f"{5 + (len(figures) + 1) // 2:02d}",
-            "Agent 汇总与解释边界",
+            "结果解读与注意事项",
             f"""<div class="split"><section><h2>当前结论</h2>{_finding_cards(steps)}</section>
 <section><h2>需要注意</h2>{_list(report["warnings"])}</section></div>""",
         )

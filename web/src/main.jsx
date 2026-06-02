@@ -684,7 +684,6 @@ function App() {
   }, [getViewport, page, pulseMiniMap, setViewport]);
 
   const openWorkbench = () => navigatePage("workbench");
-  const openReports = () => navigatePage("reports");
   const taskReportHtmlUrl = detail ? `/api/tasks/${encodeURIComponent(detail.task.task_id)}/report.html` : "";
 
   if (page === "home") {
@@ -760,7 +759,6 @@ function App() {
             <button className="primary new-task-button" onClick={createTask}>{t("newAnalysisTask")}</button>
             <div className="task-sidebar-actions">
               <button className="ghost" onClick={loadTasks}>{t("refresh")}</button>
-              <button className="ghost" onClick={openReports} disabled={!detail}>{t("reportButton")}</button>
             </div>
           </div>
           <div className="panel-title task-list-title">

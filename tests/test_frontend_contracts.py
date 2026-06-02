@@ -469,6 +469,21 @@ def test_workflow_header_exposes_task_report_exports() -> None:
     assert ".workflow-report-secondary" not in styles
 
 
+def test_workbench_sidebar_does_not_show_reports_menu_button() -> None:
+    source = _source(MAIN_PAGE)
+    sidebar_actions = re.search(
+        r'<div className="task-sidebar-actions">(?P<body>.*?)</div>',
+        source,
+        flags=re.S,
+    )
+    assert sidebar_actions, "Workbench sidebar actions should remain explicit."
+    body = sidebar_actions.group("body")
+
+    assert "openReports" not in source
+    assert "reportButton" not in body
+    assert "loadTasks" in body
+
+
 def test_output_urls_stay_same_origin_outside_explicit_api_base() -> None:
     source = _source(ROOT / "web" / "src" / "workflow" / "format.js")
     plot_source = _source(PLOT_STUDIO_PAGE)

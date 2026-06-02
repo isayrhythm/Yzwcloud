@@ -62,7 +62,9 @@ def test_task_report_builds_slide_html_with_workflow_and_real_preview(tmp_path: 
     assert report["summary"]["figure_count"] == 1
     assert report["agent_summary"]["generated_by"] == "rule_based_fallback"
     assert report["agent_summary"]["llm_status"] == "missing_api_key"
-    assert "节点级 Agent 总结组合" in report["agent_summary"]["narrative"][2]
+    assert "结果节点" in report["agent_summary"]["narrative"][2]
+    assert "可汇报" not in report["summary"]["status_text"]
+    assert "可汇报" not in report["agent_summary"]["summary"]
     assert Path(report["workflow"]["svg_file"]).exists()
     assert "分析任务总览" in html_text
     assert "当前分析流程" in html_text

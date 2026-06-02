@@ -571,7 +571,7 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
         _page(
             "01",
             "分析任务总览",
-            f"""<div class="cover"><p class="eyebrow">YZW BioCloud · Analysis Report</p>
+            f"""<div class="cover"><p class="eyebrow">YZW BioCloud · 流程报告</p>
 <h1>{html.escape(str(report["task"]["name"]))}</h1>
 <p class="lead">{html.escape(agent_summary["summary"])}</p>
 <p class="stamp">{html.escape(summary["status_text"])}</p>
@@ -615,7 +615,7 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
         )
     )
     return f"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>{html.escape(str(report["task"]["name"]))} · Analysis Report</title>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>{html.escape(str(report["task"]["name"]))} · 流程报告</title>
 <style>{_report_css()}</style></head><body>
 <button class="print-button" onclick="window.print()">打印 / 保存为 PDF</button>
 {"".join(pages)}
@@ -624,7 +624,7 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
 
 
 def _page(number: str, title: str, content: str) -> str:
-    return f'<article class="slide"><header><span>{number}</span><h1>{html.escape(title)}</h1></header><main>{content}</main><footer>YZW BioCloud · Agent-driven bioinformatics workflow</footer></article>'
+    return f'<article class="slide"><header><span>{number}</span><h1>{html.escape(title)}</h1></header><main>{content}</main><footer>YZW BioCloud · 可追溯生信分析流程</footer></article>'
 
 
 def _metric(label: str, value: Any) -> str:

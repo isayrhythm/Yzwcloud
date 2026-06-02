@@ -73,6 +73,10 @@ def test_task_report_builds_slide_html_with_workflow_and_real_preview(tmp_path: 
     assert "可汇报" not in report["agent_summary"]["summary"]
     assert Path(report["workflow"]["svg_file"]).exists()
     assert "分析任务总览" in html_text
+    assert "YZW BioCloud · 流程报告" in html_text
+    assert "可追溯生信分析流程" in html_text
+    assert "Analysis Report" not in html_text
+    assert "Agent-driven bioinformatics workflow" not in html_text
     assert "当前分析流程" in html_text
     assert "流程报告总结" in html_text
     assert "用户做了什么" in html_text

@@ -83,12 +83,50 @@ def test_metabolomics_intake_standardizes_metabolights_maf(tmp_path: Path) -> No
 
     assert result.type == "expression_matrix"
     assert result.meta["data_type"] == "metabolomics_matrix"
+    assert result.meta["assay_profile"] == "metabolomics"
+    assert result.meta["feature_label"] == "metabolites"
     assert result.meta["metabolite_count"] == 3
     assert result.meta["sample_count"] == 4
     assert "metabolomics_normalization" in result.meta["capabilities"]
     assert "metabolomics_differential" in result.meta["capabilities"]
     assert Path(result.meta["matrix_file"]).exists()
     assert Path(result.meta["sample_metadata_file"]).exists()
+
+
+def test_metabolomics_intake_accepts_gb18030_feature_matrix(tmp_path: Path) -> None:
+    source_path = ROOT / "testdata" / "WT_B.csv"
+
+    result = run_data_intake_agent(
+        source_path=source_path,
+        output_dir=tmp_path / "outputs",
+        params={"use_llm": False},
+    )
+
+    assert result.meta["data_type"] == "metabolomics_matrix"
+    assert result.meta["assay_profile"] == "feature_intensity"
+    assert result.meta["feature_label"] == "features"
+    assert result.meta["sample_count"] == 6
+    assert result.meta["metabolite_count"] > 0
+    assert result.meta["conditions"] == {"WT": 3, "B": 3}
+    assert result.meta["standardization"]["source_encoding"] == "gb18030"
+    assert "metabolomics_differential" in result.meta["capabilities"]
+
+
+def test_metabolomics_intake_accepts_wide_feature_matrix(tmp_path: Path) -> None:
+    source_path = ROOT / "testdata" / "meta_Anth_content.csv"
+
+    result = run_data_intake_agent(
+        source_path=source_path,
+        output_dir=tmp_path / "outputs",
+        params={"use_llm": False},
+    )
+
+    assert result.meta["data_type"] == "metabolomics_matrix"
+    assert result.meta["assay_profile"] == "feature_intensity"
+    assert result.meta["feature_label"] == "features"
+    assert result.meta["sample_count"] >= 6
+    assert result.meta["metabolite_count"] > 0
+    assert "metabolomics_normalization" in result.meta["capabilities"]
 
 
 def test_metabolomics_statistics_runs_r_outputs_tables(tmp_path: Path) -> None:

@@ -5324,6 +5324,7 @@ h2 {
   justify-content: flex-end;
 }
 
+.plot-export-action,
 .plot-save-back {
   min-height: 34px;
   padding: 0 12px;
@@ -5335,6 +5336,18 @@ h2 {
   font-weight: 900;
 }
 
+.plot-export-action {
+  border-color: rgba(15, 138, 143, 0.24);
+  color: var(--accent-strong);
+  background: rgba(15, 138, 143, 0.08);
+}
+
+.plot-export-action:hover:not(:disabled),
+.plot-save-back:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.plot-export-action:disabled,
 .plot-save-back:disabled {
   cursor: not-allowed;
   opacity: 0.48;

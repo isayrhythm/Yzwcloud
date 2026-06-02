@@ -151,6 +151,15 @@ def run_data_intake_agent(
         raise
 
     standardized_data_type = str(success_strategy.get("data_type", "expression_matrix"))
+    standardization = dict(standard_result.get("standardization") or {})
+    assay_profile = str(
+        standardization.get("assay_profile")
+        or ("metabolomics" if standardized_data_type == "metabolomics_matrix" else "expression")
+    )
+    feature_label = str(
+        standardization.get("feature_label")
+        or ("metabolites" if assay_profile == "metabolomics" else "features" if assay_profile == "feature_intensity" else "genes")
+    )
     validated_capabilities = _capabilities_for_validation(validation)
     if standardized_data_type == "metabolomics_matrix" and validation["valid"]:
         validated_capabilities.append("metabolomics_normalization")
@@ -162,6 +171,8 @@ def run_data_intake_agent(
     next_analyses = _next_analyses_for_capabilities(capabilities)
     metadata = {
         "data_type": standardized_data_type,
+        "assay_profile": assay_profile,
+        "feature_label": feature_label,
         "source_file": str(source_path),
         "resolved_source_file": str(prepared_source_path),
         "sample_metadata_source": str(metadata_path) if metadata_path else "",
@@ -189,7 +200,7 @@ def run_data_intake_agent(
             "selected_strategy": success_strategy,
         },
         "input_preprocess": prepared,
-        "standardization": standard_result["standardization"],
+        "standardization": standardization,
         "quality": {
             "duplicate_sample_columns": inspection.get("duplicate_sample_columns", {}),
             "numeric_sample_column_ratio": inspection.get("numeric_sample_column_ratio", 0),
@@ -331,13 +342,17 @@ def _inspect_source(source_path: Path, metadata_path: Path | None) -> dict[str, 
 
 def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any]:
     delimiter = _infer_delimiter(source_path)
-    with source_path.open(encoding="utf-8-sig", newline="") as file:
+    encoding = _detect_text_encoding(source_path)
+    with source_path.open(encoding=encoding, newline="") as file:
         reader = csv.reader(file, delimiter=delimiter)
         header = next(reader)
         preview = [row for _, row in zip(range(8), reader)]
 
     duplicate_columns = _duplicates(header)
     numeric_ratios = _numeric_ratios(preview, len(header))
+    likely_gene_columns = [name for name in GENE_COLUMNS if name in header]
+    likely_metabolomics_columns = _likely_metabolomics_columns(header)
+    likely_feature_matrix = _looks_like_quantitative_feature_matrix(header, preview, likely_gene_columns)
     raw_sample_metadata = _read_sample_metadata(metadata_path) if metadata_path and metadata_path.exists() else []
     sample_metadata = _dedupe_metadata_by_sample(raw_sample_metadata)
     sample_names = [row["sample"] for row in sample_metadata]
@@ -351,6 +366,7 @@ def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any
         "row_count": _count_csv_rows(source_path),
         "header": header[:160],
         "preview": preview[:3],
+        "encoding": encoding,
         "duplicate_columns": duplicate_columns,
         "duplicate_sample_columns": {
             name: indices for name, indices in sample_column_indices.items() if len(indices) > 1
@@ -359,8 +375,9 @@ def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any
         "metadata_conditions": _count_values(row.get("condition", "") for row in sample_metadata),
         "numeric_column_ratio": _safe_ratio(sum(ratio > 0.8 for ratio in numeric_ratios), len(numeric_ratios)),
         "numeric_sample_column_ratio": _numeric_sample_ratio(preview, sample_column_indices),
-        "likely_gene_columns": [name for name in GENE_COLUMNS if name in header],
-        "likely_metabolomics_columns": _likely_metabolomics_columns(header),
+        "likely_gene_columns": likely_gene_columns,
+        "likely_metabolomics_columns": likely_metabolomics_columns,
+        "likely_quantitative_feature_matrix": likely_feature_matrix,
     }
 
 
@@ -368,11 +385,22 @@ def _infer_delimiter(path: Path) -> str:
     if path.suffix.lower() in {".tsv", ".txt"}:
         return "\t"
     try:
-        sample = path.read_text(encoding="utf-8-sig", errors="ignore")[:4096]
+        sample = path.read_text(encoding=_detect_text_encoding(path), errors="ignore")[:4096]
         dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
     except (OSError, csv.Error):
         return ","
     return str(dialect.delimiter)
+
+
+def _detect_text_encoding(path: Path) -> str:
+    for encoding in ("utf-8-sig", "gb18030", "latin-1"):
+        try:
+            with path.open(encoding=encoding, newline="") as file:
+                file.read(4096)
+            return encoding
+        except UnicodeDecodeError:
+            continue
+    return "utf-8-sig"
 
 
 def _likely_metabolomics_columns(header: list[str]) -> list[str]:
@@ -386,6 +414,20 @@ def _likely_metabolomics_columns(header: list[str]) -> list[str]:
         "smallmolecule_abundance_sub",
     }
     return [normalized[item] for item in markers if item in normalized]
+
+
+def _looks_like_quantitative_feature_matrix(
+    header: list[str],
+    preview: list[list[str]],
+    likely_gene_columns: list[str],
+) -> bool:
+    if likely_gene_columns or len(header) < 4:
+        return False
+    selected_samples = _metabolomics_sample_columns(header, preview, [])
+    if len(selected_samples) < 2:
+        return False
+    annotation_count = len(header) - len(selected_samples)
+    return annotation_count >= 1 and _safe_ratio(len(selected_samples), len(header)) >= 0.2
 
 
 def _inspect_workbook(source_path: Path, metadata_path: Path | None) -> dict[str, Any]:
@@ -715,7 +757,8 @@ def _standardize_metabolomics_table(
         _find_sibling_metabolights_sample_file(source_path)
     )
 
-    with source_path.open(encoding="utf-8-sig", newline="") as source_file:
+    encoding = _detect_text_encoding(source_path)
+    with source_path.open(encoding=encoding, newline="") as source_file:
         reader = csv.reader(source_file, delimiter=delimiter)
         header = next(reader, [])
         preview = [row for _, row in zip(range(24), reader)]
@@ -728,7 +771,15 @@ def _standardize_metabolomics_table(
         if not selected_samples:
             raise ValueError("No usable metabolomics sample columns were detected")
 
+        is_generic_feature_matrix = bool(inspection.get("likely_quantitative_feature_matrix")) and not bool(
+            inspection.get("likely_metabolomics_columns")
+        )
+        assay_profile = "feature_intensity" if is_generic_feature_matrix else "metabolomics"
+        feature_kind = "feature" if is_generic_feature_matrix else "metabolite"
+        feature_label = "features" if is_generic_feature_matrix else "metabolites"
         header_lookup = {name.strip().lower(): index for index, name in enumerate(header)}
+        header_key_lookup = {_metadata_key(name): index for index, name in enumerate(header)}
+        sample_indices = {index for _, index in selected_samples}
         annotation_fields = [
             "database_identifier",
             "chemical_formula",
@@ -761,11 +812,16 @@ def _standardize_metabolomics_table(
                     continue
                 feature_name = _first_text(
                     _value_by_header(row, header_lookup, "metabolite_identification"),
+                    _value_by_header_key(row, header_key_lookup, "compound_name"),
+                    _value_by_header_key(row, header_key_lookup, "compound_name_nmol_l"),
+                    _first_non_sample_text(row, sample_indices),
                     _value_by_header(row, header_lookup, "chemical_shift"),
                     f"metabolite_{index}",
                 )
                 feature_id = _first_text(
                     _value_by_header(row, header_lookup, "database_identifier"),
+                    _value_by_header_key(row, header_key_lookup, "feature_id"),
+                    _value_by_header_key(row, header_key_lookup, "id"),
                     feature_name,
                     f"metabolite_{index}",
                 )
@@ -775,7 +831,7 @@ def _standardize_metabolomics_table(
                     _value_by_header(row, header_lookup, "smiles"),
                     formula,
                 )
-                matrix_writer.writerow([feature_name, feature_id, "metabolite", "", locus, "1", *values])
+                matrix_writer.writerow([feature_name, feature_id, feature_kind, "", locus, "1", *values])
                 annotation_writer.writerow(
                     [
                         feature_id,
@@ -800,12 +856,15 @@ def _standardize_metabolomics_table(
         "sample_metadata_file": str(sample_meta_path),
         "gene_annotation_file": str(annotation_path),
         "standardization": {
-            "mode": "metabolomics_matrix_from_maf",
+            "mode": "feature_intensity_matrix" if is_generic_feature_matrix else "metabolomics_matrix_from_maf",
+            "assay_profile": assay_profile,
+            "feature_label": feature_label,
             "selected_sample_count": len(selected_samples),
             "metabolite_count": metabolite_count,
             "metadata_rows": len(metadata_rows),
             "llm_strategy": llm_plan.get("sample_columns_strategy", ""),
             "strategy_id": (strategy or {}).get("id", ""),
+            "source_encoding": encoding,
         },
     }
 
@@ -822,6 +881,16 @@ def _metabolomics_sample_columns(
             return selected
 
     annotation_names = {
+        "id",
+        "feature_id",
+        "compound name",
+        "compound_name",
+        "compound name (nmol/l)",
+        "compound_name__nmol_l",
+        "class",
+        "group",
+        "condition",
+        "type",
         "database_identifier",
         "chemical_formula",
         "smiles",
@@ -843,10 +912,12 @@ def _metabolomics_sample_columns(
     }
     selected = []
     for index, name in enumerate(header):
-        if name.strip().lower() in annotation_names:
+        normalized_name = name.strip().lower()
+        if normalized_name in annotation_names or _metadata_key(name) in annotation_names:
             continue
         values = [_value_at(row, index) for row in preview if index < len(row)]
-        if values and _safe_ratio(sum(_is_number(value) for value in values), len(values)) >= 0.7:
+        measured_values = [value for value in values if not _is_missing_value(value)]
+        if measured_values and _safe_ratio(sum(_is_number(value) for value in measured_values), len(measured_values)) >= 0.7:
             selected.append((name or f"sample_{index + 1}", index))
     return selected
 
@@ -898,6 +969,21 @@ def _value_by_header(row: list[str], header_lookup: dict[str, int], name: str) -
     if index is None:
         return ""
     return str(_value_at(row, index)).strip()
+
+
+def _value_by_header_key(row: list[str], header_lookup: dict[str, int], key: str) -> str:
+    index = header_lookup.get(key)
+    if index is None:
+        return ""
+    return str(_value_at(row, index)).strip()
+
+
+def _first_non_sample_text(row: list[str], sample_indices: set[int]) -> str:
+    for index, value in enumerate(row):
+        text = str(value or "").strip()
+        if index not in sample_indices and text and not _is_number(text):
+            return text
+    return ""
 
 
 def _first_text(*values: str) -> str:
@@ -1274,7 +1360,7 @@ def _infer_group_from_sample_name(sample: str) -> str:
     elif "_" in name:
         prefix = name.split("_", 1)[0].strip()
     else:
-        prefix = "unknown"
+        prefix = name.strip()
     prefix = prefix.removeprefix("Group ").strip()
     return prefix or "unknown"
 
@@ -1397,7 +1483,7 @@ def _count_values(values: Iterable[str]) -> dict[str, int]:
 
 
 def _count_csv_rows(path: Path) -> int:
-    with path.open(encoding="utf-8-sig", newline="") as file:
+    with path.open(encoding=_detect_text_encoding(path), newline="") as file:
         reader = csv.reader(file)
         next(reader, None)
         return sum(1 for row in reader if row)
@@ -1413,6 +1499,10 @@ def _is_number(value: Any) -> bool:
         return True
     except (TypeError, ValueError):
         return False
+
+
+def _is_missing_value(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"", "na", "n/a", "nan", "null", "none", "-"}
 
 
 def _safe_ratio(numerator: int, denominator: int) -> float:

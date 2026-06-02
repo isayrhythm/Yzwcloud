@@ -764,26 +764,40 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
         name = _qc_node_name_for_data_type(source_meta)
         description = _qc_node_description_for_data_type(source_meta)
     elif analysis_type == "metabolomics_differential":
+        profile = _matrix_profile(source_meta)
+        if profile["assay_profile"] == "feature_intensity":
+            name = "Feature differential analysis"
+            description = "Compare two feature-intensity conditions and report differential features with fold change and p-values."
         params.update(
             {
                 "data_type": str(source_meta.get("data_type") or ""),
-                "analysis_profile": "metabolomics",
+                "analysis_profile": profile["analysis_profile"],
+                "feature_label": profile["feature_label"],
             }
         )
     elif analysis_type == "metabolomics_normalization":
+        profile = _matrix_profile(source_meta)
+        if profile["assay_profile"] == "feature_intensity":
+            description = "Impute missing feature values, normalize sample signal, transform, and scale for downstream feature analysis."
         params.update(
             {
                 "data_type": "metabolomics_matrix",
-                "analysis_profile": "metabolomics",
+                "analysis_profile": profile["analysis_profile"],
+                "feature_label": profile["feature_label"],
             }
         )
     elif analysis_type == "gene_expression" and source_meta.get("data_type") == "metabolomics_matrix":
-        name = "单代谢物丰度"
-        description = "查看指定代谢物在不同分组中的丰度分布。"
+        profile = _matrix_profile(source_meta)
+        if profile["assay_profile"] == "feature_intensity":
+            name = "Single feature abundance"
+            description = "View one quantified feature across sample groups."
+        else:
+            name = "单代谢物丰度"
+            description = "查看指定代谢物在不同分组中的丰度分布。"
         params.update(
             {
                 "data_type": "metabolomics_matrix",
-                "feature_label": "metabolite",
+                "feature_label": profile["feature_singular"],
             }
         )
     node_id = _unique_node_id(graph, base_id)
@@ -815,12 +829,14 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
 
 def _qc_defaults_for_data_type(meta: dict[str, Any]) -> dict[str, Any]:
     if meta.get("data_type") == "metabolomics_matrix":
+        profile = _matrix_profile(meta)
         metabolite_count = int(meta.get("metabolite_count") or meta.get("gene_count") or 0)
         return {
             "qc_preset": "normal",
-            "qc_profile": "metabolomics",
+            "qc_profile": profile["analysis_profile"],
             "data_type": "metabolomics_matrix",
-            "feature_label": "metabolites",
+            "assay_profile": profile["assay_profile"],
+            "feature_label": profile["feature_label"],
             "min_total_ratio": 0.20,
             "max_zero_ratio": 0.60,
             "min_detected_features": max(1, round(metabolite_count * 0.50)) if metabolite_count else 0,
@@ -842,14 +858,35 @@ def _qc_defaults_for_data_type(meta: dict[str, Any]) -> dict[str, Any]:
 
 def _qc_node_name_for_data_type(meta: dict[str, Any]) -> str:
     if meta.get("data_type") == "metabolomics_matrix":
+        if _matrix_profile(meta)["assay_profile"] == "feature_intensity":
+            return "Feature matrix QC"
         return "Metabolomics QC"
     return "Expression matrix QC"
 
 
 def _qc_node_description_for_data_type(meta: dict[str, Any]) -> str:
     if meta.get("data_type") == "metabolomics_matrix":
+        if _matrix_profile(meta)["assay_profile"] == "feature_intensity":
+            return "Inspect feature-matrix sample totals, missing/zero ratios, detected features, and distribution outliers."
         return "Inspect metabolomics sample totals, missing/zero ratios, detected metabolites, and distribution outliers."
     return "Inspect expression sample totals, zero ratios, detected genes, and distribution outliers."
+
+
+def _matrix_profile(meta: dict[str, Any]) -> dict[str, str]:
+    assay_profile = str(meta.get("assay_profile") or "")
+    if assay_profile == "feature_intensity":
+        return {
+            "assay_profile": "feature_intensity",
+            "analysis_profile": "feature_intensity",
+            "feature_label": "features",
+            "feature_singular": "feature",
+        }
+    return {
+        "assay_profile": "metabolomics",
+        "analysis_profile": "metabolomics",
+        "feature_label": "metabolites",
+        "feature_singular": "metabolite",
+    }
 
 
 def _add_diff_downstream_node(graph: Graph, diff_node_id: str, analysis_type: str) -> None:

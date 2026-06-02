@@ -459,15 +459,15 @@ def _workflow_svg(nodes: list[GraphNode], edges: list[dict[str, str]]) -> str:
     for node in nodes:
         grouped.setdefault(levels.get(node.id, 0), []).append(node)
 
-    card_width = 220
-    card_height = 60
-    column_gap = 42
-    row_gap = 28
-    left_pad = 42
-    top_pad = 36
+    card_width = 238
+    card_height = 74
+    column_gap = 72
+    row_gap = 30
+    left_pad = 54
+    top_pad = 48
     max_level = max(grouped, default=0)
     max_rows = max((len(group) for group in grouped.values()), default=1)
-    width = max(980, left_pad * 2 + (max_level + 1) * card_width + max_level * column_gap)
+    width = max(1120, left_pad * 2 + (max_level + 1) * card_width + max_level * column_gap)
     height = max(300, top_pad * 2 + max_rows * card_height + (max_rows - 1) * row_gap)
 
     node_positions: dict[str, tuple[int, int]] = {}
@@ -490,29 +490,40 @@ def _workflow_svg(nodes: list[GraphNode], edges: list[dict[str, str]]) -> str:
         source_y = source[1] + card_height // 2
         target_x = target[0]
         target_y = target[1] + card_height // 2
-        curve = max(48, (target_x - source_x) // 2)
+        curve = max(56, (target_x - source_x) // 2)
         edge_lines.append(
             f'<path d="M {source_x} {source_y} C {source_x + curve} {source_y}, {target_x - curve} {target_y}, {target_x} {target_y}" '
-            'fill="none" stroke="#8ab9b5" stroke-width="3" marker-end="url(#arrow)"/>'
+            'fill="none" stroke="#67a9a5" stroke-width="3.4" stroke-linecap="round" marker-end="url(#arrow)"/>'
         )
     cards = []
     for node in nodes:
         x, y = node_positions[node.id]
-        color = {"completed": "#0f8a8f", "failed": "#c44f3a", "running": "#315fd6"}.get(
-            node.status.value if hasattr(node.status, "value") else str(node.status),
-            "#7d8d99",
-        )
+        status = str(node.status.value if hasattr(node.status, "value") else node.status)
+        color = {"completed": "#0f8a8f", "failed": "#c44f3a", "running": "#315fd6", "ready": "#7b61b5"}.get(status, "#7d8d99")
+        soft_color = {
+            "completed": "#e5f8f4",
+            "failed": "#fff1ed",
+            "running": "#edf4ff",
+            "ready": "#f4f0ff",
+        }.get(status, "#f4f7f8")
         cards.append(
-            f'<rect x="{x}" y="{y}" width="{card_width}" height="{card_height}" rx="14" fill="#ffffff" stroke="{color}" stroke-width="2"/>'
-            f'<circle cx="{x + 23}" cy="{y + 32}" r="8" fill="{color}"/>'
-            f'<text x="{x + 38}" y="{y + 25}" fill="#14303a" font-size="13" font-weight="700">{html.escape(_short_svg_text(node.name, 23))}</text>'
-            f'<text x="{x + 38}" y="{y + 44}" fill="#6b7c88" font-size="10">{html.escape(_short_svg_text(node.id, 20))} · {html.escape(str(node.status.value if hasattr(node.status, "value") else node.status))}</text>'
+            f'<g filter="url(#cardShadow)">'
+            f'<rect x="{x}" y="{y}" width="{card_width}" height="{card_height}" rx="16" fill="#ffffff" stroke="#d9e9e9" stroke-width="1.4"/>'
+            f'<rect x="{x + 10}" y="{y + 10}" width="36" height="36" rx="12" fill="{soft_color}"/>'
+            f'<circle cx="{x + 28}" cy="{y + 28}" r="6" fill="{color}"/>'
+            f'<text x="{x + 56}" y="{y + 27}" fill="#102b35" font-size="14" font-weight="800">{html.escape(_short_svg_text(node.name, 22))}</text>'
+            f'<text x="{x + 56}" y="{y + 48}" fill="#5f7480" font-size="10.5">{html.escape(_short_svg_text(node.id, 24))}</text>'
+            f'<rect x="{x + 14}" y="{y + 53}" width="64" height="16" rx="8" fill="{soft_color}"/>'
+            f'<text x="{x + 46}" y="{y + 65}" text-anchor="middle" fill="{color}" font-size="9.5" font-weight="800">{html.escape(status)}</text>'
+            f'</g>'
         )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
-        '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
-        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#8ab9b5"/></marker></defs>'
-        '<rect width="100%" height="100%" rx="24" fill="#f6fbfb"/>'
+        '<defs><filter id="cardShadow" x="-10%" y="-20%" width="120%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#0f2f3a" flood-opacity=".10"/></filter>'
+        '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#67a9a5"/></marker></defs>'
+        '<rect width="100%" height="100%" rx="28" fill="#f6fbfb"/>'
+        '<path d="M 24 38 H 100%" stroke="#dceced" stroke-width="1"/><path d="M 24 104 H 100%" stroke="#edf5f5" stroke-width="1"/>'
         f'{"".join(edge_lines)}{"".join(cards)}</svg>'
     )
 
@@ -547,7 +558,7 @@ def _workflow_levels(nodes: list[GraphNode], edges: list[dict[str, str]]) -> dic
 
 def _short_svg_text(value: Any, max_chars: int) -> str:
     text = str(value)
-    return text if len(text) <= max_chars else f"{text[: max_chars - 1]}…"
+    return text if len(text) <= max_chars else f"{text[: max_chars - 3]}..."
 
 
 def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:

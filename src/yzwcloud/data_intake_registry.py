@@ -46,7 +46,7 @@ def build_processing_plan(
     file_type = str(inspection.get("file_type") or "unknown")
     has_metadata = bool(metadata_path and metadata_path.exists()) or inspection.get("metadata_rows", 0) > 0
     routed_type = detected_type
-    if inspection.get("likely_metabolomics_columns"):
+    if inspection.get("likely_metabolomics_columns") or inspection.get("likely_quantitative_feature_matrix"):
         routed_type = "metabolomics_matrix"
     if routed_type != "expression_matrix" and inspection.get("likely_gene_columns"):
         routed_type = "expression_matrix"

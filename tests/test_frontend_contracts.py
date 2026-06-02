@@ -49,6 +49,30 @@ def test_plot_studio_preview_forces_safe_plotly_config() -> None:
     assert "Plotly.react(plotElement, spec.data || [], previewLayout, fitPlotlyConfigToPreview(spec.config))" in source
 
 
+def test_plot_studio_preview_exposes_hd_image_and_pdf_export() -> None:
+    source = _plot_studio_source()
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        "function plotExportOptionsFromSpec",
+        "function downloadDataUrl",
+        "function openPlotExportPrintWindow",
+        "Plotly.toImage(plotExportRef.current, options)",
+        "Plotly.toImage(plotExportRef.current, { ...options, format: \"svg\" })",
+        "导出高清图",
+        "导出 PDF",
+        "plotExportStatus",
+        "plotRef={plotExportRef}",
+    ]:
+        assert fragment in source
+
+    for fragment in [
+        ".plot-export-action",
+        ".plot-export-action:disabled",
+    ]:
+        assert fragment in styles
+
+
 def test_plot_studio_preview_layout_is_container_bound() -> None:
     source = _plot_studio_source()
     styles = _source(STYLESHEET)
@@ -482,6 +506,24 @@ def test_workbench_sidebar_does_not_show_reports_menu_button() -> None:
     assert "openReports" not in source
     assert "reportButton" not in body
     assert "loadTasks" in body
+
+
+def test_feature_intensity_profile_uses_generic_feature_labels() -> None:
+    options_source = _source(ROOT / "web" / "src" / "workflow" / "options.js")
+    heatmap_source = _source(ROOT / "web" / "src" / "components" / "HeatmapParamsModal.jsx")
+
+    for fragment in [
+        'meta.assay_profile === "feature_intensity"',
+        'shortLabel: "Feature"',
+        'fullLabel: "Feature intensity matrix"',
+        'featureLabel: "features"',
+        'featureSingular: "feature"',
+    ]:
+        assert fragment in options_source
+
+    assert 'sourceMeta.assay_profile === "feature_intensity"' in heatmap_source
+    assert "Top variable metabolites heatmap" not in options_source
+    assert "Single metabolite abundance" not in options_source
 
 
 def test_output_urls_stay_same_origin_outside_explicit_api_base() -> None:

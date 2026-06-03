@@ -54,6 +54,7 @@ import "./styles.css";
 
 const PAGE_IDS = new Set(["home", "workbench", "plot", "docs", "lab", "reports"]);
 const PAGE_STORAGE_KEY = "yzwcloud.currentPage";
+const TASK_STORAGE_KEY = "yzwcloud.activeTaskId";
 
 function normalizePage(value) {
   const page = String(value || "").replace(/^#\/?/, "").replace(/^\//, "");
@@ -86,11 +87,42 @@ async function api(path, options = {}) {
   return response;
 }
 
+function edgeHandlesForPositions(sourcePosition, targetPosition) {
+  if (!sourcePosition || !targetPosition) {
+    return { sourceHandle: "source-right", targetHandle: "target-left" };
+  }
+  const sourceCenter = {
+    x: sourcePosition.x + 89,
+    y: sourcePosition.y + 75,
+  };
+  const targetCenter = {
+    x: targetPosition.x + 89,
+    y: targetPosition.y + 75,
+  };
+  const verticalDelta = targetCenter.y - sourceCenter.y;
+  const horizontalDelta = targetCenter.x - sourceCenter.x;
+  const verticalThreshold = 70;
+
+  if (Math.abs(verticalDelta) <= verticalThreshold) {
+    return { sourceHandle: "source-right", targetHandle: "target-left" };
+  }
+  if (verticalDelta < 0) {
+    return {
+      sourceHandle: horizontalDelta > 120 ? "source-right" : "source-top",
+      targetHandle: "target-bottom",
+    };
+  }
+  return {
+    sourceHandle: horizontalDelta > 120 ? "source-right" : "source-bottom",
+    targetHandle: "target-top",
+  };
+}
+
 function App() {
   const { t } = useI18n();
   const { getViewport, setViewport } = useReactFlow();
   const [tasks, setTasks] = useState([]);
-  const [activeTaskId, setActiveTaskId] = useState(null);
+  const [activeTaskId, setActiveTaskId] = useState(() => localStorage.getItem(TASK_STORAGE_KEY) || null);
   const [detail, setDetail] = useState(null);
   const [logs, setLogs] = useState("");
   const [modal, setModal] = useState(null);
@@ -111,10 +143,13 @@ function App() {
     const response = await api("/api/tasks");
     const data = await response.json();
     setTasks(data);
-    if (!activeTaskId && data.length) {
-      setActiveTaskId(data[0].task_id);
-    }
-  }, [activeTaskId]);
+    setActiveTaskId((currentTaskId) => {
+      if (currentTaskId && data.some((task) => task.task_id === currentTaskId)) {
+        return currentTaskId;
+      }
+      return data[0]?.task_id || null;
+    });
+  }, []);
 
   const loadDetail = useCallback(async (taskId) => {
     if (!taskId) {
@@ -155,6 +190,14 @@ function App() {
   }, [page]);
 
   useEffect(() => {
+    if (activeTaskId) {
+      localStorage.setItem(TASK_STORAGE_KEY, activeTaskId);
+    } else {
+      localStorage.removeItem(TASK_STORAGE_KEY);
+    }
+  }, [activeTaskId]);
+
+  useEffect(() => {
     const handleHashChange = () => {
       const nextPage = normalizePage(window.location.hash);
       if (nextPage === "plot") {
@@ -184,40 +227,49 @@ function App() {
       return;
     }
     const graphNodes = visibleGraphNodes(detail.graph.nodes, detail.graph.edges);
-    const flowNodes = graphNodes.map((node, index) => ({
-      id: node.id,
-      type: "analysisNode",
-      position: readNodePosition(detail.task.task_id, node.id) || fallbackPosition(node, index, graphNodes),
-      data: {
-        node,
-        detail,
-        onRun: runNode,
-        onDelete: deleteNode,
-        onUploadInput: uploadInputFile,
-        onEditGroups: openGroupEditor,
-        onAddNext: openNextModal,
-        onOpenResult: openResultModal,
-        onOpenAgentReport: openAgentReport,
-        onOpenPlotStudio: openPlotStudioFromNode,
-      },
-    }));
+    const flowNodes = graphNodes.map((node, index) => {
+      const position = readNodePosition(detail.task.task_id, node.id) || fallbackPosition(node, index, graphNodes);
+      return {
+        id: node.id,
+        type: "analysisNode",
+        position,
+        data: {
+          node,
+          detail,
+          onRun: runNode,
+          onDelete: deleteNode,
+          onUploadInput: uploadInputFile,
+          onEditGroups: openGroupEditor,
+          onAddNext: openNextModal,
+          onOpenResult: openResultModal,
+          onOpenAgentReport: openAgentReport,
+          onOpenPlotStudio: openPlotStudioFromNode,
+        },
+      };
+    });
+    const nodePositions = new Map(flowNodes.map((node) => [node.id, node.position]));
     const visibleIds = new Set(graphNodes.map((node) => node.id));
     const flowEdges = detail.graph.edges
       .filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target))
-      .map((edge) => ({
-        id: `${edge.source}->${edge.target}`,
-        source: edge.source,
-        target: edge.target,
-        animated: true,
-        className: "flow-edge",
-        style: { strokeWidth: 4 },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          width: 18,
-          height: 18,
-          color: "#0f6b57",
-        },
-      }));
+      .map((edge) => {
+        const handles = edgeHandlesForPositions(nodePositions.get(edge.source), nodePositions.get(edge.target));
+        return {
+          id: `${edge.source}->${edge.target}`,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: handles.sourceHandle,
+          targetHandle: handles.targetHandle,
+          animated: true,
+          className: "flow-edge",
+          style: { strokeWidth: 4 },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 18,
+            height: 18,
+            color: "#0f6b57",
+          },
+        };
+      });
     setNodes(flowNodes);
     setEdges(flowEdges);
   }, [detail]);

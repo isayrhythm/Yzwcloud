@@ -508,6 +508,53 @@ def test_workbench_sidebar_does_not_show_reports_menu_button() -> None:
     assert "loadTasks" in body
 
 
+def test_task_refresh_preserves_current_workbench_selection() -> None:
+    source = _source(MAIN_PAGE)
+    load_tasks_body = re.search(
+        r"const loadTasks = useCallback\(async \(\) => \{(?P<body>.*?)\n  \}, \[\]\);",
+        source,
+        flags=re.S,
+    )
+    assert load_tasks_body, "loadTasks should be stable and not close over a stale activeTaskId."
+    body = load_tasks_body.group("body")
+
+    assert "setActiveTaskId((currentTaskId)" in body
+    assert "data.some((task) => task.task_id === currentTaskId)" in body
+    assert "return currentTaskId" in body
+    assert "if (!activeTaskId && data.length)" not in body
+
+
+def test_browser_reload_restores_active_workbench_task() -> None:
+    source = _source(MAIN_PAGE)
+
+    assert 'const TASK_STORAGE_KEY = "yzwcloud.activeTaskId"' in source
+    assert "useState(() => localStorage.getItem(TASK_STORAGE_KEY) || null)" in source
+    assert "localStorage.setItem(TASK_STORAGE_KEY, activeTaskId)" in source
+    assert "localStorage.removeItem(TASK_STORAGE_KEY)" in source
+
+
+def test_workflow_edges_route_through_directional_handles() -> None:
+    main_source = _source(MAIN_PAGE)
+    node_source = _source(ROOT / "web" / "src" / "components" / "AnalysisNode.jsx")
+    styles = _source(ROOT / "web" / "src" / "styles.css")
+
+    assert "edgeHandlesForPositions" in main_source
+    assert "sourceHandle: handles.sourceHandle" in main_source
+    assert "targetHandle: handles.targetHandle" in main_source
+    assert 'type: "smoothstep"' not in main_source
+    for handle_id in [
+        'id="source-right"',
+        'id="source-top"',
+        'id="source-bottom"',
+        'id="target-left"',
+        'id="target-top"',
+        'id="target-bottom"',
+    ]:
+        assert handle_id in node_source
+    assert ".analysis-node .node-handle" in styles
+    assert "opacity: 0" in styles
+
+
 def test_feature_intensity_profile_uses_generic_feature_labels() -> None:
     options_source = _source(ROOT / "web" / "src" / "workflow" / "options.js")
     heatmap_source = _source(ROOT / "web" / "src" / "components" / "HeatmapParamsModal.jsx")
@@ -524,6 +571,15 @@ def test_feature_intensity_profile_uses_generic_feature_labels() -> None:
     assert 'sourceMeta.assay_profile === "feature_intensity"' in heatmap_source
     assert "Top variable metabolites heatmap" not in options_source
     assert "Single metabolite abundance" not in options_source
+    assert "metabolomics_ml_modeling" in options_source
+    assert "metabolomics_ml_svm" in options_source
+    assert "metabolomics_ml_naive_bayes" in options_source
+    assert "metabolomics_ml_random_forest" in options_source
+    assert "SHAP summary plot" in options_source
+    assert "Permutation importance" in options_source
+    assert "RF importance" in options_source
+    assert "metabolomics_ml_result" in options_source
+    assert "metabolomics_ml_explainability_result" in options_source
 
 
 def test_output_urls_stay_same_origin_outside_explicit_api_base() -> None:

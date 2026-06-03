@@ -1410,7 +1410,7 @@ p{{margin:0;color:#52616b}}
 .plot-error{{padding:18px;border:1px solid #efb8ae;border-radius:12px;background:#fff6f3;color:#9a352a;font-weight:800}}
 .modebar,.modebar-container,.modebar-btn--logo,.plotlyjsicon,.modebar-logo{{display:none!important}}
 </style>
-</head><body><div class="wrap"><div class="head"><div><h1>单基因表达：{html.escape(str(gene_payload["gene"]))}</h1><p>{html.escape(str(gene_payload["gene_id"]))}</p></div><div class="summary" id="summary"></div></div><div class="plot-frame"><div id="plot"></div></div></div>
+</head><body><div class="wrap"><div class="head"><div><h1>{html.escape(plot_title)}: {html.escape(str(gene_payload["gene"]))}</h1><p>{html.escape(str(gene_payload["gene_id"]))}</p></div><div class="summary" id="summary"></div></div><div class="plot-frame"><div id="plot"></div></div></div>
 <script>
 const data = {payload};
 document.querySelector('h1').textContent = `${{data.plot_title || 'Single gene expression'}}: ${{data.gene || 'feature'}}`;
@@ -1435,20 +1435,24 @@ const traces = groups.map((name, index) => {{
   const points = data.points.filter(point => point.condition === name);
   const color = conditionColors[name] || palette[index % palette.length];
   return {{
-    type: 'box',
+    type: 'violin',
     name,
     y: points.map(point => point.value),
     x: points.map(() => name),
     text: points.map(point => point.sample),
     customdata: points.map(point => [point.group, data.groups[name]?.mean, data.groups[name]?.median]),
-    boxpoints: 'all',
-    jitter: 0.42,
+    points: 'all',
+    jitter: 0.28,
     pointpos: 0,
+    spanmode: 'soft',
+    scalemode: 'width',
+    width: 0.78,
     marker: {{color, size: 8, opacity: 0.72, line: {{color: '#ffffff', width: 1}}}},
     line: {{color, width: 2}},
     fillcolor: transparentColor(color, 0.2),
     hovertemplate: '<b>%{{text}}</b><br>condition=%{{x}}<br>{html.escape(value_label).lower()}=%{{y:.4f}}<br>group=%{{customdata[0]}}<br>mean=%{{customdata[1]}}<br>median=%{{customdata[2]}}<extra></extra>',
-    boxmean: true,
+    box: {{visible: true, width: 0.18}},
+    meanline: {{visible: true}},
   }};
 }});
 try {{
@@ -1462,7 +1466,7 @@ Plotly.newPlot(plotEl, traces, {{
   margin: {{l: 74, r: 28, t: 70, b: 86}},
   xaxis: {{title: 'Condition', zeroline: false, tickangle: groups.length > 5 ? -30 : 0}},
   yaxis: {{title: '{html.escape(value_label)}', zeroline: false, gridcolor: '#e8f0f5'}},
-  boxmode: 'group',
+  violinmode: 'group',
   hovermode: 'closest',
   showlegend: groups.length <= 8,
   font: {{family: "Inter, 'Noto Sans SC', Arial, sans-serif", color: '#07131f'}},
@@ -1482,8 +1486,8 @@ Plotly.newPlot(plotEl, traces, {{
 
 
 def write_gene_expression_preview(path: Path, gene_payload: dict[str, Any]) -> None:
-    boxes = []
-    preview_label = "Abundance boxplot" if gene_payload.get("feature_label") == "metabolite" else "Expression boxplot"
+    violins = []
+    preview_label = "Abundance violin plot" if gene_payload.get("feature_label") == "metabolite" else "Expression violin plot"
     groups = list(gene_payload["groups"].items())
     max_mean = max((item["mean"] for _, item in groups), default=1)
     min_mean = min((item["mean"] for _, item in groups), default=0)
@@ -1492,13 +1496,14 @@ def write_gene_expression_preview(path: Path, gene_payload: dict[str, Any]) -> N
         x = 32 + index * 30
         mean_y = 92 - (item["mean"] - min_mean) / span * 48
         median_y = 92 - (item["median"] - min_mean) / span * 48
-        boxes.append(
-            f'<line x1="{x}" x2="{x}" y1="{max(28, mean_y - 18):.1f}" y2="{min(98, mean_y + 18):.1f}" stroke="#0f8a8f" stroke-width="2"/>'
-            f'<rect x="{x - 8}" y="{max(30, mean_y - 10):.1f}" width="16" height="20" rx="3" fill="#d8f0ef" stroke="#0f8a8f"/>'
+        violins.append(
+            f'<path d="M {x:.1f} {max(26, mean_y - 24):.1f} C {x - 15:.1f} {max(28, mean_y - 14):.1f}, {x - 12:.1f} {min(98, mean_y + 12):.1f}, {x:.1f} {min(102, mean_y + 24):.1f} C {x + 12:.1f} {min(98, mean_y + 12):.1f}, {x + 15:.1f} {max(28, mean_y - 14):.1f}, {x:.1f} {max(26, mean_y - 24):.1f} Z" fill="#d8f0ef" stroke="#0f8a8f" stroke-width="1.5"/>'
             f'<line x1="{x - 8}" x2="{x + 8}" y1="{median_y:.1f}" y2="{median_y:.1f}" stroke="#07131f" stroke-width="2"/>'
+            f'<circle cx="{x + 10}" cy="{max(28, mean_y - 8):.1f}" r="1.8" fill="#315fd6" opacity="0.7"/>'
+            f'<circle cx="{x - 9}" cy="{min(100, mean_y + 9):.1f}" r="1.8" fill="#315fd6" opacity="0.55"/>'
         )
     path.write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f4f8fb"/><text x="12" y="17" font-size="11" fill="#17211b">{html.escape(str(gene_payload["gene"]))}</text><text x="12" y="31" font-size="9" fill="#52616b">{html.escape(preview_label)}</text>{"".join(boxes)}</svg>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f4f8fb"/><text x="12" y="17" font-size="11" fill="#17211b">{html.escape(str(gene_payload["gene"]))}</text><text x="12" y="31" font-size="9" fill="#52616b">{html.escape(preview_label)}</text>{"".join(violins)}</svg>',
         encoding="utf-8",
     )
 

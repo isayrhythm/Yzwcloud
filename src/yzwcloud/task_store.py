@@ -19,6 +19,21 @@ class TaskNotFoundError(Exception):
     pass
 
 
+METABOLOMICS_ML_MODEL_TYPES = {
+    "metabolomics_ml_svm",
+    "metabolomics_ml_naive_bayes",
+    "metabolomics_ml_random_forest",
+}
+
+METABOLOMICS_ML_MODELING_TYPE = "metabolomics_ml_modeling"
+
+METABOLOMICS_ML_EXPLAIN_TYPES = {
+    "metabolomics_explain_shap",
+    "metabolomics_explain_permutation",
+    "metabolomics_explain_rf_importance",
+}
+
+
 def ensure_storage() -> None:
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -182,6 +197,7 @@ def update_sample_groups(
     if is_metabolomics:
         capabilities.append("metabolomics_normalization")
         capabilities.append("metabolomics_differential")
+        capabilities.append(METABOLOMICS_ML_MODELING_TYPE)
     if sum(conditions.values()) > 20 and not is_metabolomics:
         capabilities.append("wgcna")
     if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()) and not is_metabolomics:
@@ -537,10 +553,26 @@ def create_analysis_node(task_id: str, source_node_id: str, analysis_type: str) 
         "expression_heatmap",
         "gene_expression",
         "metabolomics_differential",
+        METABOLOMICS_ML_MODELING_TYPE,
     }:
+        if analysis_type == METABOLOMICS_ML_MODELING_TYPE:
+            _ensure_ml_sample_threshold(source.output.meta, params_min_samples=100)
         _add_expression_downstream_node(graph, analysis_type, source_node_id=source_node_id)
         save_graph(graph)
         append_log(task_id, f"Analysis node enabled: {analysis_type}")
+        return task, graph
+
+    if source_node_id.startswith("metabolomics_ml_modeling__") and analysis_type in METABOLOMICS_ML_MODEL_TYPES:
+        _ensure_ml_sample_threshold(source.output.meta, params_min_samples=100)
+        _add_expression_downstream_node(graph, analysis_type, source_node_id=source_node_id)
+        save_graph(graph)
+        append_log(task_id, f"ML model node enabled: {analysis_type}")
+        return task, graph
+
+    if source_node_id.startswith("metabolomics_ml__") and analysis_type in METABOLOMICS_ML_EXPLAIN_TYPES:
+        _add_ml_explainability_node(graph, source_node_id, analysis_type)
+        save_graph(graph)
+        append_log(task_id, f"ML explainability node enabled: {analysis_type}")
         return task, graph
 
     if source_node_id == "upload_expression" and analysis_type in {
@@ -745,6 +777,55 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
                     "treat_zero_as_missing": True,
                 },
             ),
+            "metabolomics_ml_modeling": (
+                "metabolomics_ml_modeling__classification",
+                "Machine learning modeling",
+                "Prepare the normalized metabolomics matrix for one downstream classification model.",
+                "planned_analysis",
+                {
+                    "analysis_family": "metabolomics_ml_modeling",
+                    "min_samples": 100,
+                    "task_type": "classification",
+                    "available_models": ["svm", "naive_bayes", "random_forest"],
+                },
+            ),
+            "metabolomics_ml_svm": (
+                "metabolomics_ml__svm",
+                "SVM classification",
+                "Train one SVM classifier on QC-passed normalized metabolomics data.",
+                "metabolomics_ml_result",
+                {
+                    "min_samples": 100,
+                    "max_features": 200,
+                    "model": "svm",
+                    "task_type": "classification",
+                },
+            ),
+            "metabolomics_ml_naive_bayes": (
+                "metabolomics_ml__naive_bayes",
+                "Naive Bayes classification",
+                "Train one Naive Bayes classifier on QC-passed normalized metabolomics data.",
+                "metabolomics_ml_result",
+                {
+                    "min_samples": 100,
+                    "max_features": 200,
+                    "model": "naive_bayes",
+                    "task_type": "classification",
+                },
+            ),
+            "metabolomics_ml_random_forest": (
+                "metabolomics_ml__random_forest",
+                "Random Forest classification",
+                "Train one Random Forest classifier on QC-passed normalized metabolomics data.",
+                "metabolomics_ml_result",
+                {
+                    "min_samples": 100,
+                    "max_features": 200,
+                    "model": "random_forest",
+                    "n_estimators": 200,
+                    "task_type": "classification",
+                },
+            ),
         }
     )
 
@@ -755,6 +836,12 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
     params = params.copy()
     source_node = next((node for node in graph.nodes if node.id == source_node_id), None)
     source_meta = source_node.output.meta if source_node and source_node.output else {}
+    modeling_matrix_source_id = ""
+    if source_node and source_node_id.startswith("metabolomics_ml_modeling__"):
+        modeling_matrix_source_id = _modeling_matrix_source_id(graph, source_node)
+        matrix_source = next((node for node in graph.nodes if node.id == modeling_matrix_source_id), None)
+        if matrix_source and matrix_source.output:
+            source_meta = matrix_source.output.meta
     if not source_meta.get("data_type"):
         upload_node = next((node for node in graph.nodes if node.id == "upload_expression"), None)
         if upload_node and upload_node.output:
@@ -791,6 +878,34 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
                 "feature_label": profile["feature_label"],
             }
         )
+    elif analysis_type == METABOLOMICS_ML_MODELING_TYPE:
+        profile = _matrix_profile(source_meta)
+        if profile["assay_profile"] == "protein":
+            description = "Prepare normalized protein intensities for one downstream classification model."
+        elif profile["assay_profile"] == "feature_intensity":
+            description = "Prepare normalized feature intensities for one downstream classification model."
+        params.update(
+            {
+                "data_type": "metabolomics_matrix",
+                "analysis_profile": profile["analysis_profile"],
+                "feature_label": profile["feature_label"],
+            }
+        )
+    elif analysis_type in METABOLOMICS_ML_MODEL_TYPES:
+        profile = _matrix_profile(source_meta)
+        if profile["assay_profile"] == "protein":
+            name = name.replace("classification", "protein classification")
+            description = "Train one classifier on QC-passed normalized protein intensities."
+        elif profile["assay_profile"] == "feature_intensity":
+            name = name.replace("classification", "feature classification")
+            description = "Train one classifier on QC-passed normalized feature intensities."
+        params.update(
+            {
+                "data_type": "metabolomics_matrix",
+                "analysis_profile": profile["analysis_profile"],
+                "feature_label": profile["feature_label"],
+            }
+        )
     elif analysis_type == "gene_expression" and source_meta.get("data_type") == "metabolomics_matrix":
         profile = _matrix_profile(source_meta)
         if profile["assay_profile"] == "protein":
@@ -800,8 +915,8 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             name = "Single feature abundance"
             description = "View one quantified feature across sample groups."
         else:
-            name = "单代谢物丰度"
-            description = "查看指定代谢物在不同分组中的丰度分布。"
+            name = "Single metabolite abundance"
+            description = "View one metabolite abundance distribution across sample groups."
         params.update(
             {
                 "data_type": "metabolomics_matrix",
@@ -815,6 +930,9 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
     elif source_node_id == "upload_expression":
         input_types = ["expression_matrix"]
         depends_on = [source_node_id]
+    elif analysis_type in METABOLOMICS_ML_MODEL_TYPES and source_node_id.startswith("metabolomics_ml_modeling__"):
+        input_types = ["planned_analysis", "expression_matrix"]
+        depends_on = [source_node_id, modeling_matrix_source_id, "upload_expression"]
     else:
         input_types = ["expression_matrix", "qc_report"]
         depends_on = [source_node_id, "upload_expression"]
@@ -830,6 +948,68 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             default_params=params,
             params=params.copy(),
             depends_on=depends_on,
+        )
+    )
+    graph.edges.append({"source": source_node_id, "target": node_id})
+
+
+def _modeling_matrix_source_id(graph: Graph, modeling_node: GraphNode) -> str:
+    nodes = {node.id: node for node in graph.nodes}
+    for dep in modeling_node.depends_on:
+        if dep == "upload_expression":
+            continue
+        output = nodes.get(dep).output if nodes.get(dep) else None
+        if output and output.meta.get("matrix_file") and output.meta.get("sample_metadata_file"):
+            return dep
+    raise ValueError("Machine learning modeling node is missing its normalized matrix dependency")
+
+
+def _add_ml_explainability_node(graph: Graph, source_node_id: str, analysis_type: str) -> None:
+    specs = {
+        "metabolomics_explain_shap": (
+            "metabolomics_explain__shap",
+            "SHAP summary plot",
+            "Explain the trained classifier with SHAP values and a summary-style feature contribution plot.",
+            "metabolomics_ml_explainability_result",
+            {"explainability_method": "shap"},
+        ),
+        "metabolomics_explain_permutation": (
+            "metabolomics_explain__permutation",
+            "Permutation importance",
+            "Estimate feature importance by repeatedly permuting feature columns and measuring balanced-accuracy drop.",
+            "metabolomics_ml_explainability_result",
+            {"explainability_method": "permutation", "n_repeats": 8},
+        ),
+        "metabolomics_explain_rf_importance": (
+            "metabolomics_explain__rf_importance",
+            "RF importance",
+            "Read the trained Random Forest feature importance scores.",
+            "metabolomics_ml_explainability_result",
+            {"explainability_method": "rf_importance"},
+        ),
+    }
+    if analysis_type not in specs:
+        raise ValueError("Unsupported ML explainability analysis type")
+    source_node = next((node for node in graph.nodes if node.id == source_node_id), None)
+    source_model = ""
+    if source_node and source_node.output:
+        source_model = str(source_node.output.meta.get("selected_model") or "")
+    if analysis_type == "metabolomics_explain_rf_importance" and source_model != "random_forest":
+        raise ValueError("RF importance is only available after Random Forest classification")
+
+    base_id, name, description, output_type, params = specs[analysis_type]
+    node_id = _unique_node_id(graph, base_id)
+    graph.nodes.append(
+        GraphNode(
+            id=node_id,
+            name=name,
+            description=description,
+            status=NodeStatus.READY,
+            input_types=["metabolomics_ml_result"],
+            output_type=output_type,
+            default_params=params.copy(),
+            params=params.copy(),
+            depends_on=[source_node_id],
         )
     )
     graph.edges.append({"source": source_node_id, "target": node_id})
@@ -862,6 +1042,16 @@ def _qc_defaults_for_data_type(meta: dict[str, Any]) -> dict[str, Any]:
         "max_distribution_mad": 3.5,
         "max_value_iqr_multiplier": 1.5,
     }
+
+
+def _ensure_ml_sample_threshold(meta: dict[str, Any], params_min_samples: int = 100) -> None:
+    sample_count = int(
+        meta.get("passed_sample_count")
+        or meta.get("sample_count")
+        or 0
+    )
+    if sample_count < params_min_samples:
+        raise ValueError(f"ML classification requires at least {params_min_samples} samples")
 
 
 def _qc_node_name_for_data_type(meta: dict[str, Any]) -> str:
@@ -1324,6 +1514,26 @@ def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, s
             "type": "metabolomics_differential",
             "label": "Metabolomics differential analysis",
             "description": "Compare two metabolomics conditions and report differential metabolites.",
+        },
+        "metabolomics_ml_modeling": {
+            "type": "metabolomics_ml_modeling",
+            "label": "Machine learning modeling",
+            "description": "Create a modeling step, then choose one classification model downstream.",
+        },
+        "metabolomics_ml_svm": {
+            "type": "metabolomics_ml_svm",
+            "label": "SVM classification",
+            "description": "Train one SVM classifier after QC and normalization.",
+        },
+        "metabolomics_ml_naive_bayes": {
+            "type": "metabolomics_ml_naive_bayes",
+            "label": "Naive Bayes classification",
+            "description": "Train one Naive Bayes classifier after QC and normalization.",
+        },
+        "metabolomics_ml_random_forest": {
+            "type": "metabolomics_ml_random_forest",
+            "label": "Random Forest classification",
+            "description": "Train one Random Forest classifier after QC and normalization.",
         },
     }
     return [specs[item] for item in capabilities if item in specs]

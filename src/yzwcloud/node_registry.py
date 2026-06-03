@@ -10,6 +10,8 @@ from yzwcloud.analysis_outputs import (
     create_gene_expression_result,
     create_heatmap_result,
     create_metabolomics_differential_result,
+    create_metabolomics_ml_explainability_result,
+    create_metabolomics_ml_classification_result,
     create_metabolomics_normalization_result,
     create_metabolomics_statistics_result,
     create_pca_result,
@@ -157,6 +159,45 @@ def execute_demo_node(
     if node_id.startswith("metabolomics_differential__"):
         return create_metabolomics_differential_result(
             source=_expression_source(inputs),
+            output_dir=output_dir,
+            node_id=node_id,
+            params=params,
+        )
+
+    if node_id.startswith("metabolomics_ml_modeling__"):
+        source = _expression_source(inputs)
+        feature_count = source.meta.get("metabolite_count") or source.meta.get("gene_count") or 0
+        meta = {
+            "analysis_family": "metabolomics_ml_modeling",
+            "ready_for_agent": True,
+            "source_output_type": source.type,
+            "sample_count": source.meta.get("sample_count", 0),
+            "feature_count": feature_count,
+            "feature_label": source.meta.get("feature_label", "features"),
+            "min_samples": params.get("min_samples", 100),
+            "task_type": params.get("task_type", "classification"),
+            "available_models": params.get("available_models", ["svm", "naive_bayes", "random_forest"]),
+        }
+        return _execute_plot_node(
+            node_id=node_id,
+            output_type="planned_analysis",
+            message="Machine learning modeling entry. Choose one downstream classification model.",
+            meta=meta,
+            params=params,
+            output_dir=output_dir,
+        )
+
+    if node_id.startswith("metabolomics_ml__"):
+        return create_metabolomics_ml_classification_result(
+            source=_expression_source(inputs),
+            output_dir=output_dir,
+            node_id=node_id,
+            params=params,
+        )
+
+    if node_id.startswith("metabolomics_explain__"):
+        return create_metabolomics_ml_explainability_result(
+            source=next(iter(inputs.values())),
             output_dir=output_dir,
             node_id=node_id,
             params=params,

@@ -100,6 +100,31 @@ export function fallbackPosition(node, index, nodes) {
   if (node.id.startsWith("wgcna__")) {
     return { x: 920, y: 690 };
   }
+  if (node.id.startsWith("metabolomics_normalization__")) {
+    return { x: 920, y: 210 };
+  }
+  if (node.id.startsWith("metabolomics_ml_modeling__")) {
+    const sourceId = node.depends_on?.[0];
+    const sourceNode = nodes.find((item) => item.id === sourceId);
+    const base = sourceNode ? fallbackPositionForNode(sourceNode, nodes) : { x: 920, y: 210 };
+    return { x: base.x + 280, y: base.y + 170 };
+  }
+  if (node.id.startsWith("metabolomics_ml__")) {
+    const sourceId = node.depends_on?.[0];
+    const sourceNode = nodes.find((item) => item.id === sourceId);
+    const base = sourceNode ? fallbackPositionForNode(sourceNode, nodes) : { x: 1200, y: 380 };
+    const mlNodes = nodes.filter((item) => item.depends_on?.[0] === sourceId && item.id.startsWith("metabolomics_ml__"));
+    const mlIndex = Math.max(0, mlNodes.findIndex((item) => item.id === node.id));
+    return { x: base.x + 280, y: base.y - 170 + mlIndex * 170 };
+  }
+  if (node.id.startsWith("metabolomics_explain__")) {
+    const sourceId = node.depends_on?.[0];
+    const sourceNode = nodes.find((item) => item.id === sourceId);
+    const base = sourceNode ? fallbackPositionForNode(sourceNode, nodes) : { x: 920, y: 520 };
+    const explainNodes = nodes.filter((item) => item.depends_on?.[0] === sourceId && item.id.startsWith("metabolomics_explain__"));
+    const explainIndex = Math.max(0, explainNodes.findIndex((item) => item.id === node.id));
+    return { x: base.x + 260, y: base.y + explainIndex * 150 };
+  }
   const downstreamPrefix = ["heatmap__", "volcano__", "enrichment__", "diff_export__"].find((prefix) =>
     node.id.startsWith(prefix),
   );
@@ -116,6 +141,11 @@ export function fallbackPosition(node, index, nodes) {
     return { x: 1200, y: 120 + branchIndex * 190 + offset };
   }
   return { x: 100 + (index % 4) * 280, y: 120 + Math.floor(index / 4) * 180 };
+}
+
+function fallbackPositionForNode(node, nodes) {
+  const index = Math.max(0, nodes.findIndex((item) => item.id === node.id));
+  return fallbackPosition(node, index, nodes);
 }
 
 export function clampNumber(value, min, max) {

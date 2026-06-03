@@ -26,6 +26,7 @@ DATA_TYPE_CAPABILITY_MAP = {
         "pca",
         "metabolomics_normalization",
         "metabolomics_differential",
+        "metabolomics_ml_modeling",
     },
     "single_cell_matrix": set(),
     "feature_table": set(),

@@ -303,25 +303,49 @@ def _first_float(*values: Any) -> float | None:
 
 
 def create_volcano_result(diff: DataObject, output_dir: Path, node_id: str) -> DataObject:
+    output_dir.mkdir(parents=True, exist_ok=True)
     rows = read_diff_rows(Path(str(diff.meta["diff_result_file"])))
     html_path = output_dir / f"{node_id}.html"
     preview_path = output_dir / f"{node_id}_preview.svg"
     output_json = output_dir / f"{node_id}_output.json"
     comparison = diff.meta.get("comparison_label", "comparison")
+    p_value_threshold = float(diff.meta.get("p_value_threshold", 0.05))
+    log2fc_threshold = float(diff.meta.get("log2fc_threshold", 1.0))
 
     points = [
-        {"gene": row["gene"], "x": round(row["log2fc"], 4), "y": round(row["neg_log10_p"], 4), "p": row["p_value"]}
+        {
+            "gene": row["gene"],
+            "x": round(row["log2fc"], 4),
+            "y": round(row["neg_log10_p"], 4),
+            "p": row["p_value"],
+            "group": _volcano_group(row["log2fc"], row["p_value"], p_value_threshold, log2fc_threshold),
+            "strong": row["p_value"] <= p_value_threshold and abs(row["log2fc"]) >= log2fc_threshold,
+        }
         for row in rows[:5000]
     ]
-    write_volcano_html(html_path, comparison, points)
+    write_volcano_html(html_path, comparison, points, p_value_threshold, log2fc_threshold)
     write_volcano_preview(preview_path, points, comparison)
     meta = {
         "comparison_label": comparison,
         "html_file": str(html_path),
         "preview_file": str(preview_path),
         "point_count": len(points),
+        "up_count": sum(1 for point in points if point["group"] == "Up"),
+        "down_count": sum(1 for point in points if point["group"] == "Down"),
+        "p_value_threshold": p_value_threshold,
+        "log2fc_threshold": log2fc_threshold,
     }
     return write_data_output(output_json, "volcano_plot", meta)
+
+
+def _volcano_group(log2fc: float, p_value: float, p_value_threshold: float, log2fc_threshold: float) -> str:
+    if p_value <= p_value_threshold and log2fc > 0:
+        return "Up"
+    if p_value <= p_value_threshold and log2fc < 0:
+        return "Down"
+    if abs(log2fc) >= log2fc_threshold:
+        return "Large FC"
+    return "Not significant"
 
 
 def create_heatmap_result(diff: DataObject, output_dir: Path, node_id: str) -> DataObject:
@@ -401,37 +425,90 @@ def extract_heatmap_values(
     return sorted(found, key=lambda item: order[item["gene_id"]])
 
 
-def write_volcano_html(path: Path, comparison: str, points: list[dict[str, Any]]) -> None:
+def write_volcano_html(
+    path: Path,
+    comparison: str,
+    points: list[dict[str, Any]],
+    p_value_threshold: float = 0.05,
+    log2fc_threshold: float = 1.0,
+) -> None:
     payload = json.dumps(points, ensure_ascii=False)
+    label_count = min(10, len(points))
     path.write_text(
         f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Volcano {html.escape(comparison)}</title>
 <style>
-body{{margin:0;font-family:Georgia,'Noto Serif SC',serif;background:#fffaf0;color:#17211b}}
+body{{margin:0;font-family:Inter,'Noto Sans SC',Arial,sans-serif;background:#f6f8fb;color:#07131f}}
 .wrap{{padding:24px}}
+.head{{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:16px}}
+h1{{margin:0 0 8px;font-size:30px;line-height:1.1}}
+p{{margin:0;color:#52616b}}
+.legend{{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;max-width:520px}}
+.legend span{{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid #d8e5ee;border-radius:999px;background:white;font-size:12px;font-weight:800;color:#345}}
+.legend i{{display:inline-block;width:9px;height:9px;border-radius:999px}}
 .plot-shell{{overflow:auto}}
-canvas{{display:block;width:min(100%,1200px);height:auto;aspect-ratio:1200/640;border:1px solid #ded4c2;border-radius:18px;background:white}}
+canvas{{display:block;width:min(100%,1200px);height:auto;aspect-ratio:1200/640;border:1px solid #d8e5ee;border-radius:14px;background:white}}
 .tip{{position:fixed;display:none;padding:8px 10px;border-radius:10px;background:#17211b;color:white;font-size:12px;pointer-events:none}}
-</style></head><body><div class="wrap"><h1>火山图：{html.escape(comparison)}</h1>
-<p>悬停查看基因、log2FC 和 p 值。展示前 {len(points)} 个基因。</p><canvas id="plot" width="1200" height="640"></canvas></div><div class="tip" id="tip"></div>
+</style></head><body><div class="wrap"><div class="head"><div><h1>Volcano plot: {html.escape(comparison)}</h1>
+<p>Colored by p-value significant direction. Thresholds: p <= {p_value_threshold:g}, |log2FC| >= {log2fc_threshold:g}. Top {label_count} hits are labeled.</p></div>
+<div class="legend"><span><i style="background:#c44f3a"></i>Up, p-significant</span><span><i style="background:#315fd6"></i>Down, p-significant</span><span><i style="background:#d48806"></i>Large FC only</span><span><i style="background:#9aaab7"></i>Not significant</span></div></div>
+<div class="plot-shell"><canvas id="plot" width="1200" height="640"></canvas></div></div><div class="tip" id="tip"></div>
 <script>
 const points = {payload};
 const canvas = document.getElementById('plot');
 const ctx = canvas.getContext('2d');
 const tip = document.getElementById('tip');
-const pad = 58;
+const pad = 74;
 const xs = points.map(p => p.x), ys = points.map(p => p.y);
-const xmin = Math.min(...xs, -1), xmax = Math.max(...xs, 1), ymax = Math.max(...ys, 1);
+const xAbs = Math.max(...xs.map(v => Math.abs(v)), {log2fc_threshold:g}, 1);
+const xmin = -xAbs * 1.12, xmax = xAbs * 1.12, ymax = Math.max(...ys, -Math.log10({p_value_threshold:g}), 1) * 1.12;
 function sx(x){{ return pad + (x - xmin) / (xmax - xmin) * (canvas.width - pad * 2); }}
 function sy(y){{ return canvas.height - pad - y / ymax * (canvas.height - pad * 2); }}
+const colors = {{'Up': '#c44f3a', 'Down': '#315fd6', 'Large FC': '#d48806', 'Not significant': '#9aaab7'}};
 ctx.clearRect(0,0,canvas.width,canvas.height);
-ctx.strokeStyle = '#ded4c2'; ctx.lineWidth = 1;
+ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+ctx.strokeStyle = '#edf2f7'; ctx.lineWidth = 1;
+for (let i = 0; i <= 5; i += 1) {{
+  const y = pad + i * (canvas.height - pad * 2) / 5;
+  ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(canvas.width - pad, y); ctx.stroke();
+}}
+ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1.2;
 ctx.beginPath(); ctx.moveTo(pad, canvas.height-pad); ctx.lineTo(canvas.width-pad, canvas.height-pad); ctx.moveTo(pad,pad); ctx.lineTo(pad,canvas.height-pad); ctx.stroke();
-ctx.fillStyle = '#667067'; ctx.fillText('log2FC', canvas.width/2, canvas.height-18); ctx.fillText('-log10(p)', 12, 36);
-for (const p of points) {{
-  const strong = Math.abs(p.x) >= 1 && p.y >= 1.3;
-  ctx.fillStyle = strong ? (p.x > 0 ? '#b93d2f' : '#2176c9') : 'rgba(15,107,87,.32)';
-  ctx.beginPath(); ctx.arc(sx(p.x), sy(p.y), strong ? 3.2 : 2.1, 0, Math.PI*2); ctx.fill();
+ctx.setLineDash([7, 7]);
+ctx.strokeStyle = '#98a2b3';
+ctx.beginPath();
+ctx.moveTo(sx(-{log2fc_threshold:g}), pad); ctx.lineTo(sx(-{log2fc_threshold:g}), canvas.height - pad);
+ctx.moveTo(sx({log2fc_threshold:g}), pad); ctx.lineTo(sx({log2fc_threshold:g}), canvas.height - pad);
+ctx.moveTo(pad, sy(-Math.log10({p_value_threshold:g}))); ctx.lineTo(canvas.width - pad, sy(-Math.log10({p_value_threshold:g})));
+ctx.stroke();
+ctx.setLineDash([]);
+ctx.fillStyle = '#52616b'; ctx.font = '13px Inter, Arial, sans-serif';
+ctx.fillText('log2FC', canvas.width/2 - 24, canvas.height-24); ctx.fillText('-log10(p)', 18, 42);
+for (const group of ['Not significant', 'Large FC', 'Down', 'Up']) {{
+  for (const p of points.filter(item => item.group === group)) {{
+    const strong = p.group !== 'Not significant';
+    ctx.fillStyle = colors[p.group] || '#9aaab7';
+    ctx.globalAlpha = p.strong ? 0.92 : strong ? 0.72 : 0.30;
+    ctx.beginPath(); ctx.arc(sx(p.x), sy(p.y), p.strong ? 4.3 : strong ? 3.4 : 2.3, 0, Math.PI*2); ctx.fill();
+  }}
+}}
+ctx.globalAlpha = 1;
+const labeled = points
+  .sort((a, b) => (b.y + Math.abs(b.x) * 0.35) - (a.y + Math.abs(a.x) * 0.35))
+  .slice(0, {label_count});
+ctx.font = '12px Inter, Arial, sans-serif';
+ctx.textBaseline = 'middle';
+for (const p of labeled) {{
+  const x = sx(p.x), y = sy(p.y);
+  const label = String(p.gene || '').slice(0, 18);
+  const right = p.x >= 0;
+  ctx.strokeStyle = colors[p.group] || '#52616b';
+  ctx.fillStyle = colors[p.group] || '#52616b';
+  ctx.beginPath();
+  ctx.moveTo(x + (right ? 6 : -6), y);
+  ctx.lineTo(x + (right ? 26 : -26), y - 12);
+  ctx.stroke();
+  ctx.fillText(label, x + (right ? 30 : -30 - ctx.measureText(label).width), y - 14);
 }}
 canvas.addEventListener('mousemove', ev => {{
   const rect = canvas.getBoundingClientRect();
@@ -444,7 +521,7 @@ canvas.addEventListener('mousemove', ev => {{
   }}
   if (best && bd < 90) {{
     tip.style.display = 'block'; tip.style.left = ev.clientX + 12 + 'px'; tip.style.top = ev.clientY + 12 + 'px';
-    tip.innerHTML = `${{best.gene}}<br>log2FC=${{best.x}}<br>p=${{Number(best.p).toExponential(2)}}`;
+    tip.innerHTML = `${{best.gene}}<br>${{best.group}}<br>log2FC=${{best.x}}<br>p=${{Number(best.p).toExponential(2)}}`;
   }} else tip.style.display = 'none';
 }});
 </script></body></html>""",
@@ -461,10 +538,13 @@ def write_volcano_preview(path: Path, points: list[dict[str, Any]], comparison: 
     for p in sample:
         x = 16 + (p["x"] - xmin) / (xmax - xmin) * 188
         y = 104 - p["y"] / ymax * 88
-        color = "#b93d2f" if abs(p["x"]) >= 1 and p["y"] >= 1.3 else "#0f6b57"
-        circles.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.7" fill="{color}" opacity=".55"/>')
+        group = str(p.get("group") or "Not significant")
+        color = {"Up": "#c44f3a", "Down": "#315fd6"}.get(group, "#9aaab7")
+        opacity = ".82" if group != "Not significant" else ".42"
+        radius = "2.2" if group != "Not significant" else "1.6"
+        circles.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" opacity="{opacity}"/>')
     path.write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#fffaf0"/><text x="12" y="18" font-size="11" fill="#17211b">火山图 {html.escape(comparison)}</text>{"".join(circles)}</svg>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f6f8fb"/><text x="12" y="18" font-size="11" fill="#17211b">Volcano plot</text><text x="12" y="31" font-size="8.5" fill="#52616b">{html.escape(comparison[:28])}</text>{"".join(circles)}</svg>',
         encoding="utf-8",
     )
 

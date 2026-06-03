@@ -1301,6 +1301,14 @@ h2 {
   background: var(--failed);
 }
 
+.analysis-node .node-handle {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+}
+
 .node-topline {
   display: flex;
   align-items: center;

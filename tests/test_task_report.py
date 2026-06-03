@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
 
 from yzwcloud.main import app  # noqa: E402
 from yzwcloud.models import DataObject, NodeStatus  # noqa: E402
-from yzwcloud.task_report import build_task_report, render_task_report_pdf  # noqa: E402
+from yzwcloud.task_report import build_task_report, render_task_report_pdf, _validate_task_llm_report  # noqa: E402
 from yzwcloud.task_store import create_task, save_graph  # noqa: E402
 
 
@@ -58,7 +58,10 @@ def _report_task(tmp_path: Path, monkeypatch) -> str:
 
 
 def test_task_report_builds_slide_html_with_workflow_and_real_preview(tmp_path: Path, monkeypatch) -> None:
+    import yzwcloud.task_report as task_report
+
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(task_report, "PROJECT_ROOT", tmp_path)
     task_id = _report_task(tmp_path, monkeypatch)
 
     report = build_task_report(task_id)
@@ -68,17 +71,22 @@ def test_task_report_builds_slide_html_with_workflow_and_real_preview(tmp_path: 
     assert report["summary"]["figure_count"] == 1
     assert report["agent_summary"]["generated_by"] == "rule_based_fallback"
     assert report["agent_summary"]["llm_status"] == "missing_api_key"
+    assert "6 个样本、1200 个" in report["agent_summary"]["summary"]
+    assert "数据质控" in report["agent_summary"]["summary"]
+    assert "当前最需要先看的结论" in report["agent_summary"]["summary"]
     assert "结果节点" in report["agent_summary"]["narrative"][2]
     assert "可汇报" not in report["summary"]["status_text"]
     assert "可汇报" not in report["agent_summary"]["summary"]
     assert Path(report["workflow"]["svg_file"]).exists()
-    assert "分析任务总览" in html_text
+    assert "综合小结" in html_text
     assert "YZW BioCloud · 流程报告" in html_text
     assert "可追溯生信分析流程" in html_text
     assert "Analysis Report" not in html_text
     assert "Agent-driven bioinformatics workflow" not in html_text
     assert "当前分析流程" in html_text
-    assert "流程报告总结" in html_text
+    assert "分析结论与依据" in html_text
+    assert "最终小结" in html_text
+    assert "重要结果" in html_text
     assert "用户做了什么" in html_text
     assert "实际结果图" in html_text
     assert '<iframe class="result-frame"' in html_text
@@ -89,6 +97,32 @@ def test_task_report_builds_slide_html_with_workflow_and_real_preview(tmp_path: 
     assert 'class="print-fallback"' in html_text
     assert "data:image/svg+xml;base64," in html_text
     assert "打印 / 保存为 PDF" in html_text
+
+
+def test_task_report_env_value_reads_local_env_file(tmp_path: Path, monkeypatch) -> None:
+    import yzwcloud.task_report as task_report
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("DEEPSEEK_REPORT_MODEL=deepseek-v4-flash\n", encoding="utf-8")
+    monkeypatch.delenv("DEEPSEEK_REPORT_MODEL", raising=False)
+    monkeypatch.setattr(task_report, "PROJECT_ROOT", tmp_path)
+
+    assert task_report._env_value("DEEPSEEK_REPORT_MODEL") == "deepseek-v4-flash"
+
+
+def test_task_report_llm_summary_list_is_cleaned_to_paragraph() -> None:
+    report = _validate_task_llm_report(
+        {
+            "summary": ["输入 132 个样本。", "模型提示 creatine 值得复核。"],
+            "narrative": [],
+            "methods": [],
+            "results": [],
+            "limitations": [],
+            "next_steps": [],
+        }
+    )
+
+    assert report["summary"] == "输入 132 个样本。 模型提示 creatine 值得复核。"
 
 
 def test_task_report_api_serves_html_and_json(tmp_path: Path, monkeypatch) -> None:

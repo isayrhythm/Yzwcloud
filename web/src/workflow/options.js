@@ -99,6 +99,32 @@ export function nextAnalysisOptions(node, detail) {
     if (!created((target) => target.startsWith("metabolomics_differential__"))) {
       options.push({ type: "metabolomics_differential", label: `Differential ${profile.featureLabel}` });
     }
+    const sampleCount = Number(node.output?.meta?.sample_count || 0);
+    if (sampleCount >= 100 && !created((target) => target.startsWith("metabolomics_ml_modeling__"))) {
+      options.push({ type: "metabolomics_ml_modeling", label: "Machine learning modeling" });
+    }
+    return options;
+  }
+  if (node.id.startsWith("metabolomics_ml_modeling__")) {
+    const created = (matcher) => detail?.graph.edges.some((edge) => edge.source === node.id && matcher(edge.target));
+    const sampleCount = Number(node.output?.meta?.sample_count || node.params?.min_samples || 0);
+    const options = [];
+    addMlModelOptions(options, created, sampleCount);
+    return options;
+  }
+  if (node.id.startsWith("metabolomics_ml__")) {
+    const created = (matcher) => detail?.graph.edges.some((edge) => edge.source === node.id && matcher(edge.target));
+    const model = node.output?.meta?.selected_model || node.params?.model || "";
+    const options = [];
+    if (!created((target) => target.startsWith("metabolomics_explain__shap"))) {
+      options.push({ type: "metabolomics_explain_shap", label: "SHAP summary plot" });
+    }
+    if (!created((target) => target.startsWith("metabolomics_explain__permutation"))) {
+      options.push({ type: "metabolomics_explain_permutation", label: "Permutation importance" });
+    }
+    if (model === "random_forest" && !created((target) => target.startsWith("metabolomics_explain__rf_importance"))) {
+      options.push({ type: "metabolomics_explain_rf_importance", label: "RF importance" });
+    }
     return options;
   }
   if (node.id.startsWith("diff_analysis__") || node.id.startsWith("metabolomics_differential__")) {
@@ -157,6 +183,12 @@ export function summarizeOutput(output) {
   if (output.type === "wgcna_result" && meta.module_count) {
     return `${meta.module_count} modules / ${meta.gene_count || 0} genes`;
   }
+  if (output.type === "metabolomics_ml_result") {
+    return `${meta.selected_model || meta.best_model || "ML"} / balanced accuracy ${meta.best_balanced_accuracy ?? "NA"} / ${meta.sample_count || 0} samples`;
+  }
+  if (output.type === "metabolomics_ml_explainability_result") {
+    return `${meta.source_model || "ML"} / ${meta.explainability_method || "importance"} / ${meta.top_feature || "top features"}`;
+  }
   if (
     (output.type === "metabolomics_statistics_result" || output.type === "metabolomics_differential_result")
     && meta.metabolite_count
@@ -172,9 +204,27 @@ export function summarizeOutput(output) {
     return `${meta.row_count} result rows`;
   }
   if (output.type === "planned_analysis" && meta.analysis_family) {
+    if (meta.analysis_family === "metabolomics_ml_modeling") {
+      const models = meta.available_models?.length ? meta.available_models.length : 3;
+      return `${models} classification models available / ${meta.sample_count || 0} samples`;
+    }
     return `${meta.analysis_family} planned`;
   }
   return output.type;
+}
+
+function addMlModelOptions(options, created, sampleCount, prefix = "") {
+  if (sampleCount < 100) return;
+  const models = [
+    { type: "metabolomics_ml_svm", label: `${prefix}SVM classification`, target: "metabolomics_ml__svm" },
+    { type: "metabolomics_ml_naive_bayes", label: `${prefix}Naive Bayes classification`, target: "metabolomics_ml__naive_bayes" },
+    { type: "metabolomics_ml_random_forest", label: `${prefix}Random Forest classification`, target: "metabolomics_ml__random_forest" },
+  ];
+  models.forEach((item) => {
+    if (!created((target) => target.startsWith(item.target))) {
+      options.push({ type: item.type, label: item.label });
+    }
+  });
 }
 
 export function dataProfile(meta = {}) {
@@ -186,7 +236,7 @@ export function dataProfile(meta = {}) {
         featureLabel: "features",
         featureSingular: "feature",
         qcProfile: "metabolomics",
-        analyses: ["PCA", "Sample correlation", "Heatmap", "Feature abundance", "Differential analysis"],
+        analyses: ["PCA", "Sample correlation", "Heatmap", "Feature abundance", "Differential analysis", "ML classification"],
       };
     }
     return {
@@ -195,7 +245,7 @@ export function dataProfile(meta = {}) {
       featureLabel: "metabolites",
       featureSingular: "metabolite",
       qcProfile: "metabolomics",
-      analyses: ["PCA", "Sample correlation", "Heatmap", "Metabolite abundance", "Differential analysis"],
+      analyses: ["PCA", "Sample correlation", "Heatmap", "Metabolite abundance", "Differential analysis", "ML classification"],
     };
   }
   return {

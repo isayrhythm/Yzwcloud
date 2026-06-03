@@ -13,6 +13,8 @@ from yzwcloud.analyses.expression import (
 )
 from yzwcloud.analyses.metabolomics import (
     create_metabolomics_differential_result,
+    create_metabolomics_ml_explainability_result,
+    create_metabolomics_ml_classification_result,
     create_metabolomics_normalization_result,
     create_metabolomics_statistics_result,
 )
@@ -24,6 +26,8 @@ __all__ = [
     "create_gene_expression_result",
     "create_heatmap_result",
     "create_metabolomics_differential_result",
+    "create_metabolomics_ml_explainability_result",
+    "create_metabolomics_ml_classification_result",
     "create_metabolomics_normalization_result",
     "create_metabolomics_statistics_result",
     "create_pca_result",

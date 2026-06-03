@@ -57,7 +57,9 @@ export function AnalysisNode({ data }) {
 
   return (
     <article className={`analysis-node ${node.status} ${uploadedInput ? "has-uploaded-input" : ""}`}>
-      <Handle type="target" position={Position.Left} />
+      <Handle className="node-handle node-handle-left" id="target-left" type="target" position={Position.Left} />
+      <Handle className="node-handle node-handle-top" id="target-top" type="target" position={Position.Top} />
+      <Handle className="node-handle node-handle-bottom" id="target-bottom" type="target" position={Position.Bottom} />
       <div className="node-topline">
         <span className="status-dot" />
         <span className="status">{statusLabel[node.status] || node.status}</span>
@@ -162,7 +164,9 @@ export function AnalysisNode({ data }) {
           </button>
         ) : null}
       </div>
-      <Handle type="source" position={Position.Right} />
+      <Handle className="node-handle node-handle-right" id="source-right" type="source" position={Position.Right} />
+      <Handle className="node-handle node-handle-top" id="source-top" type="source" position={Position.Top} />
+      <Handle className="node-handle node-handle-bottom" id="source-bottom" type="source" position={Position.Bottom} />
     </article>
   );
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import html
 import json
 import os
@@ -26,6 +27,10 @@ Rules:
 - Do not invent biological conclusions, statistical significance, visual patterns, or causal explanations.
 - Distinguish completed computation from planned or placeholder analysis.
 - Mention limitations when evidence is metadata-only.
+- Explain user-facing technical terms, especially feature, importance, SHAP, VIP, log2FC, and p-value, when they appear.
+- Tie the explanation to the current result rows, thresholds, model, assay profile, and output files in the evidence.
+- If "feature" appears, state whether it means gene, metabolite, protein, generic measured peak, or model input variable for this node.
+- Write for a user reading the current analysis page, not for an internal developer.
 """
 
 
@@ -83,7 +88,8 @@ def create_node_agent_report(
         inputs=inputs,
     )
     fallback = _rule_based_report(evidence)
-    llm_result = _generate_llm_report(evidence) if use_llm else {"llm_status": "disabled"}
+    report_prompt = _build_report_prompt(evidence)
+    llm_result = _generate_llm_report(report_prompt) if use_llm else {"llm_status": "disabled"}
     content = llm_result.get("report") if llm_result.get("llm_status") == "ok" else fallback
     return {
         "title": f"{node_name} · Agent 总结",
@@ -96,6 +102,7 @@ def create_node_agent_report(
         "warnings": content["warnings"],
         "next_steps": content["next_steps"],
         "evidence": evidence,
+        "llm_prompt": report_prompt,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "generated_by": "llm" if llm_result.get("llm_status") == "ok" else "rule_based_fallback",
         "llm_status": llm_result.get("llm_status", "fallback"),
@@ -134,6 +141,9 @@ def _build_evidence(
             }
             for input_id, item in inputs.items()
         ],
+        "method_context": _method_context(output.type, output.meta, params),
+        "result_context": _result_context(output.type, output.meta),
+        "term_glossary": _term_glossary(output.type, output.meta, inputs),
     }
 
 
@@ -156,7 +166,174 @@ def _rule_based_report(evidence: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _method_context(output_type: str, meta: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    context: dict[str, Any] = {
+        "output_type": output_type,
+        "method": meta.get("method") or params.get("method") or "",
+        "params": _compact_value(params),
+    }
+    if output_type == "metabolomics_ml_explainability_result":
+        context.update(
+            {
+                "plain_language_method": (
+                    "Feature importance explains which model input variables contributed most to the trained classifier. "
+                    "For metabolomics, a feature is usually a metabolite or measured metabolite-like peak. "
+                    "Importance is model evidence, not a causal biological conclusion."
+                ),
+                "source_model": meta.get("source_model", ""),
+                "explainability_method": meta.get("explainability_method", ""),
+                "top_feature": meta.get("top_feature", ""),
+            }
+        )
+    elif output_type == "metabolomics_ml_result":
+        context.update(
+            {
+                "plain_language_method": (
+                    "A classification model tries to learn sample groups from the measured molecular features. "
+                    "Balanced accuracy summarizes performance while reducing class imbalance effects."
+                ),
+                "selected_model": meta.get("selected_model") or meta.get("best_model") or "",
+                "balanced_accuracy": meta.get("best_balanced_accuracy", ""),
+            }
+        )
+    elif output_type == "volcano_plot":
+        context.update(
+            {
+                "plain_language_method": (
+                    "A volcano plot places fold change on the x-axis and statistical evidence on the y-axis. "
+                    "Colored points indicate p-value significant up/down direction in the current implementation."
+                ),
+                "p_value_threshold": meta.get("p_value_threshold"),
+                "log2fc_threshold": meta.get("log2fc_threshold"),
+                "up_count": meta.get("up_count"),
+                "down_count": meta.get("down_count"),
+            }
+        )
+    elif output_type in {"diff_result", "metabolomics_differential_result", "metabolomics_statistics_result"}:
+        context.update(
+            {
+                "plain_language_method": (
+                    "Differential analysis compares feature values between two conditions and reports fold change "
+                    "plus p-values; candidates require biological and statistical review."
+                ),
+                "comparison": meta.get("comparison_label", ""),
+                "p_value_threshold": meta.get("p_value_threshold"),
+                "log2fc_threshold": meta.get("log2fc_threshold"),
+                "univariate_method": meta.get("univariate_method", ""),
+                "vip_threshold": meta.get("vip_threshold"),
+            }
+        )
+    return context
+
+
+def _result_context(output_type: str, meta: dict[str, Any]) -> dict[str, Any]:
+    context: dict[str, Any] = {}
+    if meta.get("feature_importance_file"):
+        rows = _read_table_preview(meta["feature_importance_file"], limit=12)
+        context["feature_importance_table"] = rows
+        context["feature_importance_explanation"] = (
+            "feature is the measured input variable used by the model; importance is a relative score ranking "
+            "how much that variable influenced the model/explainability method for this node."
+        )
+    if meta.get("metrics_file"):
+        context["metrics_table"] = _read_table_preview(meta["metrics_file"], limit=8)
+    diff_path = meta.get("diff_result_file") or meta.get("metabolomics_result_file")
+    if diff_path:
+        context["differential_table"] = _read_table_preview(diff_path, limit=12)
+    if meta.get("shap_values_file"):
+        context["shap_values_table"] = _read_table_preview(meta["shap_values_file"], limit=6)
+    if output_type == "volcano_plot":
+        context["counts"] = {
+            "points": meta.get("point_count", 0),
+            "up": meta.get("up_count", 0),
+            "down": meta.get("down_count", 0),
+            "comparison": meta.get("comparison_label", ""),
+        }
+    if output_type == "gene_expression_plot":
+        context["single_feature"] = {
+            "feature": meta.get("gene") or meta.get("gene_id") or "",
+            "feature_label": meta.get("feature_label", "feature"),
+            "sample_count": meta.get("sample_count", 0),
+            "value_label": meta.get("value_label", ""),
+        }
+    return context
+
+
+def _term_glossary(output_type: str, meta: dict[str, Any], inputs: dict[str, DataObject]) -> dict[str, str]:
+    feature_kind = _feature_kind(meta, inputs)
+    glossary = {
+        "feature": f"当前节点里的 feature 指模型或统计分析使用的输入变量；结合本数据，它更接近“{feature_kind}”。",
+        "importance": "importance 是相对重要性或贡献排序，用来提示模型更依赖哪些变量，不等同于因果关系。",
+    }
+    if output_type == "metabolomics_ml_explainability_result":
+        glossary["SHAP"] = "SHAP 用样本级贡献值解释模型预测；summary plot 中点的位置表示该变量对模型输出方向和大小的影响。"
+    if output_type in {"volcano_plot", "diff_result", "metabolomics_differential_result", "metabolomics_statistics_result"}:
+        glossary["log2FC"] = "log2FC 表示两组均值或模型估计差异的 log2 倍数变化，正负方向取决于比较顺序。"
+        glossary["p_value"] = "p-value 衡量在零假设下观察到当前差异的概率大小，仍需结合多重检验和实验设计。"
+    if meta.get("vip_threshold") is not None or meta.get("vip_available") is not None:
+        glossary["VIP"] = "VIP 是 PLS-DA/OPLS-DA 中变量投影重要性指标，常用 VIP > 1 作为候选变量提示。"
+    return glossary
+
+
+def _feature_kind(meta: dict[str, Any], inputs: dict[str, DataObject]) -> str:
+    candidates = [meta]
+    candidates.extend(item.meta for item in inputs.values())
+    for item in candidates:
+        assay_profile = str(item.get("assay_profile") or "")
+        data_type = str(item.get("data_type") or "")
+        feature_label = str(item.get("feature_label") or "")
+        if assay_profile == "protein":
+            return "蛋白/蛋白定量特征"
+        if assay_profile == "feature_intensity":
+            return "未命名峰或通用定量特征"
+        if data_type == "metabolomics_matrix" or "metabolite" in feature_label:
+            return "代谢物或代谢物峰"
+        if "protein" in feature_label:
+            return "蛋白"
+        if "gene" in feature_label or item.get("gene_count"):
+            return "基因"
+    return "特征变量"
+
+
+def _read_table_preview(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    path = Path(str(value or ""))
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as file:
+            sample = file.read(4096)
+            file.seek(0)
+            delimiter = "\t" if sample.count("\t") > sample.count(",") else ","
+            reader = csv.DictReader(file, delimiter=delimiter)
+            rows = []
+            for index, row in enumerate(reader):
+                if index >= limit:
+                    break
+                rows.append({str(key): _compact_scalar(value) for key, value in row.items() if key is not None})
+            return rows
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return []
+
+
+def _compact_scalar(value: Any) -> Any:
+    text = str(value or "").strip()
+    if len(text) > 80:
+        return text[:77] + "..."
+    return text
+
+
 def _summary_for_output(node_name: str, output_type: str, meta: dict[str, Any]) -> str:
+    if output_type == "metabolomics_ml_explainability_result":
+        return (
+            f"{node_name} 已完成机器学习解释性分析："
+            f"{meta.get('source_model', 'ML')} / {meta.get('explainability_method', 'importance')}。"
+        )
+    if output_type == "metabolomics_ml_result":
+        return (
+            f"{node_name} 已完成单模型机器学习分类："
+            f"{meta.get('selected_model', meta.get('best_model', 'ML'))}，"
+            f"balanced accuracy 为 {meta.get('best_balanced_accuracy', 'NA')}。"
+        )
     if output_type == "pca_plot":
         explained = meta.get("explained_variance") or {}
         return (
@@ -174,12 +351,38 @@ def _summary_for_output(node_name: str, output_type: str, meta: dict[str, Any]) 
         return f"{node_name} 已完成：{meta.get('comparison_label', '当前比较')} 共检验 {tested} 个特征，筛得 {significant} 个候选差异特征。"
     if output_type == "wgcna_result":
         return f"{node_name} 已完成：从 {meta.get('gene_count', 0)} 个基因中识别出 {meta.get('module_count', 0)} 个共表达模块。"
+    if output_type == "metabolomics_ml_result":
+        return (
+            f"{node_name} 已完成机器学习分类：最佳模型为 {meta.get('best_model', 'ML')}，"
+            f"balanced accuracy 为 {meta.get('best_balanced_accuracy', 'NA')}。"
+        )
     if output_type == "planned_analysis":
         return f"{node_name} 已创建为规划节点；当前仅提供分析占位与上下文，还没有真实统计结果。"
     return f"{node_name} 已完成并生成 {output_type} 输出，可打开结果进行查看。"
 
 
 def _findings_for_output(output_type: str, meta: dict[str, Any]) -> list[str]:
+    if output_type == "metabolomics_ml_result":
+        return [
+            f"分类样本数：{meta.get('sample_count', 0)}。",
+            f"训练模型：{meta.get('selected_model', meta.get('best_model', 'NA'))}。",
+            f"balanced accuracy：{meta.get('best_balanced_accuracy', 'NA')}。",
+            f"可选解释性：{', '.join(meta.get('available_explainability') or [])}。",
+        ]
+    if output_type == "metabolomics_ml_explainability_result":
+        feature_kind = _feature_kind(meta, {})
+        findings = [
+            f"源模型：{meta.get('source_model', 'NA')}。",
+            f"解释性方法：{meta.get('explainability_method', 'NA')}。",
+            f"Top feature：{meta.get('top_feature', 'NA')}。",
+            f"特征重要性表：{Path(str(meta.get('feature_importance_file', ''))).name if meta.get('feature_importance_file') else 'NA'}。",
+            f"这里的 feature 指模型输入变量；结合当前数据，可理解为{feature_kind}，importance 是该变量对模型解释结果的相对贡献排序。",
+        ]
+        rows = _read_table_preview(meta.get("feature_importance_file"), limit=3) if meta.get("feature_importance_file") else []
+        if rows:
+            top_features = [str(row.get("feature") or row.get("metabolite") or row.get("gene") or "") for row in rows]
+            findings.append(f"当前表中排名靠前的 feature 包括：{', '.join([item for item in top_features if item][:3])}。")
+        return findings
     if output_type == "expression_matrix":
         feature_count = meta.get("metabolite_count", meta.get("gene_count", 0))
         return [
@@ -218,6 +421,7 @@ def _findings_for_output(output_type: str, meta: dict[str, Any]) -> list[str]:
     if output_type == "volcano_plot":
         return [
             f"火山图包含 {meta.get('point_count', 0)} 个可视化点。",
+            f"p 值显著上调：{meta.get('up_count', 0)}；p 值显著下调：{meta.get('down_count', 0)}。",
             f"比较：{meta.get('comparison_label', '当前比较')}。",
         ]
     if output_type in {"diff_result", "metabolomics_differential_result", "metabolomics_statistics_result"}:
@@ -231,6 +435,13 @@ def _findings_for_output(output_type: str, meta: dict[str, Any]) -> list[str]:
             f"模块数：{meta.get('module_count', 0)}。",
             f"模块内基因数：{meta.get('gene_count', 0)}；样本数：{meta.get('sample_count', 0)}。",
         ]
+    if output_type == "metabolomics_ml_result":
+        return [
+            f"分类样本数：{meta.get('sample_count', 0)}。",
+            f"训练模型：{', '.join(meta.get('models') or [])}。",
+            f"最佳模型：{meta.get('best_model', 'NA')}；balanced accuracy：{meta.get('best_balanced_accuracy', 'NA')}。",
+            f"特征重要性表：{Path(str(meta.get('feature_importance_file', ''))).name if meta.get('feature_importance_file') else 'NA'}。",
+        ]
     if output_type == "diff_export":
         return [f"结果表包含 {meta.get('row_count', 0)} 行。", f"比较：{meta.get('comparison_label', '当前比较')}。"]
     return []
@@ -238,6 +449,15 @@ def _findings_for_output(output_type: str, meta: dict[str, Any]) -> list[str]:
 
 def _methods_for_output(output_type: str, meta: dict[str, Any], params: dict[str, Any]) -> list[str]:
     methods = []
+    if output_type == "metabolomics_ml_result":
+        methods.append(f"分类模型：{meta.get('selected_model', meta.get('best_model', 'ML'))}。")
+        methods.append(f"特征筛选：高变特征 {meta.get('selected_feature_count', 0)} / {meta.get('feature_count', 0)}。")
+        methods.append("解释性分析：机器学习节点完成后再创建 SHAP / permutation / RF importance 节点。")
+        return methods
+    if output_type == "metabolomics_ml_explainability_result":
+        methods.append(f"解释性方法：{meta.get('explainability_method', 'importance')}。")
+        methods.append(f"源模型：{meta.get('source_model', 'ML')}。")
+        return methods
     if meta.get("method"):
         methods.append(f"方法：{meta['method']}。")
     if output_type == "qc_report":
@@ -259,11 +479,17 @@ def _methods_for_output(output_type: str, meta: dict[str, Any], params: dict[str
             f"代谢组处理：{meta.get('impute_method')} / {meta.get('normalization_method')} / "
             f"{meta.get('transform')} / {meta.get('scaling')}。"
         )
+    if output_type == "metabolomics_ml_result":
+        methods.append("分类模型：SVM、Naive Bayes、Random Forest。")
+        methods.append(f"特征筛选：高变特征 {meta.get('selected_feature_count', 0)} / {meta.get('feature_count', 0)}。")
+        methods.append(f"解释性分析：SHAP 可用={meta.get('shap_available', False)}；输出每个模型的特征重要性。")
     return methods
 
 
 def _warnings_for_output(output_type: str, meta: dict[str, Any]) -> list[str]:
     warnings = []
+    if output_type == "metabolomics_ml_explainability_result":
+        warnings.append("解释性结果用于提示模型依赖的特征，不等同于因果结论。")
     if output_type == "planned_analysis":
         warnings.append("这是规划节点，不应当作已完成的统计分析结果引用。")
     if output_type == "qc_report" and int(meta.get("failed_sample_count") or 0):
@@ -276,10 +502,16 @@ def _warnings_for_output(output_type: str, meta: dict[str, Any]) -> list[str]:
         warnings.append("火山图是阈值筛选视图，候选特征仍需要结合多重检验、注释和实验设计复核。")
     if output_type == "gene_expression_plot":
         warnings.append("单特征图是描述性视图；如需组间结论，应补充适当统计检验。")
+    if output_type == "metabolomics_ml_result":
+        warnings.append("机器学习分类结果用于探索分组可分性；正式结论仍需独立验证集、交叉验证设计和生物学解释共同支持。")
     return warnings
 
 
 def _next_steps_for_output(output_type: str, meta: dict[str, Any]) -> list[str]:
+    if output_type == "metabolomics_ml_result":
+        return ["从该模型节点继续创建 SHAP、permutation 或 RF importance 节点，查看模型依赖的关键特征。"]
+    if output_type == "metabolomics_ml_explainability_result":
+        return ["把高重要性特征回到差异分析、通路分析和原始丰度图中复核。"]
     if output_type == "qc_report":
         return ["复核未通过 QC 的样本，再从 QC 节点创建 PCA、相关性、热图或差异分析。"]
     if output_type == "pca_plot":
@@ -290,10 +522,34 @@ def _next_steps_for_output(output_type: str, meta: dict[str, Any]) -> list[str]:
         return ["打开差异结果表核对排名靠前的特征，并配合差异热图查看样本层面的模式。"]
     if output_type in {"expression_heatmap_plot", "heatmap_plot"}:
         return ["检查聚类是否与实验分组一致，并对关键特征回到单特征图或结果表复核。"]
+    if output_type == "metabolomics_ml_result":
+        return ["查看各模型特征重要性，优先复核多个模型共同排在前列的代谢物，并结合差异分析和通路分析进行解释。"]
     return []
 
 
-def _generate_llm_report(evidence: dict[str, Any]) -> dict[str, Any]:
+def _build_report_prompt(evidence: dict[str, Any]) -> dict[str, Any]:
+    user_prompt = json.dumps(
+        {
+            "task": "Generate a node-level bioinformatics report from the current node evidence.",
+            "input_contract": "分析系统提示词 + 使用的方法 + 当前用户结果 -> agent报告",
+            "required_focus": [
+                "说明这个节点做了什么",
+                "说明使用了什么分析方法和关键阈值",
+                "解释当前结果中用户可能看不懂的术语",
+                "引用当前结果表摘录，不要只复述模板",
+                "给出下一步复核建议",
+            ],
+            "evidence": evidence,
+        },
+        ensure_ascii=False,
+    )
+    return {
+        "system": NODE_REPORT_SYSTEM_PROMPT,
+        "user": user_prompt,
+    }
+
+
+def _generate_llm_report(report_prompt: dict[str, str]) -> dict[str, Any]:
     api_key = _env_value("DEEPSEEK_API_KEY")
     if not api_key:
         return {"llm_status": "missing_api_key"}
@@ -302,20 +558,11 @@ def _generate_llm_report(evidence: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": NODE_REPORT_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "task": "Generate a node-level bioinformatics report from structured evidence.",
-                        "evidence": evidence,
-                    },
-                    ensure_ascii=False,
-                ),
-            },
+            {"role": "system", "content": report_prompt["system"]},
+            {"role": "user", "content": report_prompt["user"]},
         ],
         "response_format": {"type": "json_object"},
-        "max_tokens": 1200,
+        "max_tokens": 2200,
         "temperature": 0.0,
     }
     request = urllib.request.Request(
@@ -327,10 +574,29 @@ def _generate_llm_report(evidence: dict[str, Any]) -> dict[str, Any]:
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
             raw = json.loads(response.read().decode("utf-8"))
-        parsed = json.loads(raw["choices"][0]["message"].get("content") or "")
+        parsed = _parse_llm_json(raw["choices"][0]["message"].get("content") or "")
         return {"llm_status": "ok", "model": model, "report": _sanitize_report(parsed)}
     except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError, ValueError) as exc:
         return {"llm_status": "fallback", "llm_error": str(exc), "model": model}
+
+
+def _parse_llm_json(content: str) -> dict[str, Any]:
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start : end + 1])
+        raise
 
 
 def _sanitize_report(parsed: dict[str, Any]) -> dict[str, Any]:

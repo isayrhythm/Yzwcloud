@@ -947,7 +947,7 @@ body{{margin:0;background:#f6f8fb;color:#1f2329;font-family:Inter,'Microsoft YaH
 .wrap{{max-width:1180px;margin:auto;padding:30px}}.panel{{background:#fff;border:1px solid #d8dde6;border-radius:8px;padding:20px;margin-top:16px}}
 h1{{font-size:30px;margin:0 0 8px}}p{{color:#5f6b7a;line-height:1.65}}.tag{{color:#0052d9;font-weight:800}}
 table{{width:100%;border-collapse:collapse}}th,td{{padding:10px 12px;border-bottom:1px solid #eef2f7;text-align:left;font-size:13px}}th{{background:#f1f4f8}}
-.bars{{display:grid;gap:8px;margin-top:12px}}.bar-row{{display:grid;grid-template-columns:220px 1fr 72px;gap:10px;align-items:center}}.bar-row span{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}}.bar-row em{{display:block;height:12px;background:linear-gradient(90deg,#0052d9,#00a870);border-radius:999px}}.bar-row strong{{font-size:12px;color:#5f6b7a;text-align:right}}
+.bars{{display:grid;gap:8px;margin-top:12px}}.bar-row{{display:grid;grid-template-columns:220px 1fr 72px;gap:10px;align-items:center}}.bar-row span{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}}.bar-row em{{display:block;height:12px;background:linear-gradient(90deg,#0052d9,#2b74d6);border-radius:999px}}.bar-row strong{{font-size:12px;color:#5f6b7a;text-align:right}}
 </style></head><body><main class="wrap">
 <section class="panel"><div class="tag">Explainability after machine learning</div><h1>{html.escape(title)}</h1>
     <p>Source model: <strong>{html.escape(model_name)}</strong>. Explainability method: <strong>{html.escape(method)}</strong>.</p></section>
@@ -1242,7 +1242,7 @@ th,td{{padding:10px 12px;border-bottom:1px solid #eef2f7;text-align:left;font-si
 .model-block{{margin-top:16px}}.model-block h2{{font-size:21px;margin:0 0 4px}}
 .bars{{display:grid;gap:8px}}.bar-row{{display:grid;grid-template-columns:220px 1fr 72px;gap:10px;align-items:center}}
 .bar-row span{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}}
-.bar-row em{{display:block;height:12px;background:linear-gradient(90deg,#0052d9,#00a870);border-radius:999px}}.bar-row strong{{font-size:12px;color:#5f6b7a;text-align:right}}
+.bar-row em{{display:block;height:12px;background:linear-gradient(90deg,#0052d9,#2b74d6);border-radius:999px}}.bar-row strong{{font-size:12px;color:#5f6b7a;text-align:right}}
 @media(max-width:860px){{.metrics,.grid{{grid-template-columns:1fr}}.bar-row{{grid-template-columns:1fr}}}}
 </style></head><body><main class="wrap">
 <section class="hero">

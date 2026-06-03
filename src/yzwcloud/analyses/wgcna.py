@@ -361,7 +361,7 @@ def write_wgcna_preview(path: Path, modules: list[dict[str, Any]]) -> None:
     for index, module in enumerate(modules[:8]):
         height = int(module.get("gene_count", 0)) / max_count * 58
         x = 22 + index * 22
-        color = html.escape(str(module.get("color_hex") or "#0f8a8f"))
+        color = html.escape(str(module.get("color_hex") or "#0052d9"))
         bars.append(
             f'<rect x="{x}" y="{90 - height:.1f}" width="14" height="{height:.1f}" rx="3" fill="{color}" opacity=".82"/>'
         )

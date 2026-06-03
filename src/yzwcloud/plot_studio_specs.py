@@ -2217,7 +2217,7 @@ def _build_lollipop_spec(context: dict[str, Any]) -> dict[str, Any]:
     values = [row["value"] for row in rows]
     positive_color = str(params.get("positive_color") or "#c44f3a")
     negative_color = str(params.get("negative_color") or "#315fd6")
-    neutral_color = str(params.get("neutral_color") or "#0f8a8f")
+    neutral_color = str(params.get("neutral_color") or "#667085")
     group_colors: dict[str, str] = {}
     colors = []
     for row in rows:
@@ -4023,7 +4023,7 @@ def _build_upset_spec(context: dict[str, Any]) -> dict[str, Any]:
         "y": set_columns,
         "xaxis": "x3",
         "yaxis": "y3",
-        "marker": {"color": "#0f8a8f"},
+        "marker": {"color": "#0052d9"},
         "hovertemplate": "%{y}<br>set size=%{x}<extra></extra>",
         "showlegend": False,
     }
@@ -6249,11 +6249,11 @@ def _colorscale(name: str) -> str | list[list[Any]]:
     if normalized in {"viridis", "magma", "plasma", "cividis"}:
         return normalized.title()
     if normalized in {"green_white_purple", "green_purple"}:
-        return [[0, "#20804f"], [0.5, "#ffffff"], [1, "#7a4fb3"]]
+        return [[0, "#0052d9"], [0.5, "#ffffff"], [1, "#7a4fb3"]]
     if normalized in {"ylorrd", "yellow_orange_red"}:
         return [[0, "#fff7bc"], [0.5, "#fdae61"], [1, "#b2182b"]]
     if normalized in {"tealrose", "teal_rose"}:
-        return [[0, "#0f8a8f"], [0.5, "#ffffff"], [1, "#c44f3a"]]
+        return [[0, "#0052d9"], [0.5, "#ffffff"], [1, "#c44f3a"]]
     if normalized in {"rdbu", "blue_white_red"}:
         return [[0, "#315fd6"], [0.5, "#ffffff"], [1, "#c44f3a"]]
     if normalized in {"prism_muted", "group"}:

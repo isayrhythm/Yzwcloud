@@ -4968,7 +4968,7 @@ def test_plot_studio_spec_builds_enrichment_dot_plot(tmp_path: Path) -> None:
     assert spec["data"][0]["mode"] == "markers"
     assert len(spec["data"][0]["x"]) == 3
     assert spec["data"][0]["marker"]["colorbar"]["title"] == "-log10(adjusted_p)"
-    assert spec["data"][0]["marker"]["colorscale"][0][1] == "#20804f"
+    assert spec["data"][0]["marker"]["colorscale"][0][1] == "#0052d9"
     assert spec["data"][0]["marker"]["opacity"] == 0.61
     assert spec["data"][0]["marker"]["color"][0] == 3.0
     assert max(spec["data"][0]["marker"]["size"]) == 24
@@ -5027,7 +5027,7 @@ def test_plot_studio_spec_builds_enrichment_bar_plot(tmp_path: Path) -> None:
     assert spec["plot_type"] == "enrichment_bar"
     assert trace["type"] == "bar"
     assert trace["orientation"] == "h"
-    assert trace["marker"]["colorscale"][0][1] == "#20804f"
+    assert trace["marker"]["colorscale"][0][1] == "#0052d9"
     assert trace["marker"]["colorbar"]["title"] == "-log10(adjusted_p)"
     assert trace["marker"]["opacity"] == 0.7
     assert trace["marker"]["line"] == {"color": "#111827", "width": 1.3}
@@ -5084,7 +5084,7 @@ def test_plot_studio_spec_builds_treemap(tmp_path: Path) -> None:
     assert trace["type"] == "treemap"
     assert trace["branchvalues"] == "total"
     assert trace["tiling"] == {"packing": "binary"}
-    assert trace["marker"]["colorscale"][0][1] == "#20804f"
+    assert trace["marker"]["colorscale"][0][1] == "#0052d9"
     assert trace["marker"]["colorbar"]["title"] == "-log10(adjusted_p)"
     assert any(parent == "parent::GOBP" for parent in trace["parents"])
     assert any("<br>" in label for label in trace["labels"])
@@ -5139,7 +5139,7 @@ def test_plot_studio_spec_builds_sunburst(tmp_path: Path) -> None:
     assert trace["type"] == "sunburst"
     assert trace["branchvalues"] == "total"
     assert trace["maxdepth"] == 3
-    assert trace["marker"]["colorscale"][0][1] == "#20804f"
+    assert trace["marker"]["colorscale"][0][1] == "#0052d9"
     assert trace["marker"]["colorbar"]["title"] == "-log10(adjusted_p)"
     assert any(parent == "parent::GOBP" for parent in trace["parents"])
     assert any("<br>" in label for label in trace["labels"])

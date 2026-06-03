@@ -1966,6 +1966,43 @@ h2 {
   box-shadow: 0 8px 16px rgba(15, 107, 87, 0.16);
 }
 
+.tdesign-param-tabs {
+  display: block;
+  width: 100%;
+  margin: 8px 0 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.tdesign-param-tabs .t-tabs__nav {
+  background: #f2f6ff;
+  border-radius: 10px;
+}
+
+.tdesign-param-tabs .t-tabs__item {
+  min-width: 104px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.tdesign-param-tabs .t-tabs__item--active {
+  color: var(--accent-strong);
+}
+
+.td-workflow-dialog .t-dialog {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(29, 41, 57, 0.24);
+}
+
+.confirm-delete-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .color-editor-list {
   display: grid;
   gap: 12px;
@@ -2208,6 +2245,10 @@ h2 {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 22px;
+}
+
+.modal-actions .t-button {
+  min-width: 86px;
 }
 
 .danger-primary {

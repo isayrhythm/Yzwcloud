@@ -1,20 +1,28 @@
 ﻿import { useState } from "react";
 
 import { formatBytes } from "../workflow/format.js";
+import { Button, Dialog, Tabs } from "tdesign-react";
 import { Modal } from "./Modal.jsx";
 
 export function ConfirmDeleteModal({ title, message, confirmLabel, onClose, onConfirm }) {
   return (
-    <div className="modal-backdrop">
-      <section className="modal confirm-modal">
-        <h2>{title}</h2>
-        <p>{message}</p>
-        <div className="modal-actions">
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
-          <button type="button" className="danger-primary" onClick={onConfirm}>{confirmLabel || "删除"}</button>
-        </div>
-      </section>
-    </div>
+    <Dialog
+      visible
+      header={title}
+      theme="danger"
+      width={420}
+      placement="center"
+      closeOnOverlayClick
+      destroyOnClose
+      dialogClassName="td-workflow-dialog confirm-delete-dialog"
+      cancelBtn={{ content: "取消", variant: "outline" }}
+      confirmBtn={{ content: confirmLabel || "删除", theme: "danger" }}
+      onClose={onClose}
+      onCancel={onClose}
+      onConfirm={onConfirm}
+    >
+      <p className="confirm-delete-copy">{message}</p>
+    </Dialog>
   );
 }
 
@@ -106,7 +114,7 @@ export function AgentReportModal({ node, onClose }) {
             <strong>{report.llm_status || "-"}</strong>
           </div>
           <div className="modal-actions">
-            <button type="button" onClick={onClose}>关闭</button>
+            <Button theme="primary" shape="round" type="button" onClick={onClose}>关闭</Button>
           </div>
         </section>
       </Modal>
@@ -193,7 +201,7 @@ export function AgentReportModal({ node, onClose }) {
           </div>
         ) : null}
         <div className="modal-actions">
-          <button type="button" onClick={onClose}>关闭</button>
+          <Button theme="primary" shape="round" type="button" onClick={onClose}>关闭</Button>
         </div>
       </section>
     </Modal>
@@ -256,22 +264,10 @@ export function DatasetParamsModal({ payload, onClose, onSubmit }) {
       <form className="modal group-modal dataset-param-modal" onSubmit={submit}>
         <h2>调整数据参数</h2>
         <p>这里可以修正样本分组，并设置后续 PCA、热图等图形使用的分组颜色。</p>
-        <div className="param-tabs">
-          <button
-            type="button"
-            className={activeTab === "groups" ? "active" : ""}
-            onClick={() => setActiveTab("groups")}
-          >
-            修正分组
-          </button>
-          <button
-            type="button"
-            className={activeTab === "colors" ? "active" : ""}
-            onClick={() => setActiveTab("colors")}
-          >
-            设置颜色
-          </button>
-        </div>
+        <Tabs className="param-tabs tdesign-param-tabs" value={activeTab} onChange={setActiveTab} theme="card">
+          <Tabs.TabPanel value="groups" label="修正分组" />
+          <Tabs.TabPanel value="colors" label="设置颜色" />
+        </Tabs>
         <div className="condition-grid">
           {conditions.map((condition) => (
             <span key={condition}>
@@ -333,8 +329,10 @@ export function DatasetParamsModal({ payload, onClose, onSubmit }) {
           </div>
         )}
         <div className="modal-actions">
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
-          <button className="primary compact" disabled={busy}>{busy ? "保存中..." : "保存参数"}</button>
+          <Button type="button" variant="outline" shape="round" onClick={onClose}>取消</Button>
+          <Button theme="primary" shape="round" type="submit" loading={busy} disabled={busy}>
+            {busy ? "保存中..." : "保存参数"}
+          </Button>
         </div>
       </form>
     </Modal>
@@ -389,8 +387,10 @@ export function GroupEditorModal({ payload, onClose, onSubmit }) {
           ))}
         </div>
         <div className="modal-actions">
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
-          <button className="primary compact" disabled={busy}>{busy ? "保存中..." : "保存分组"}</button>
+          <Button type="button" variant="outline" shape="round" onClick={onClose}>取消</Button>
+          <Button theme="primary" shape="round" type="submit" loading={busy} disabled={busy}>
+            {busy ? "保存中..." : "保存分组"}
+          </Button>
         </div>
       </form>
     </Modal>
@@ -445,8 +445,10 @@ export function ComparisonModal({ options, onClose, onSubmit }) {
           </select>
         </label>
         <div className="modal-actions">
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
-          <button className="primary compact" disabled={busy}>{busy ? "创建中..." : "创建并执行"}</button>
+          <Button type="button" variant="outline" shape="round" onClick={onClose}>取消</Button>
+          <Button theme="primary" shape="round" type="submit" loading={busy} disabled={busy}>
+            {busy ? "创建中..." : "创建并执行"}
+          </Button>
         </div>
         {error ? <p className="modal-error">{error}</p> : null}
       </form>
@@ -490,8 +492,10 @@ export function NextAnalysisModal({ options, onClose, onSubmit }) {
           ))}
         </div>
         <div className="modal-actions">
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
-          <button className="primary compact" disabled={busy}>{busy ? "创建中..." : "创建节点"}</button>
+          <Button type="button" variant="outline" shape="round" onClick={onClose}>取消</Button>
+          <Button theme="primary" shape="round" type="submit" loading={busy} disabled={busy}>
+            {busy ? "创建中..." : "创建节点"}
+          </Button>
         </div>
         {error ? <p className="modal-error">{error}</p> : null}
       </form>

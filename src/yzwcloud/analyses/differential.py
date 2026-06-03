@@ -557,7 +557,7 @@ def write_diff_export_html(path: Path, comparison: str, export_name: str, rows: 
     path.write_text(
         f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Diff Export</title>
-<style>body{{margin:0;font-family:Georgia,'Noto Serif SC',serif;background:#fffaf0;color:#17211b}}.wrap{{padding:24px}}table{{width:100%;border-collapse:collapse;background:white;border-radius:16px;overflow:hidden}}td,th{{padding:8px 10px;border-bottom:1px solid #eee}}</style>
+<style>body{{margin:0;font-family:Inter,'Segoe UI','Microsoft YaHei',sans-serif;background:#f7f9fc;color:#1d2939}}.wrap{{padding:24px}}table{{width:100%;border-collapse:collapse;background:white;border:1px solid #d9e2ec;border-radius:16px;overflow:hidden}}td,th{{padding:8px 10px;border-bottom:1px solid #e7edf5}}th{{color:#003cab;background:#f2f6ff}}a{{color:#0052d9;font-weight:800}}</style>
 </head><body><div class="wrap"><h1>差异结果导出：{html.escape(comparison)}</h1><p><a href="{html.escape(export_name)}">下载 CSV 结果表</a></p><table><thead><tr><th>Gene</th><th>log2FC</th><th>p-value</th></tr></thead><tbody>{rows_html}</tbody></table></div></body></html>""",
         encoding="utf-8",
     )
@@ -565,6 +565,6 @@ def write_diff_export_html(path: Path, comparison: str, export_name: str, rows: 
 
 def write_diff_export_preview(path: Path) -> None:
     path.write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#fffaf0"/><text x="12" y="17" font-size="11" fill="#17211b">结果导出</text><rect x="28" y="30" width="164" height="62" rx="10" fill="#fff" stroke="#ded4c2"/><line x1="40" y1="50" x2="180" y2="50" stroke="#0f6b57"/><line x1="40" y1="64" x2="168" y2="64" stroke="#d2cabd"/><line x1="40" y1="76" x2="152" y2="76" stroke="#d2cabd"/></svg>',
+        '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f7f9fc"/><text x="12" y="17" font-size="11" fill="#1d2939">结果导出</text><rect x="28" y="30" width="164" height="62" rx="10" fill="#fff" stroke="#d9e2ec"/><line x1="40" y1="50" x2="180" y2="50" stroke="#0052d9"/><line x1="40" y1="64" x2="168" y2="64" stroke="#c9d4e5"/><line x1="40" y1="76" x2="152" y2="76" stroke="#c9d4e5"/></svg>',
         encoding="utf-8",
     )

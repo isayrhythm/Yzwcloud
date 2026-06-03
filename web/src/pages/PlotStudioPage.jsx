@@ -174,7 +174,7 @@ function openPlotExportPrintWindow({ dataUrl, title, filename }) {
       img { display: block; max-width: 100%; max-height: calc(100vh - 150px); object-fit: contain; }
       footer { color: #607584; font-size: 12px; }
       .toolbar { position: fixed; right: 18px; top: 18px; display: flex; gap: 8px; }
-      button { min-height: 36px; padding: 0 14px; border: 1px solid #bfd8df; border-radius: 999px; background: #0f8a8f; color: #ffffff; font-weight: 800; cursor: pointer; }
+      button { min-height: 36px; padding: 0 14px; border: 1px solid #b7cffb; border-radius: 999px; background: #0052d9; color: #ffffff; font-weight: 800; cursor: pointer; }
       @media print {
         .toolbar { display: none; }
         body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }

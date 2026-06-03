@@ -835,14 +835,14 @@ def write_pca_html(
         f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>PCA</title>
 <style>
-body{{margin:0;font-family:Georgia,'Noto Serif SC',serif;background:#fffaf0;color:#17211b}}
+body{{margin:0;font-family:Inter,'Segoe UI','Microsoft YaHei',sans-serif;background:#f7f9fc;color:#1d2939}}
 .wrap{{padding:24px}}
 .plot-shell{{overflow:auto}}
-canvas{{display:block;width:min(100%,1200px);height:auto;aspect-ratio:1200/640;border:1px solid #ded4c2;border-radius:18px;background:white}}
+canvas{{display:block;width:min(100%,1200px);height:auto;aspect-ratio:1200/640;border:1px solid #d9e2ec;border-radius:18px;background:white}}
 .legend{{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 18px}}
-.legend span{{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid #e3d6c2;border-radius:999px;background:#fff}}
+.legend span{{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid #d9e2ec;border-radius:999px;background:#fff}}
 .dot{{width:10px;height:10px;border-radius:50%;display:inline-block}}
-.tip{{position:fixed;display:none;padding:8px 10px;border-radius:10px;background:#17211b;color:white;font-size:12px;pointer-events:none}}
+.tip{{position:fixed;display:none;padding:8px 10px;border-radius:10px;background:#1d2939;color:white;font-size:12px;pointer-events:none}}
 </style></head><body><div class="wrap"><h1>PCA 样本分布</h1>
 <p>基于表达矩阵中方差最高的 {gene_count} 个基因计算。悬停可查看样本、分组和坐标。</p>
 <div class="legend" id="legend"></div><div class="plot-shell"><canvas id="plot" width="1200" height="640"></canvas></div></div><div class="tip" id="tip"></div>
@@ -850,7 +850,7 @@ canvas{{display:block;width:min(100%,1200px);height:auto;aspect-ratio:1200/640;b
 const points = {payload};
 const explained = {json.dumps(explained)};
 const savedColors = {colors_payload};
-const palette = ['#b93d2f','#2176c9','#0f6b57','#d58b22','#7557a8','#455a64','#9f4b6b'];
+const palette = ['#0052d9','#2b74d6','#315fd6','#244ba8','#7a4fb3','#475467','#d54941'];
 const conditions = [...new Set(points.map(p => p.condition))];
 const colorByCondition = Object.fromEntries(conditions.map((condition, index) => [condition, savedColors[condition] || palette[index % palette.length]]));
 const canvas = document.getElementById('plot');
@@ -866,15 +866,15 @@ function sx(x){{ return pad + (x - xmin + xspan * 0.08) / (xspan * 1.16) * (canv
 function sy(y){{ return canvas.height - pad - (y - ymin + yspan * 0.08) / (yspan * 1.16) * (canvas.height - pad * 2); }}
 function draw() {{
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.strokeStyle = '#ded4c2'; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#d9e2ec'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(pad, canvas.height-pad); ctx.lineTo(canvas.width-pad, canvas.height-pad); ctx.moveTo(pad,pad); ctx.lineTo(pad,canvas.height-pad); ctx.stroke();
-  ctx.fillStyle = '#667067'; ctx.font = '15px Georgia';
+  ctx.fillStyle = '#667085'; ctx.font = '15px Inter';
   ctx.fillText(`PC1 (${{explained.pc1}}%)`, canvas.width / 2 - 38, canvas.height - 20);
   ctx.save(); ctx.translate(24, canvas.height / 2 + 38); ctx.rotate(-Math.PI / 2); ctx.fillText(`PC2 (${{explained.pc2}}%)`, 0, 0); ctx.restore();
   for (const p of points) {{
-    ctx.fillStyle = colorByCondition[p.condition] || '#0f6b57';
+    ctx.fillStyle = colorByCondition[p.condition] || '#0052d9';
     ctx.beginPath(); ctx.arc(sx(p.pc1), sy(p.pc2), 6, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(23,33,27,.28)'; ctx.stroke();
+    ctx.strokeStyle = 'rgba(29,41,57,.24)'; ctx.stroke();
   }}
 }}
 draw();
@@ -905,7 +905,7 @@ def write_pca_preview(path: Path, points: list[dict[str, Any]]) -> None:
     ymin, ymax = min(ys), max(ys)
     xspan = xmax - xmin or 1
     yspan = ymax - ymin or 1
-    palette = ["#b93d2f", "#2176c9", "#0f6b57", "#d58b22", "#7557a8", "#455a64", "#9f4b6b"]
+    palette = ["#0052d9", "#2b74d6", "#315fd6", "#244ba8", "#7a4fb3", "#475467", "#d54941"]
     conditions = []
     for point in points:
         if point["condition"] not in conditions:
@@ -917,7 +917,7 @@ def write_pca_preview(path: Path, points: list[dict[str, Any]]) -> None:
         y = 106 - (point["pc2"] - ymin + yspan * 0.08) / (yspan * 1.16) * 84
         circles.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.4" fill="{colors[point["condition"]]}" opacity=".78"/>')
     path.write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#fffaf0"/><text x="12" y="17" font-size="11" fill="#17211b">PCA 样本分布</text><line x1="18" y1="106" x2="204" y2="106" stroke="#ded4c2"/><line x1="18" y1="22" x2="18" y2="106" stroke="#ded4c2"/>{"".join(circles)}</svg>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f7f9fc"/><text x="12" y="17" font-size="11" fill="#1d2939">PCA 样本分布</text><line x1="18" y1="106" x2="204" y2="106" stroke="#d9e2ec"/><line x1="18" y1="22" x2="18" y2="106" stroke="#d9e2ec"/>{"".join(circles)}</svg>',
         encoding="utf-8",
     )
 
@@ -928,10 +928,10 @@ def write_qc_html(path: Path, stats: list[dict[str, Any]]) -> None:
         f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>QC</title>
 <style>
-body{{margin:0;font-family:Georgia,'Noto Serif SC',serif;background:#fffaf0;color:#17211b}}
-.wrap{{padding:24px}}canvas{{display:block;max-width:100%;border:1px solid #ded4c2;border-radius:18px;background:white}}
+body{{margin:0;font-family:Inter,'Segoe UI','Microsoft YaHei',sans-serif;background:#f7f9fc;color:#1d2939}}
+.wrap{{padding:24px}}canvas{{display:block;max-width:100%;border:1px solid #d9e2ec;border-radius:18px;background:white}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:0 0 18px}}
-.card{{padding:12px 14px;border:1px solid #e3d6c2;border-radius:16px;background:#fff}}
+.card{{padding:12px 14px;border:1px solid #d9e2ec;border-radius:16px;background:#fff}}
 </style></head><body><div class="wrap"><h1>表达矩阵 QC</h1><div class="grid" id="summary"></div><canvas id="plot" width="1200" height="620"></canvas></div>
 <script>
 const stats = {payload};
@@ -948,14 +948,14 @@ const canvas = document.getElementById('plot');
 const ctx = canvas.getContext('2d');
 const pad = 56, bottom = canvas.height - 70, left = 90, width = canvas.width - 140;
 const vmax = Math.max(...stats.map(x => x.max), 1);
-ctx.strokeStyle = '#ded4c2'; ctx.beginPath(); ctx.moveTo(left, 30); ctx.lineTo(left, bottom); ctx.lineTo(left + width, bottom); ctx.stroke();
-ctx.fillStyle = '#667067'; ctx.fillText('样本表达分布（箱线近似）', left, 18);
+ctx.strokeStyle = '#d9e2ec'; ctx.beginPath(); ctx.moveTo(left, 30); ctx.lineTo(left, bottom); ctx.lineTo(left + width, bottom); ctx.stroke();
+ctx.fillStyle = '#667085'; ctx.fillText('样本表达分布（箱线近似）', left, 18);
 stats.forEach((item, index) => {{
   const x = left + (index + 0.5) / stats.length * width;
   const sy = v => bottom - v / vmax * (bottom - 40);
-  ctx.strokeStyle = '#0f6b57';
+  ctx.strokeStyle = '#0052d9';
   ctx.beginPath(); ctx.moveTo(x, sy(item.min)); ctx.lineTo(x, sy(item.max)); ctx.stroke();
-  ctx.fillStyle = 'rgba(15,107,87,.18)';
+  ctx.fillStyle = 'rgba(0,82,217,.14)';
   ctx.fillRect(x - 7, sy(item.q3), 14, Math.max(3, sy(item.q1) - sy(item.q3)));
   ctx.strokeRect(x - 7, sy(item.q3), 14, Math.max(3, sy(item.q1) - sy(item.q3)));
   ctx.fillStyle = '#b93d2f';
@@ -971,9 +971,9 @@ def write_qc_preview(path: Path, stats: list[dict[str, Any]]) -> None:
     max_total = max((item["total"] for item in stats), default=1)
     for index, item in enumerate(stats[:20]):
         height = item["total"] / max_total * 60
-        bars.append(f'<rect x="{16 + index * 9}" y="{92 - height:.1f}" width="6" height="{height:.1f}" fill="#0f6b57" opacity=".65"/>')
+        bars.append(f'<rect x="{16 + index * 9}" y="{92 - height:.1f}" width="6" height="{height:.1f}" fill="#0052d9" opacity=".72"/>')
     path.write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#fffaf0"/><text x="12" y="17" font-size="11" fill="#17211b">表达矩阵 QC</text>{"".join(bars)}</svg>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f7f9fc"/><text x="12" y="17" font-size="11" fill="#1d2939">表达矩阵 QC</text>{"".join(bars)}</svg>',
         encoding="utf-8",
     )
 
@@ -1048,8 +1048,8 @@ function draw(canvasId, items, title) {{
   }});
   items.forEach((item, index) => {{
     const x = left + (index + 0.5) / Math.max(items.length, 1) * width;
-    ctx.strokeStyle = item.qc_pass ? '#0f8a8f' : '#bd3f32';
-    ctx.fillStyle = item.qc_pass ? 'rgba(15,138,143,.18)' : 'rgba(189,63,50,.18)';
+    ctx.strokeStyle = item.qc_pass ? '#0052d9' : '#bd3f32';
+    ctx.fillStyle = item.qc_pass ? 'rgba(0,82,217,.14)' : 'rgba(189,63,50,.18)';
     ctx.beginPath(); ctx.moveTo(x, sy(item.min)); ctx.lineTo(x, sy(item.max)); ctx.stroke();
     const boxTop = sy(item.q3), boxHeight = Math.max(3, sy(item.q1) - sy(item.q3));
     ctx.fillRect(x - 6, boxTop, 12, boxHeight); ctx.strokeRect(x - 6, boxTop, 12, boxHeight);
@@ -1128,7 +1128,7 @@ def write_qc_preview(path: Path, before_stats: list[dict[str, Any]], after_stats
     after_names = {item["sample"] for item in after_stats}
     for index, item in enumerate(before_stats[:20]):
         height = item["total"] / max_total * 48
-        color = "#0f8a8f" if item["sample"] in after_names else "#bd3f32"
+        color = "#0052d9" if item["sample"] in after_names else "#bd3f32"
         before_bars.append(f'<rect x="{16 + index * 9}" y="{86 - height:.1f}" width="6" height="{height:.1f}" fill="{color}" opacity=".72"/>')
     path.write_text(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="12" fill="#f5f9fc"/><text x="12" y="17" font-size="11" fill="#172635">QC before / after</text><text x="12" y="106" font-size="10" fill="#5f7284">{len(after_stats)}/{len(before_stats)} samples passed</text>{"".join(before_bars)}</svg>',
@@ -1228,12 +1228,12 @@ function renderPlot(containerId, items, title) {{
   const tickEvery = Math.max(1, Math.ceil(items.length / 12));
   items.forEach((item, index) => {{
     const x = left + (index + 0.5) / Math.max(items.length, 1) * plotWidth;
-    const color = item.qc_pass ? '#0f8a8f' : '#bd3f32';
+    const color = item.qc_pass ? '#0052d9' : '#bd3f32';
     const group = svgEl('g', {{class: 'sample-row'}});
     group.appendChild(svgEl('line', {{x1: x, y1: sy(item.min), x2: x, y2: sy(item.max), stroke: color, class: 'sample-line'}}));
     const boxTop = sy(item.q3);
     const boxHeight = Math.max(3, sy(item.q1) - sy(item.q3));
-    group.appendChild(svgEl('rect', {{x: x - 6, y: boxTop, width: 12, height: boxHeight, fill: item.qc_pass ? 'rgba(15,138,143,.18)' : 'rgba(189,63,50,.18)', stroke: color, class: 'sample-box'}}));
+    group.appendChild(svgEl('rect', {{x: x - 6, y: boxTop, width: 12, height: boxHeight, fill: item.qc_pass ? 'rgba(0,82,217,.14)' : 'rgba(189,63,50,.18)', stroke: color, class: 'sample-box'}}));
     group.appendChild(svgEl('line', {{x1: x - 8, y1: sy(item.median), x2: x + 8, y2: sy(item.median), class: 'sample-median'}}));
     group.addEventListener('mousemove', event => {{
       tip.style.display = 'block';
@@ -1295,7 +1295,7 @@ def write_correlation_html(
         rgb = mix(low, mid, t * 2) if t < 0.5 else mix(mid, high, (t - 0.5) * 2)
         return f"rgb({rgb[0]},{rgb[1]},{rgb[2]})"
 
-    fallback_colors = ["#0f8a8f", "#315fd6", "#c44f3a", "#7b61b5", "#20804f", "#c27a18"]
+    fallback_colors = ["#0052d9", "#2b74d6", "#315fd6", "#244ba8", "#7a4fb3", "#475467"]
     conditions = []
     for column in columns:
         if column.condition not in conditions:
@@ -1414,13 +1414,13 @@ p{{margin:0;color:#52616b}}
 <script>
 const data = {payload};
 document.querySelector('h1').textContent = `${{data.plot_title || 'Single gene expression'}}: ${{data.gene || 'feature'}}`;
-const palette = ['#0f8a8f', '#315fd6', '#c44f3a', '#7b61b5', '#20804f', '#c27a18', '#b33d7a', '#52616b'];
+const palette = ['#0052d9', '#2b74d6', '#315fd6', '#244ba8', '#7a4fb3', '#475467', '#d54941', '#52616b'];
 const conditionColors = data.condition_colors || {{}};
 const groups = Object.keys(data.groups || {{}});
 const plotEl = document.getElementById('plot');
 function transparentColor(hex, alpha) {{
   const match = String(hex || '').match(/^#?([0-9a-f]{{6}})$/i);
-  if (!match) return `rgba(15,138,143,${{alpha}})`;
+  if (!match) return `rgba(0,82,217,${{alpha}})`;
   const raw = match[1];
   const r = parseInt(raw.slice(0, 2), 16);
   const g = parseInt(raw.slice(2, 4), 16);
@@ -1497,7 +1497,7 @@ def write_gene_expression_preview(path: Path, gene_payload: dict[str, Any]) -> N
         mean_y = 92 - (item["mean"] - min_mean) / span * 48
         median_y = 92 - (item["median"] - min_mean) / span * 48
         violins.append(
-            f'<path d="M {x:.1f} {max(26, mean_y - 24):.1f} C {x - 15:.1f} {max(28, mean_y - 14):.1f}, {x - 12:.1f} {min(98, mean_y + 12):.1f}, {x:.1f} {min(102, mean_y + 24):.1f} C {x + 12:.1f} {min(98, mean_y + 12):.1f}, {x + 15:.1f} {max(28, mean_y - 14):.1f}, {x:.1f} {max(26, mean_y - 24):.1f} Z" fill="#d8f0ef" stroke="#0f8a8f" stroke-width="1.5"/>'
+            f'<path d="M {x:.1f} {max(26, mean_y - 24):.1f} C {x - 15:.1f} {max(28, mean_y - 14):.1f}, {x - 12:.1f} {min(98, mean_y + 12):.1f}, {x:.1f} {min(102, mean_y + 24):.1f} C {x + 12:.1f} {min(98, mean_y + 12):.1f}, {x + 15:.1f} {max(28, mean_y - 14):.1f}, {x:.1f} {max(26, mean_y - 24):.1f} Z" fill="#e8f1ff" stroke="#0052d9" stroke-width="1.5"/>'
             f'<line x1="{x - 8}" x2="{x + 8}" y1="{median_y:.1f}" y2="{median_y:.1f}" stroke="#07131f" stroke-width="2"/>'
             f'<circle cx="{x + 10}" cy="{max(28, mean_y - 8):.1f}" r="1.8" fill="#315fd6" opacity="0.7"/>'
             f'<circle cx="{x - 9}" cy="{min(100, mean_y + 9):.1f}" r="1.8" fill="#315fd6" opacity="0.55"/>'

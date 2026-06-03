@@ -970,7 +970,7 @@ def _write_ml_explainability_preview(
     for index, row in enumerate(top):
         y = 42 + index * 11
         width = max(6, float(row["importance"]) / max_score * 104)
-        color = ["#0052d9", "#0f8a8f", "#00a870", "#e37318", "#7e3af2", "#d54941"][index % 6]
+        color = ["#0052d9", "#2b74d6", "#315fd6", "#244ba8", "#7a4fb3", "#d54941"][index % 6]
         bars.append(
             f'<text x="14" y="{y + 7}" font-size="6.8" fill="#344054">{html.escape(str(row["feature"])[:18])}</text>'
             f'<rect x="92" y="{y}" width="110" height="8" rx="4" fill="#edf2f7"/>'
@@ -1416,13 +1416,13 @@ def _write_normalization_html(path: Path, meta: dict[str, Any]) -> None:
         f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Metabolomics normalization</title>
 <style>
-body{{margin:0;font-family:Inter,'Noto Sans SC',Arial,sans-serif;background:#f7fbfb;color:#07131f}}
+body{{margin:0;font-family:Inter,'Noto Sans SC',Arial,sans-serif;background:#f7f9fc;color:#1d2939}}
 .wrap{{padding:28px;max-width:1120px;margin:auto}}
 h1{{margin:0 0 8px;font-size:30px}}p{{color:#52616b;line-height:1.6}}
 .steps{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:22px 0}}
-article{{padding:16px;border:1px solid #cfe0e3;border-radius:14px;background:white;box-shadow:0 10px 24px rgba(17,42,61,.08)}}
-article span{{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;border-radius:999px;background:#0f8a8f;color:white;font-weight:900;font-size:12px}}
-article strong{{display:block;margin-top:10px;font-size:16px}}article p{{margin:5px 0;color:#0f6b57;font-weight:800}}article small{{color:#52616b}}
+article{{padding:16px;border:1px solid #d9e2ec;border-radius:14px;background:white;box-shadow:0 10px 24px rgba(29,41,57,.08)}}
+article span{{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;border-radius:999px;background:#0052d9;color:white;font-weight:900;font-size:12px}}
+article strong{{display:block;margin-top:10px;font-size:16px}}article p{{margin:5px 0;color:#003cab;font-weight:800}}article small{{color:#52616b}}
 .metrics{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}
 .metric{{padding:16px;border:1px solid #d8e5ee;border-radius:14px;background:#fff}}.metric span{{display:block;color:#52616b;font-size:12px}}.metric strong{{font-size:22px}}
 #bars{{width:100%;height:220px;margin-top:18px;border:1px solid #d8e5ee;border-radius:14px;background:white}}
@@ -1445,7 +1445,7 @@ const beforeMin = Number(meta.sample_total_before_min || 0), beforeMax = Number(
 const afterMin = Number(meta.sample_total_after_min || 0), afterMax = Number(meta.sample_total_after_max || 0);
 const values = [beforeMin, beforeMax, afterMin, afterMax];
 const labels = ['Before min', 'Before max', 'After min', 'After max'];
-const colors = ['#9bb8c6','#315fd6','#98d7c9','#0f8a8f'];
+const colors = ['#98a2b3','#315fd6','#b7cffb','#0052d9'];
 const max = Math.max(...values, 1);
 ctx.clearRect(0,0,canvas.width,canvas.height);
 ctx.font = '13px Inter, sans-serif';
@@ -1472,13 +1472,13 @@ def _write_normalization_preview(path: Path, meta: dict[str, Any]) -> None:
     for index, step in enumerate(steps):
         x = 16 + index * 50
         boxes.append(
-            f'<rect x="{x}" y="42" width="42" height="28" rx="7" fill="#e8f7f4" stroke="#0f8a8f"/>'
-            f'<text x="{x + 21}" y="59" text-anchor="middle" font-size="7" fill="#0d5860" font-weight="700">{step}</text>'
+            f'<rect x="{x}" y="42" width="42" height="28" rx="7" fill="#f2f6ff" stroke="#0052d9"/>'
+            f'<text x="{x + 21}" y="59" text-anchor="middle" font-size="7" fill="#003cab" font-weight="700">{step}</text>'
         )
         if index < len(steps) - 1:
             boxes.append(f'<path d="M{x + 43} 56 H{x + 50}" stroke="#52616b" stroke-width="1.5"/>')
     path.write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f7fbfb"/><text x="12" y="18" font-size="11" fill="#17211b" font-weight="700">Normalize / impute / scale</text><text x="12" y="32" font-size="9" fill="#52616b">{int(meta["metabolite_count"])} metabolites / {int(meta["sample_count"])} samples</text>{"".join(boxes)}<text x="12" y="96" font-size="9" fill="#52616b">filled {int(meta["imputed_value_count"])} missing values</text></svg>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect width="220" height="120" rx="14" fill="#f7f9fc"/><text x="12" y="18" font-size="11" fill="#1d2939" font-weight="700">Normalize / impute / scale</text><text x="12" y="32" font-size="9" fill="#52616b">{int(meta["metabolite_count"])} metabolites / {int(meta["sample_count"])} samples</text>{"".join(boxes)}<text x="12" y="96" font-size="9" fill="#52616b">filled {int(meta["imputed_value_count"])} missing values</text></svg>',
         encoding="utf-8",
     )
 

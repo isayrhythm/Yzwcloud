@@ -427,9 +427,19 @@ export function ComparisonModal({ options, onClose, onSubmit }) {
   };
 
   return (
-    <Modal onClose={onClose}>
+    <Dialog
+      visible
+      header="选择差异分析组合"
+      width={560}
+      placement="center"
+      closeOnOverlayClick
+      destroyOnClose
+      footer={false}
+      dialogClassName="td-workflow-dialog td-param-dialog"
+      onClose={onClose}
+      onCancel={onClose}
+    >
       <form className="modal" onSubmit={submit}>
-        <h2>选择差异分析组合</h2>
         <p>每次选择会衍生一个独立差异分析分支，可以重复创建不同组合。</p>
         <div className="condition-grid">
           {conditions.map((condition) => (
@@ -456,7 +466,7 @@ export function ComparisonModal({ options, onClose, onSubmit }) {
         </div>
         {error ? <p className="modal-error">{error}</p> : null}
       </form>
-    </Modal>
+    </Dialog>
   );
 }
 
@@ -477,9 +487,19 @@ export function NextAnalysisModal({ options, onClose, onSubmit }) {
   };
 
   return (
-    <Modal onClose={onClose}>
+    <Dialog
+      visible
+      header="添加后续分析"
+      width={540}
+      placement="center"
+      closeOnOverlayClick
+      destroyOnClose
+      footer={false}
+      dialogClassName="td-workflow-dialog td-param-dialog"
+      onClose={onClose}
+      onCancel={onClose}
+    >
       <form className="modal" onSubmit={submit}>
-        <h2>添加后续分析</h2>
         <p>节点只会在选择后创建，避免画布一次性铺满。</p>
         <div className="analysis-choice-list">
           {options.map((option) => (
@@ -503,6 +523,6 @@ export function NextAnalysisModal({ options, onClose, onSubmit }) {
         </div>
         {error ? <p className="modal-error">{error}</p> : null}
       </form>
-    </Modal>
+    </Dialog>
   );
 }

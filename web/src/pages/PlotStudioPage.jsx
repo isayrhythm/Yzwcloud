@@ -602,7 +602,9 @@ function ReportPrompt({ prompt, copied, onCopy, t }) {
     <details className="plot-report-prompt">
       <summary>
         <span>{t("reportPrompt")}</span>
-        <button type="button" onClick={onCopy}>{copied ? t("copied") : t("copyPrompt")}</button>
+        <Button shape="round" size="small" variant="outline" onClick={onCopy}>
+          {copied ? t("copied") : t("copyPrompt")}
+        </Button>
       </summary>
       <p>{t("reportPromptHint")}</p>
       <div>

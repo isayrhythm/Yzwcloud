@@ -4880,13 +4880,9 @@ h2 {
   font-size: 13px;
 }
 
-.plot-param-search button {
+.plot-param-search .t-button {
   min-height: 38px;
   padding: 0 11px;
-  border: 1px solid rgba(0, 82, 217, 0.2);
-  border-radius: 10px;
-  background: #f2f6ff;
-  color: var(--accent-strong);
   font-size: 12px;
   font-weight: 900;
 }
@@ -4928,19 +4924,10 @@ h2 {
   align-items: center;
 }
 
-.plot-agent-editor button {
+.plot-agent-editor .t-button {
   min-height: 34px;
   padding: 0 14px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  background: var(--accent);
-  color: #ffffff;
   font-weight: 900;
-}
-
-.plot-agent-editor button:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
 }
 
 .plot-agent-editor span {
@@ -5251,11 +5238,7 @@ h2 {
   font-weight: 900;
 }
 
-.plot-report-prompt summary button {
-  border: 1px solid rgba(0, 82, 217, 0.22);
-  border-radius: 999px;
-  background: white;
-  color: var(--accent-strong);
+.plot-report-prompt summary .t-button {
   font-size: 12px;
   font-weight: 850;
 }
@@ -5321,11 +5304,7 @@ h2 {
   color: var(--accent);
 }
 
-.plot-agent-context summary button {
-  border: 1px solid rgba(0, 82, 217, 0.22);
-  border-radius: 999px;
-  background: white;
-  color: var(--accent-strong);
+.plot-agent-context summary .t-button {
   font-size: 12px;
   font-weight: 850;
 }
@@ -5415,20 +5394,9 @@ h2 {
   opacity: 0.48;
 }
 
-.plot-action-strip button {
+.plot-action-strip .t-button {
   min-height: 36px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #ffffff;
-  color: var(--accent-strong);
-  cursor: pointer;
   font-weight: 900;
-}
-
-.plot-action-strip .primary {
-  border-color: transparent;
-  background: var(--accent);
-  color: #ffffff;
 }
 
 .plot-data-summary {

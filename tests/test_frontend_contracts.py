@@ -78,6 +78,33 @@ def test_plot_studio_preview_exposes_hd_image_and_pdf_export() -> None:
         assert fragment in styles
 
 
+def test_plot_studio_parameters_and_report_actions_use_tdesign_buttons() -> None:
+    source = _plot_studio_source()
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        "onResetParams",
+        "onRunPreview",
+        "onClearParameterSearch",
+        "onApplyEditCommand",
+        "onCopyAgentContext",
+        "onCopyReportPrompt",
+        "<Button",
+        "theme=\"primary\"",
+        "variant=\"outline\"",
+    ]:
+        assert fragment in source
+
+    for fragment in [
+        ".plot-action-strip .t-button",
+        ".plot-param-search .t-button",
+        ".plot-agent-editor .t-button",
+        ".plot-report-prompt summary .t-button",
+        ".plot-agent-context summary .t-button",
+    ]:
+        assert fragment in styles
+
+
 def test_plot_studio_preview_layout_is_container_bound() -> None:
     source = _plot_studio_source()
     styles = _source(STYLESHEET)

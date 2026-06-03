@@ -389,10 +389,12 @@ export function PlotParamsPanel({
         <span className="muted">{selectedPreset?.engine || "-"}</span>
       </div>
       <div className="plot-action-strip">
-        <button type="button" onClick={onResetParams}>{t("resetDefaults")}</button>
-        <button className="primary" type="button" onClick={onRunPreview}>
+        <Button shape="round" variant="outline" onClick={onResetParams}>
+          {t("resetDefaults")}
+        </Button>
+        <Button className="primary" theme="primary" shape="round" onClick={onRunPreview}>
           {t("runPreview")}
-        </button>
+        </Button>
       </div>
       <div className="plot-param-search" role="search">
         <input
@@ -403,7 +405,7 @@ export function PlotParamsPanel({
           aria-label={t("parameterSearchPlaceholder")}
         />
         {parameterSearch ? (
-          <button type="button" onClick={onClearParameterSearch}>{t("clear")}</button>
+          <Button shape="round" size="small" variant="outline" onClick={onClearParameterSearch}>{t("clear")}</Button>
         ) : null}
       </div>
       <form className="plot-agent-editor" onSubmit={onApplyEditCommand}>
@@ -422,7 +424,7 @@ export function PlotParamsPanel({
           rows={3}
         />
         <div>
-          <button type="submit" disabled={!selectedPreset || !editCommand.trim()}>应用</button>
+          <Button theme="primary" shape="round" type="submit" disabled={!selectedPreset || !editCommand.trim()}>应用</Button>
           {editCommandStatus ? <span>{editCommandStatus}</span> : null}
         </div>
       </form>
@@ -532,9 +534,9 @@ export function PlotReportPanel({
         <details className="plot-agent-context">
           <summary>
             <span>{t("llmContext")}</span>
-            <button type="button" onClick={onCopyAgentContext}>
+            <Button shape="round" size="small" variant="outline" onClick={onCopyAgentContext}>
               {agentContextCopied ? t("copied") : t("copyContext")}
-            </button>
+            </Button>
           </summary>
           <p>{t("llmContextHint")}</p>
           <pre>{agentContextText}</pre>

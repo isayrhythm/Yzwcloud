@@ -12,7 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from yzwcloud.models import DataObject  # noqa: E402
-from yzwcloud.report_agent import attach_node_agent_report, create_node_agent_report  # noqa: E402
+from yzwcloud.report_agent import attach_node_agent_report, create_node_agent_report, _parse_llm_json  # noqa: E402
 
 
 def test_node_report_falls_back_to_structured_pca_summary_without_llm() -> None:
@@ -184,3 +184,11 @@ def test_node_report_uses_llm_prompt_with_current_results(monkeypatch: Any, tmp_
     assert "feature_importance_table" in user_prompt
     assert "creatine" in user_prompt
     assert "feature 在这里指代谢物输入变量" in report["findings"][0]
+
+
+def test_node_report_parses_fenced_llm_json() -> None:
+    parsed = _parse_llm_json(
+        '```json\n{"summary":"ok","findings":[],"methods":[],"warnings":[],"next_steps":[]}\n```'
+    )
+
+    assert parsed["summary"] == "ok"

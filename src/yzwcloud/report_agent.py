@@ -562,7 +562,7 @@ def _generate_llm_report(report_prompt: dict[str, str]) -> dict[str, Any]:
             {"role": "user", "content": report_prompt["user"]},
         ],
         "response_format": {"type": "json_object"},
-        "max_tokens": 1200,
+        "max_tokens": 2200,
         "temperature": 0.0,
     }
     request = urllib.request.Request(
@@ -574,10 +574,29 @@ def _generate_llm_report(report_prompt: dict[str, str]) -> dict[str, Any]:
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
             raw = json.loads(response.read().decode("utf-8"))
-        parsed = json.loads(raw["choices"][0]["message"].get("content") or "")
+        parsed = _parse_llm_json(raw["choices"][0]["message"].get("content") or "")
         return {"llm_status": "ok", "model": model, "report": _sanitize_report(parsed)}
     except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError, ValueError) as exc:
         return {"llm_status": "fallback", "llm_error": str(exc), "model": model}
+
+
+def _parse_llm_json(content: str) -> dict[str, Any]:
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start : end + 1])
+        raise
 
 
 def _sanitize_report(parsed: dict[str, Any]) -> dict[str, Any]:

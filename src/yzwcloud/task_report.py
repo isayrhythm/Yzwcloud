@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from yzwcloud.config import PROJECT_ROOT
 from yzwcloud.models import Graph, GraphNode
 from yzwcloud.task_store import get_task_dir, load_graph, load_task, read_log
 
@@ -27,7 +28,10 @@ Rules:
 - narrative, methods, results, limitations, and next_steps must be arrays of short strings.
 - Base claims only on the provided node reports, workflow graph, methods, and metadata.
 - Do not invent biological conclusions, statistical significance, or visual patterns.
-- Explain how the current result was produced step by step.
+- The summary must be an executive conclusion: 2-4 short Chinese sentences that synthesize the user's original input, the analysis path, and the most important current result or risk.
+- Do not make summary a node-by-node process description. Condense the workflow so a tired user can understand what matters now.
+- Results should prioritize the strongest current signals, counts, model/plot interpretations, and caveats; avoid listing every node.
+- Explain how the current result was produced step by step in narrative, not in summary.
 """
 
 
@@ -269,6 +273,7 @@ def _create_task_agent_summary(
             "name": task.get("name", ""),
             "status": task.get("status", ""),
         },
+        "original_input": _original_input_context(graph),
         "workflow": {
             "node_count": len(steps),
             "edge_count": len(graph.edges),
@@ -308,6 +313,7 @@ def _create_task_agent_summary(
             }
             for figure in figures
         ],
+        "important_signals": _important_signals(steps),
     }
     fallback = _rule_based_task_summary(evidence)
     llm_result = _generate_task_llm_summary(evidence)
@@ -328,25 +334,84 @@ def _create_task_agent_summary(
     }
 
 
+def _original_input_context(graph: Graph) -> dict[str, Any]:
+    upload = next((node for node in graph.nodes if node.id == "upload_expression" and node.output), None)
+    if not upload or not upload.output:
+        return {"available": False}
+    meta = upload.output.meta
+    uploaded = upload.params.get("uploaded_inputs") or {}
+    upload_batch = uploaded.get("upload_batch") or {}
+    files = upload_batch.get("files") or []
+    return {
+        "available": True,
+        "node_name": upload.name,
+        "data_type": meta.get("data_type") or upload.output.type,
+        "assay_profile": meta.get("assay_profile", ""),
+        "sample_count": meta.get("sample_count", 0),
+        "feature_count": meta.get("metabolite_count", meta.get("gene_count", 0)),
+        "feature_label": meta.get("feature_label", "features"),
+        "conditions": meta.get("conditions") or {},
+        "uploaded_files": [
+            {
+                "filename": item.get("filename", ""),
+                "size": item.get("size", 0),
+            }
+            for item in files[:8]
+            if isinstance(item, dict)
+        ],
+        "summary": upload.output.meta.get("agent_report", {}).get("summary") or _fallback_node_summary(upload),
+    }
+
+
+def _important_signals(steps: list[dict[str, Any]]) -> list[str]:
+    signals: list[str] = []
+    priority_terms = (
+        "候选",
+        "显著",
+        "Top feature",
+        "balanced accuracy",
+        "accuracy",
+        "通过 QC",
+        "未通过 QC",
+        "上调",
+        "下调",
+        "VIP",
+        "SHAP",
+        "importance",
+        "模型",
+        "PCA",
+    )
+    for step in steps:
+        for item in [step.get("summary", ""), *step.get("findings", []), *step.get("warnings", [])]:
+            text = str(item).strip()
+            if text and any(term in text for term in priority_terms):
+                signals.append(f"{step['name']}：{text}")
+    return _dedupe(signals)[:18]
+
+
 def _rule_based_task_summary(evidence: dict[str, Any]) -> dict[str, Any]:
     task = evidence["task"]
     workflow = evidence["workflow"]
+    original = evidence.get("original_input") or {}
     nodes = evidence["nodes"]
     completed = [node for node in nodes if node["status"] == "completed"]
     output_nodes = [node for node in completed if node["has_output"]]
     method_lines = _dedupe([item for node in completed for item in node.get("methods", [])])[:8]
-    result_lines = _dedupe([node["summary"] for node in output_nodes if node.get("summary")])[:8]
+    result_lines = _condensed_result_lines(evidence, output_nodes)
     limitation_lines = _dedupe([item for node in nodes for item in node.get("warnings", [])])[:8]
     next_lines = _dedupe([item for node in nodes for item in node.get("next_steps", [])])[:8]
     first_node = completed[0]["name"] if completed else "输入节点"
     last_node = completed[-1]["name"] if completed else "当前节点"
+    input_sentence = _input_sentence(original)
+    leading_result = result_lines[0] if result_lines else "当前结果仍以流程产物整理为主，尚未形成明确可优先解读的信号。"
     return {
         "summary": (
-            f"{task.get('name') or '当前任务'} 已形成包含 {workflow['node_count']} 个节点的分析流程，"
-            f"当前完成 {workflow['completed_nodes']} 个节点，已有 {workflow['output_nodes']} 个结果输出。"
+            f"{task.get('name') or '当前任务'} 基于{input_sentence}完成了从数据质控、标准化到可视化、差异分析和模型解释的流程。"
+            f"当前最需要先看的结论是：{leading_result}"
+            "这些结果可作为候选发现和后续验证依据，但仍需要结合实验设计、阈值和原始结果图人工复核。"
         ),
         "narrative": [
-            f"用户当前围绕任务“{task.get('name') or task.get('id')}”构建分析流程，状态为 {task.get('status') or 'unknown'}。",
+            f"用户当前围绕任务“{task.get('name') or task.get('id')}”提交{input_sentence}并构建分析流程，状态为 {task.get('status') or 'unknown'}。",
             f"流程从 {first_node} 开始，沿依赖关系逐步生成到 {last_node} 等结果节点。",
             f"本报告按流程顺序整理 {len(output_nodes)} 个结果节点，展示当前分析已经得到的图表、方法和结论。",
         ],
@@ -355,6 +420,32 @@ def _rule_based_task_summary(evidence: dict[str, Any]) -> dict[str, Any]:
         "limitations": limitation_lines or ["正式解释前仍需人工复核实验设计、统计阈值和样本分组。"],
         "next_steps": next_lines or ["继续补齐下游分析，并复核关键结果图与节点级解释。"],
     }
+
+
+def _input_sentence(original: dict[str, Any]) -> str:
+    if not original.get("available"):
+        return "当前上传数据"
+    sample_count = original.get("sample_count") or 0
+    feature_count = original.get("feature_count") or 0
+    feature_label = original.get("feature_label") or "features"
+    data_type = str(original.get("data_type") or "analysis matrix").replace("_", " ")
+    conditions = original.get("conditions") or {}
+    condition_text = ""
+    if isinstance(conditions, dict) and conditions:
+        condition_text = "，分组为 " + "、".join(f"{key}={value}" for key, value in list(conditions.items())[:4])
+    return f"{sample_count} 个样本、{feature_count} 个 {feature_label} 的 {data_type}{condition_text}"
+
+
+def _condensed_result_lines(evidence: dict[str, Any], output_nodes: list[dict[str, Any]]) -> list[str]:
+    signals = evidence.get("important_signals") or []
+    selected = []
+    for signal in signals:
+        text = str(signal)
+        if any(term in text for term in ("候选", "显著", "Top feature", "balanced accuracy", "上调", "下调", "通过 QC", "SHAP", "importance")):
+            selected.append(text)
+    if selected:
+        return _dedupe(selected)[:6]
+    return _dedupe([node["summary"] for node in output_nodes if node.get("summary")])[:6]
 
 
 def _generate_task_llm_summary(evidence: dict[str, Any]) -> dict[str, Any]:
@@ -367,9 +458,20 @@ def _generate_task_llm_summary(evidence: dict[str, Any]) -> dict[str, Any]:
         "model": model,
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
+        "max_tokens": 2200,
         "messages": [
             {"role": "system", "content": TASK_REPORT_SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(evidence, ensure_ascii=False)},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "task": "Write the final workflow report conclusion and supporting sections.",
+                        "focus": "Condense what matters from the original input, analysis path, and current results.",
+                        "evidence": evidence,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
         ],
     }
     request = urllib.request.Request(
@@ -382,20 +484,45 @@ def _generate_task_llm_summary(evidence: dict[str, Any]) -> dict[str, Any]:
         with urllib.request.urlopen(request, timeout=45) as response:
             body = json.loads(response.read().decode("utf-8"))
         content = body["choices"][0]["message"]["content"]
-        return {"llm_status": "ok", "report": _validate_task_llm_report(json.loads(content)), "model": model}
+        return {"llm_status": "ok", "report": _validate_task_llm_report(_parse_llm_json(content)), "model": model}
     except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError, ValueError) as exc:
         return {"llm_status": "error", "llm_error": str(exc), "model": model}
 
 
+def _parse_llm_json(content: str) -> dict[str, Any]:
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start : end + 1])
+        raise
+
+
 def _validate_task_llm_report(value: dict[str, Any]) -> dict[str, Any]:
     return {
-        "summary": str(value["summary"])[:800],
+        "summary": _clean_summary(value["summary"]),
         "narrative": _clean_text_list(value["narrative"]),
         "methods": _clean_text_list(value["methods"]),
         "results": _clean_text_list(value["results"]),
         "limitations": _clean_text_list(value["limitations"]),
         "next_steps": _clean_text_list(value["next_steps"]),
     }
+
+
+def _clean_summary(value: Any) -> str:
+    if isinstance(value, list):
+        return " ".join(str(item).strip() for item in value if str(item).strip())[:520]
+    return str(value).strip()[:520]
 
 
 def _clean_text_list(value: Any) -> list[str]:
@@ -406,7 +533,18 @@ def _clean_text_list(value: Any) -> list[str]:
 
 def _env_value(name: str, default: str = "") -> str:
     value = os.getenv(name)
-    return value.strip() if value else default
+    if value:
+        return value.strip()
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return default
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        key, raw = line.split("=", 1)
+        if key.strip() == name:
+            return raw.strip().strip('"').strip("'")
+    return default
 
 
 def _compact_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -580,7 +718,7 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
     pages = [
         _page(
             "01",
-            "分析任务总览",
+            "综合小结",
             f"""<div class="cover"><p class="eyebrow">YZW BioCloud · 流程报告</p>
 <h1>{html.escape(str(report["task"]["name"]))}</h1>
 <p class="lead">{html.escape(agent_summary["summary"])}</p>
@@ -598,10 +736,11 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
         _page("03", "方法与执行轨迹", _step_table(steps)),
         _page(
             "04",
-            "流程报告总结",
-            f"""<div class="summary-grid"><section><h2>用户做了什么</h2>{_list(agent_summary["narrative"])}</section>
+            "分析结论与依据",
+            f"""<section class="executive-summary"><h2>最终小结</h2><p>{html.escape(agent_summary["summary"])}</p></section>
+<div class="summary-grid"><section><h2>用户做了什么</h2>{_list(agent_summary["narrative"])}</section>
 <section><h2>使用的方法</h2>{_list(agent_summary["methods"])}</section>
-<section><h2>当前结果</h2>{_list(agent_summary["results"])}</section>
+<section><h2>重要结果</h2>{_list(agent_summary["results"])}</section>
 <section><h2>解释边界</h2>{_list(agent_summary["limitations"])}</section></div>""",
         ),
     ]
@@ -701,7 +840,8 @@ main{padding-top:20px}.cover{display:grid;align-content:center;min-height:570px}
 .workflow-figure{height:520px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#f6fbfb}.workflow-figure img{display:block;width:100%;height:auto}
 table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}th,td{padding:10px;border-bottom:1px solid #e4eeee;text-align:left;vertical-align:top}th{color:#0f6b57;background:#f0f8f7}td small{display:block;margin-top:4px;color:#829198}
 .figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 330px auto;padding:16px;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.figure-card>div:first-child{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#7b61b5;font-size:12px;font-weight:800}.result-media{--frame-width:1280px;--frame-height:760px;--frame-scale:.4;position:relative;overflow:hidden;border:1px solid #e2ecec;border-radius:14px;background:#fff}.result-frame{width:var(--frame-width);height:var(--frame-height);border:0;background:#fff;transform:scale(var(--frame-scale));transform-origin:top left}.figure-card img{width:100%;height:100%;object-fit:contain}.print-fallback{display:none}.figure-card p{margin:8px 0 0;color:#546b75;font-size:14px;line-height:1.55}
-.split,.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split>section,.summary-grid>section{padding:16px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.split>section{max-height:560px}.summary-grid>section{max-height:250px}.note{margin:0 0 10px;padding:10px;border-left:4px solid #0f8a8f;background:#f4fbfb}.note strong{color:#0f6b57}.note ul,ul{margin:8px 0;padding-left:20px}li{margin:5px 0;line-height:1.45}pre{max-height:470px;padding:12px;overflow:auto;border-radius:12px;background:#102b35;color:#d8f5f0;font-size:11px;white-space:pre-wrap}
+.executive-summary{margin-bottom:18px;padding:18px 20px;border:1px solid #bfe3df;border-left:6px solid #0f8a8f;border-radius:18px;background:#f3fbfa}.executive-summary p{margin:0;color:#183843;font-size:19px;line-height:1.7}
+.split,.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split>section,.summary-grid>section{padding:16px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.split>section{max-height:560px}.summary-grid>section{max-height:210px}.note{margin:0 0 10px;padding:10px;border-left:4px solid #0f8a8f;background:#f4fbfb}.note strong{color:#0f6b57}.note ul,ul{margin:8px 0;padding-left:20px}li{margin:5px 0;line-height:1.45}pre{max-height:470px;padding:12px;overflow:auto;border-radius:12px;background:#102b35;color:#d8f5f0;font-size:11px;white-space:pre-wrap}
 footer{position:absolute;right:44px;bottom:18px;color:#8b999e;font-size:11px}
 @media(max-width:760px){.slide{padding:26px 24px 34px}.cover h1{font-size:38px}.metrics{grid-template-columns:repeat(2,1fr)}.split,.summary-grid,.figure-grid{grid-template-columns:1fr}.figure-card{grid-template-rows:auto 220px auto}.result-media{--frame-scale:.26}.figure-card img{height:210px}}
 @media print{body{background:#fff}.print-button{display:none}.slide{width:1280px;height:720px;margin:0;padding:34px 44px 38px;overflow:hidden;box-shadow:none}.split,.summary-grid,.figure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.result-frame{display:none}.print-fallback{display:block}}

@@ -2628,6 +2628,10 @@ h2 {
   border-radius: 28px;
 }
 
+.plot-hero .t-button {
+  font-weight: 800;
+}
+
 .report-hero-actions {
   display: flex;
   flex-wrap: wrap;
@@ -5415,6 +5419,7 @@ h2 {
 
 .plot-export-action,
 .plot-save-back {
+  display: inline-flex;
   min-height: 34px;
   padding: 0 12px;
   border: 1px solid rgba(49, 95, 214, 0.22);

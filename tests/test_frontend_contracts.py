@@ -62,6 +62,10 @@ def test_plot_studio_preview_exposes_hd_image_and_pdf_export() -> None:
         "Plotly.toImage(plotExportRef.current, { ...options, format: \"svg\" })",
         "导出高清图",
         "导出 PDF",
+        'import { Button } from "tdesign-react"',
+        "<Button",
+        'className="plot-export-action"',
+        'className="plot-save-back"',
         "plotExportStatus",
         "plotRef={plotExportRef}",
     ]:

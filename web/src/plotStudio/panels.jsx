@@ -1,3 +1,4 @@
+import { Button } from "tdesign-react";
 import { normalizePlotStudioSource } from "./session.js";
 
 export function PlotTypePanel({
@@ -202,34 +203,40 @@ export function PlotPreviewPanel({
         </div>
         <div className="plot-preview-actions">
           <span className="muted">{specStatus === "loading" ? t("rendering") : specStatus === "ready" ? t("ready") : specStatus}</span>
-          <button
+          <Button
             className="plot-export-action"
-            type="button"
             onClick={onExportImage}
             disabled={!canExportPlot || plotExportStatus === "image" || plotExportStatus === "pdf"}
+            loading={plotExportStatus === "image"}
+            shape="round"
             title="按当前导出格式和 DPI 保存真实交互图"
+            variant="outline"
           >
             {plotExportStatus === "image" ? "导出中..." : "导出高清图"}
-          </button>
-          <button
+          </Button>
+          <Button
             className="plot-export-action"
-            type="button"
             onClick={onExportPdf}
             disabled={!canExportPlot || plotExportStatus === "image" || plotExportStatus === "pdf"}
+            loading={plotExportStatus === "pdf"}
+            shape="round"
             title="打开干净版图表页面并保存为 PDF"
+            variant="outline"
           >
             {plotExportStatus === "pdf" ? "生成中..." : "导出 PDF"}
-          </button>
+          </Button>
           {normalizedReturnTarget ? (
-            <button
+            <Button
               className="plot-save-back"
-              type="button"
               onClick={onSaveBack}
               disabled={!canSaveBackToResult || !previewSpec?.data?.length || saveBackStatus === "saving"}
+              loading={saveBackStatus === "saving"}
+              shape="round"
               title={canSaveBackToResult ? "保存当前图到刚才打开的结果" : "请使用刚才打开结果对应的数据源"}
+              variant="outline"
             >
               {saveBackStatus === "saving" ? "保存中..." : "保存回结果"}
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>

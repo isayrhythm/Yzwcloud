@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "tdesign-react";
 import { useI18n } from "../i18n.jsx";
 import {
   createPlotStudioAgentEdit,
@@ -1869,7 +1870,9 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
           <p className="eyebrow">Plot Studio</p>
           <h1>{t("figureWorkspaceTitle")}</h1>
         </div>
-        <button className="primary" type="button" onClick={onOpenAnalysis}>{t("backToAnalysis")}</button>
+        <Button theme="primary" shape="round" onClick={onOpenAnalysis}>
+          {t("backToAnalysis")}
+        </Button>
       </section>
 
       <section className="plot-studio-layout">

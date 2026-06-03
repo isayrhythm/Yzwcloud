@@ -1,8 +1,12 @@
 ﻿import { useState } from "react";
 
 import { formatBytes } from "../workflow/format.js";
-import { Button, Dialog, Tabs } from "tdesign-react";
+import { Button, Dialog, MessagePlugin, Tabs } from "tdesign-react";
 import { Modal } from "./Modal.jsx";
+
+function notifyError(message) {
+  void MessagePlugin.error(message || "操作失败");
+}
 
 export function ConfirmDeleteModal({ title, message, confirmLabel, onClose, onConfirm }) {
   return (
@@ -254,7 +258,7 @@ export function DatasetParamsModal({ payload, onClose, onSubmit }) {
     try {
       await onSubmit({ assignments, condition_colors: colorByCondition });
     } catch (error) {
-      window.alert(error.message);
+      notifyError(error.message);
       setBusy(false);
     }
   };
@@ -353,7 +357,7 @@ export function GroupEditorModal({ payload, onClose, onSubmit }) {
     try {
       await onSubmit(assignments);
     } catch (error) {
-      window.alert(error.message);
+      notifyError(error.message);
       setBusy(false);
     }
   };

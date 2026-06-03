@@ -11,7 +11,7 @@ import {
   applyNodeChanges,
   useReactFlow,
 } from "@xyflow/react";
-import { Button, Dropdown, Tag } from "tdesign-react";
+import { Button, Dropdown, MessagePlugin, Tag } from "tdesign-react";
 import { AddIcon, HomeIcon, MoreIcon, RefreshIcon } from "tdesign-icons-react";
 import "@xyflow/react/dist/style.css";
 import "tdesign-react/es/style/index.css";
@@ -58,6 +58,10 @@ import "./styles.css";
 const PAGE_IDS = new Set(["home", "workbench", "plot", "docs", "lab", "reports"]);
 const PAGE_STORAGE_KEY = "yzwcloud.currentPage";
 const TASK_STORAGE_KEY = "yzwcloud.activeTaskId";
+
+function notifyError(message) {
+  void MessagePlugin.error(message || "操作失败");
+}
 
 function normalizePage(value) {
   const page = String(value || "").replace(/^#\/?/, "").replace(/^\//, "");
@@ -167,11 +171,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    loadTasks().catch((error) => window.alert(error.message));
+    loadTasks().catch((error) => notifyError(error.message));
   }, [loadTasks]);
 
   useEffect(() => {
-    loadDetail(activeTaskId).catch((error) => window.alert(error.message));
+    loadDetail(activeTaskId).catch((error) => notifyError(error.message));
   }, [activeTaskId, loadDetail]);
 
   useEffect(() => {
@@ -528,7 +532,7 @@ function App() {
       const response = await api(`/api/tasks/${activeTaskId}/sample-groups`);
       setModal({ kind: "groups", payload: await response.json() });
     } catch (error) {
-      window.alert(`无法读取分组信息：${error.message}`);
+      notifyError(`无法读取分组信息：${error.message}`);
     }
   }
 
@@ -537,7 +541,7 @@ function App() {
       const response = await api(`/api/tasks/${activeTaskId}/comparison-options`);
       setModal({ kind: "comparison", options: await response.json() });
     } catch (error) {
-      window.alert(`无法读取分组信息：${error.message}`);
+      notifyError(`无法读取分组信息：${error.message}`);
     }
   }
 
@@ -631,7 +635,7 @@ function App() {
       } catch {
         detail = await response.text();
       }
-      window.alert(`上传失败：${detail}`);
+      notifyError(`上传失败：${detail}`);
       return;
     }
     await loadDetail(activeTaskId);

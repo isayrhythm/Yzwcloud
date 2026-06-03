@@ -13,7 +13,7 @@ from yzwcloud.config import PROJECT_ROOT
 from yzwcloud.models import DataObject
 
 
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-v4-flash"
 
 NODE_REPORT_SYSTEM_PROMPT = """You are YZW BioCloud Node Report Agent.
 Write a concise Chinese report for one bioinformatics workflow node.
@@ -246,10 +246,14 @@ def _methods_for_output(output_type: str, meta: dict[str, Any], params: dict[str
     if output_type in {"expression_heatmap_plot", "heatmap_plot"} and meta.get("cluster_method"):
         methods.append(f"聚类方法：{meta['cluster_method']}。")
     if output_type in {"diff_result", "metabolomics_differential_result", "metabolomics_statistics_result"}:
+        if meta.get("univariate_method"):
+            methods.append(f"单变量检验：{meta['univariate_method']}。")
         methods.append(
             f"筛选阈值：p <= {meta.get('p_value_threshold', params.get('p_value', 0.05))}，"
             f"|log2FC| >= {meta.get('log2fc_threshold', params.get('log2fc', 1.0))}。"
         )
+        if meta.get("vip_threshold") is not None:
+            methods.append(f"VIP 阈值：>{meta.get('vip_threshold')}。")
     if output_type == "expression_matrix" and meta.get("analysis_family") == "metabolomics_normalization":
         methods.append(
             f"代谢组处理：{meta.get('impute_method')} / {meta.get('normalization_method')} / "

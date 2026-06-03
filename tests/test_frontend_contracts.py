@@ -16,6 +16,7 @@ I18N = ROOT / "web" / "src" / "i18n.jsx"
 ANALYSIS_NODE = ROOT / "web" / "src" / "components" / "AnalysisNode.jsx"
 WORKFLOW_MODALS = ROOT / "web" / "src" / "components" / "WorkflowModals.jsx"
 REPORTS_PAGE = ROOT / "web" / "src" / "pages" / "ReportsPage.jsx"
+WORKFLOW_OPTIONS = ROOT / "web" / "src" / "workflow" / "options.js"
 
 
 def _source(path: Path) -> str:
@@ -46,6 +47,30 @@ def test_plot_studio_preview_forces_safe_plotly_config() -> None:
     assert "displaylogo: false" in body
     assert "scrollZoom: false" in body
     assert "Plotly.react(plotElement, spec.data || [], previewLayout, fitPlotlyConfigToPreview(spec.config))" in source
+
+
+def test_plot_studio_preview_exposes_hd_image_and_pdf_export() -> None:
+    source = _plot_studio_source()
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        "function plotExportOptionsFromSpec",
+        "function downloadDataUrl",
+        "function openPlotExportPrintWindow",
+        "Plotly.toImage(plotExportRef.current, options)",
+        "Plotly.toImage(plotExportRef.current, { ...options, format: \"svg\" })",
+        "导出高清图",
+        "导出 PDF",
+        "plotExportStatus",
+        "plotRef={plotExportRef}",
+    ]:
+        assert fragment in source
+
+    for fragment in [
+        ".plot-export-action",
+        ".plot-export-action:disabled",
+    ]:
+        assert fragment in styles
 
 
 def test_plot_studio_preview_layout_is_container_bound() -> None:
@@ -328,6 +353,22 @@ def test_homepage_keeps_agent_flow_animation_contract() -> None:
     assert "homeWorkflowDemo" in i18n
 
 
+def test_diff_followup_options_do_not_show_export_or_report_nodes() -> None:
+    source = _source(WORKFLOW_OPTIONS)
+    diff_options = re.search(
+        r'if \(node\.id\.startsWith\("diff_analysis__"\).*?return \[(?P<body>.*?)\];',
+        source,
+        flags=re.S,
+    )
+    assert diff_options, "Differential follow-up options must stay explicit."
+    body = diff_options.group("body")
+
+    assert "diff_export" not in body
+    assert "analysis_report" not in body
+    assert "Result export" not in body
+    assert "Report" not in body
+
+
 def test_analysis_nodes_surface_agent_summary_reports() -> None:
     node_source = _source(ANALYSIS_NODE)
     modal_source = _source(WORKFLOW_MODALS)
@@ -450,6 +491,39 @@ def test_workflow_header_exposes_task_report_exports() -> None:
         assert fragment in styles
 
     assert ".workflow-report-secondary" not in styles
+
+
+def test_workbench_sidebar_does_not_show_reports_menu_button() -> None:
+    source = _source(MAIN_PAGE)
+    sidebar_actions = re.search(
+        r'<div className="task-sidebar-actions">(?P<body>.*?)</div>',
+        source,
+        flags=re.S,
+    )
+    assert sidebar_actions, "Workbench sidebar actions should remain explicit."
+    body = sidebar_actions.group("body")
+
+    assert "openReports" not in source
+    assert "reportButton" not in body
+    assert "loadTasks" in body
+
+
+def test_feature_intensity_profile_uses_generic_feature_labels() -> None:
+    options_source = _source(ROOT / "web" / "src" / "workflow" / "options.js")
+    heatmap_source = _source(ROOT / "web" / "src" / "components" / "HeatmapParamsModal.jsx")
+
+    for fragment in [
+        'meta.assay_profile === "feature_intensity"',
+        'shortLabel: "Feature"',
+        'fullLabel: "Feature intensity matrix"',
+        'featureLabel: "features"',
+        'featureSingular: "feature"',
+    ]:
+        assert fragment in options_source
+
+    assert 'sourceMeta.assay_profile === "feature_intensity"' in heatmap_source
+    assert "Top variable metabolites heatmap" not in options_source
+    assert "Single metabolite abundance" not in options_source
 
 
 def test_output_urls_stay_same_origin_outside_explicit_api_base() -> None:

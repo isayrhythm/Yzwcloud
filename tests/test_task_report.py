@@ -29,6 +29,11 @@ def _report_task(tmp_path: Path, monkeypatch) -> str:
         '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120"><rect width="220" height="120" fill="#e8f7f4"/></svg>',
         encoding="utf-8",
     )
+    interactive_html = output_dir / "upload_result.html"
+    interactive_html.write_text(
+        "<!doctype html><html><body><main id='real-result'>interactive result</main></body></html>",
+        encoding="utf-8",
+    )
     upload = next(node for node in graph.nodes if node.id == "upload_expression")
     upload.status = NodeStatus.COMPLETED
     upload.output = DataObject(
@@ -37,6 +42,7 @@ def _report_task(tmp_path: Path, monkeypatch) -> str:
         meta={
             "sample_count": 6,
             "gene_count": 1200,
+            "html_file": str(interactive_html),
             "preview_file": str(preview),
             "agent_report": {
                 "summary": "识别到 6 个样本和 1200 个可分析基因。",
@@ -62,13 +68,25 @@ def test_task_report_builds_slide_html_with_workflow_and_real_preview(tmp_path: 
     assert report["summary"]["figure_count"] == 1
     assert report["agent_summary"]["generated_by"] == "rule_based_fallback"
     assert report["agent_summary"]["llm_status"] == "missing_api_key"
-    assert "节点级 Agent 总结组合" in report["agent_summary"]["narrative"][2]
+    assert "结果节点" in report["agent_summary"]["narrative"][2]
+    assert "可汇报" not in report["summary"]["status_text"]
+    assert "可汇报" not in report["agent_summary"]["summary"]
     assert Path(report["workflow"]["svg_file"]).exists()
     assert "分析任务总览" in html_text
+    assert "YZW BioCloud · 流程报告" in html_text
+    assert "可追溯生信分析流程" in html_text
+    assert "Analysis Report" not in html_text
+    assert "Agent-driven bioinformatics workflow" not in html_text
     assert "当前分析流程" in html_text
     assert "流程报告总结" in html_text
     assert "用户做了什么" in html_text
     assert "实际结果图" in html_text
+    assert '<iframe class="result-frame"' in html_text
+    assert 'scrolling="no"' in html_text
+    assert "transform:scale(var(--frame-scale))" in html_text
+    assert "fitResultFrames" in html_text
+    assert f"/api/tasks/{task_id}/outputs/upload_result.html" in html_text
+    assert 'class="print-fallback"' in html_text
     assert "data:image/svg+xml;base64," in html_text
     assert "打印 / 保存为 PDF" in html_text
 

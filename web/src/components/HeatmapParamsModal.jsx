@@ -15,6 +15,12 @@ function dataProfileForNode(node, detail) {
     node.depends_on?.map((id) => byId.get(id)?.output?.meta).find((meta) => meta?.data_type) ||
     byId.get("upload_expression")?.output?.meta ||
     {};
+  if (sourceMeta.data_type === "metabolomics_matrix" && sourceMeta.assay_profile === "protein") {
+    return { featurePlural: "proteins", featureSingular: "protein" };
+  }
+  if (sourceMeta.data_type === "metabolomics_matrix" && sourceMeta.assay_profile === "feature_intensity") {
+    return { featurePlural: "features", featureSingular: "feature" };
+  }
   return sourceMeta.data_type === "metabolomics_matrix"
     ? { featurePlural: "metabolites", featureSingular: "metabolite" }
     : { featurePlural: "genes", featureSingular: "gene" };

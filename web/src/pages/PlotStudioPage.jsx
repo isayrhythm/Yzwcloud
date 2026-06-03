@@ -109,6 +109,93 @@ async function copyTextToClipboard(text) {
   return copied;
 }
 
+function sanitizePlotExportFilename(value) {
+  const text = String(value || "").trim();
+  const sanitized = text.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, "-").replace(/^-+|-+$/g, "");
+  return sanitized || "plot-studio-figure";
+}
+
+function plotExportOptionsFromSpec(spec, fallbackFormat = "png") {
+  const rawOptions = spec?.config?.toImageButtonOptions || {};
+  const supportedFormats = new Set(["svg", "png", "jpeg", "webp"]);
+  const rawFormat = String(rawOptions.format || fallbackFormat).toLowerCase();
+  const format = supportedFormats.has(rawFormat) ? rawFormat : fallbackFormat;
+  const scale = Number(rawOptions.scale);
+  const options = {
+    format,
+    filename: sanitizePlotExportFilename(rawOptions.filename || spec?.layout?.title?.text),
+    scale: Number.isFinite(scale) && scale > 0 ? scale : 2,
+  };
+  if (Number(rawOptions.width) > 0) options.width = Number(rawOptions.width);
+  if (Number(rawOptions.height) > 0) options.height = Number(rawOptions.height);
+  return options;
+}
+
+function downloadDataUrl(dataUrl, filename) {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function openPlotExportPrintWindow({ dataUrl, title, filename }) {
+  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=850");
+  if (!printWindow) {
+    throw new Error("浏览器阻止了 PDF 导出窗口，请允许弹窗后重试。");
+  }
+  const safeTitle = escapeHtml(title || filename);
+  const safeFilename = escapeHtml(filename);
+  const safeDataUrl = escapeHtml(dataUrl);
+  printWindow.document.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${safeTitle}</title>
+    <style>
+      @page { size: 16in 9in; margin: 0.45in; }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: #102333; font-family: Arial, "Microsoft YaHei", sans-serif; background: #ffffff; }
+      main { display: grid; grid-template-rows: auto 1fr auto; width: 100vw; min-height: 100vh; gap: 18px; padding: 28px 34px; }
+      header { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; border-bottom: 1px solid #d8e5ea; padding-bottom: 12px; }
+      h1 { margin: 0; font-size: 24px; line-height: 1.25; }
+      small { color: #607584; font-weight: 700; }
+      figure { display: grid; place-items: center; min-height: 0; margin: 0; }
+      img { display: block; max-width: 100%; max-height: calc(100vh - 150px); object-fit: contain; }
+      footer { color: #607584; font-size: 12px; }
+      .toolbar { position: fixed; right: 18px; top: 18px; display: flex; gap: 8px; }
+      button { min-height: 36px; padding: 0 14px; border: 1px solid #bfd8df; border-radius: 999px; background: #0f8a8f; color: #ffffff; font-weight: 800; cursor: pointer; }
+      @media print {
+        .toolbar { display: none; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        main { width: auto; min-height: auto; padding: 0; }
+        img { max-height: 6.9in; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar"><button type="button" onclick="window.print()">保存 PDF</button></div>
+    <main>
+      <header><h1>${safeTitle}</h1><small>${safeFilename}.pdf</small></header>
+      <figure><img alt="${safeTitle}" src="${safeDataUrl}" /></figure>
+      <footer>Plot Studio export</footer>
+    </main>
+    <script>window.addEventListener("load", () => { window.focus(); window.setTimeout(() => window.print(), 250); });</script>
+  </body>
+</html>`);
+  printWindow.document.close();
+}
+
 function defaultParamsFromPreset(preset) {
   return { ...(preset?.default_params || {}) };
 }
@@ -729,8 +816,9 @@ function fitPlotlyConfigToPreview(config) {
   };
 }
 
-function InteractivePlot({ spec }) {
-  const plotRef = useRef(null);
+function InteractivePlot({ spec, plotRef: externalPlotRef }) {
+  const localPlotRef = useRef(null);
+  const plotRef = externalPlotRef || localPlotRef;
   const [plotError, setPlotError] = useState("");
 
   useEffect(() => {
@@ -1318,7 +1406,10 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
   const [exampleLoadingId, setExampleLoadingId] = useState("");
   const [saveBackStatus, setSaveBackStatus] = useState("idle");
   const [saveBackError, setSaveBackError] = useState("");
+  const [plotExportStatus, setPlotExportStatus] = useState("idle");
+  const [plotExportError, setPlotExportError] = useState("");
   const [editHistory, setEditHistory] = useState(session?.editHistory || []);
+  const plotExportRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -1594,6 +1685,8 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
   useEffect(() => {
     setSaveBackStatus("idle");
     setSaveBackError("");
+    setPlotExportStatus("idle");
+    setPlotExportError("");
   }, [plotStudioSourceKey(selectedSource), selectedPreset?.id, params]);
 
   const updateParam = (paramId, value) => {
@@ -1687,6 +1780,42 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
     } catch (saveFailure) {
       setSaveBackError(saveFailure.message);
       setSaveBackStatus("error");
+    }
+  };
+
+  const exportCurrentPlotImage = async () => {
+    if (!previewSpec?.data?.length || !plotExportRef.current) return;
+    setPlotExportStatus("image");
+    setPlotExportError("");
+    try {
+      const Plotly = await loadPlotly();
+      const options = plotExportOptionsFromSpec(previewSpec, "png");
+      const dataUrl = await Plotly.toImage(plotExportRef.current, options);
+      downloadDataUrl(dataUrl, `${options.filename}.${options.format}`);
+      setPlotExportStatus("ready");
+    } catch (exportFailure) {
+      setPlotExportError(exportFailure.message || "导出高清图失败。");
+      setPlotExportStatus("error");
+    }
+  };
+
+  const exportCurrentPlotPdf = async () => {
+    if (!previewSpec?.data?.length || !plotExportRef.current) return;
+    setPlotExportStatus("pdf");
+    setPlotExportError("");
+    try {
+      const Plotly = await loadPlotly();
+      const options = plotExportOptionsFromSpec(previewSpec, "svg");
+      const dataUrl = await Plotly.toImage(plotExportRef.current, { ...options, format: "svg" });
+      openPlotExportPrintWindow({
+        dataUrl,
+        filename: options.filename,
+        title: selectedPreset?.label || "Plot Studio",
+      });
+      setPlotExportStatus("ready");
+    } catch (exportFailure) {
+      setPlotExportError(exportFailure.message || "导出 PDF 失败。");
+      setPlotExportStatus("error");
     }
   };
 
@@ -1786,6 +1915,10 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
             saveBackStatus={saveBackStatus}
             saveBackError={saveBackError}
             onSaveBack={saveCurrentPlotToResult}
+            plotExportStatus={plotExportStatus}
+            plotExportError={plotExportError}
+            onExportImage={exportCurrentPlotImage}
+            onExportPdf={exportCurrentPlotPdf}
             tableSummary={tableSummary}
             params={params}
             specError={specError}
@@ -1793,7 +1926,7 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
             onSelectPlot={selectPlotPreset}
             MethodOverview={PlotMethodOverview}
             MappingSummary={PlotMappingSummary}
-            InteractivePlotComponent={InteractivePlot}
+            InteractivePlotComponent={(props) => <InteractivePlot {...props} plotRef={plotExportRef} />}
             EmptyPreview={PlotPreviewEmpty}
           />
           <PlotDataPreviewPanel

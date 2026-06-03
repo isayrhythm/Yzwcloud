@@ -986,7 +986,7 @@ h2 {
 
 .task-sidebar-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
@@ -1003,6 +1003,7 @@ h2 {
   min-height: 0;
   overflow: auto;
   padding-right: 4px;
+  align-content: start;
 }
 
 .workflow-workspace {
@@ -1083,6 +1084,7 @@ h2 {
 
 .task-list {
   display: grid;
+  grid-auto-rows: max-content;
   gap: 10px;
 }
 
@@ -1092,6 +1094,7 @@ h2 {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+  min-height: 94px;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -5324,6 +5327,7 @@ h2 {
   justify-content: flex-end;
 }
 
+.plot-export-action,
 .plot-save-back {
   min-height: 34px;
   padding: 0 12px;
@@ -5335,6 +5339,18 @@ h2 {
   font-weight: 900;
 }
 
+.plot-export-action {
+  border-color: rgba(15, 138, 143, 0.24);
+  color: var(--accent-strong);
+  background: rgba(15, 138, 143, 0.08);
+}
+
+.plot-export-action:hover:not(:disabled),
+.plot-save-back:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.plot-export-action:disabled,
 .plot-save-back:disabled {
   cursor: not-allowed;
   opacity: 0.48;

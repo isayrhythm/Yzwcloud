@@ -83,12 +83,71 @@ def test_metabolomics_intake_standardizes_metabolights_maf(tmp_path: Path) -> No
 
     assert result.type == "expression_matrix"
     assert result.meta["data_type"] == "metabolomics_matrix"
+    assert result.meta["assay_profile"] == "metabolomics"
+    assert result.meta["feature_label"] == "metabolites"
     assert result.meta["metabolite_count"] == 3
     assert result.meta["sample_count"] == 4
     assert "metabolomics_normalization" in result.meta["capabilities"]
     assert "metabolomics_differential" in result.meta["capabilities"]
     assert Path(result.meta["matrix_file"]).exists()
     assert Path(result.meta["sample_metadata_file"]).exists()
+
+
+def test_metabolomics_intake_accepts_gb18030_feature_matrix(tmp_path: Path) -> None:
+    source_path = ROOT / "testdata" / "WT_B.csv"
+
+    result = run_data_intake_agent(
+        source_path=source_path,
+        output_dir=tmp_path / "outputs",
+        params={"use_llm": False},
+    )
+
+    assert result.meta["data_type"] == "metabolomics_matrix"
+    assert result.meta["assay_profile"] == "feature_intensity"
+    assert result.meta["feature_label"] == "features"
+    assert result.meta["sample_count"] == 6
+    assert result.meta["metabolite_count"] > 0
+    assert result.meta["conditions"] == {"WT": 3, "B": 3}
+    assert result.meta["standardization"]["source_encoding"] == "gb18030"
+    assert "metabolomics_differential" in result.meta["capabilities"]
+
+
+def test_metabolomics_intake_accepts_wide_feature_matrix(tmp_path: Path) -> None:
+    source_path = ROOT / "testdata" / "meta_Anth_content.csv"
+
+    result = run_data_intake_agent(
+        source_path=source_path,
+        output_dir=tmp_path / "outputs",
+        params={"use_llm": False},
+    )
+
+    assert result.meta["data_type"] == "metabolomics_matrix"
+    assert result.meta["assay_profile"] == "feature_intensity"
+    assert result.meta["feature_label"] == "features"
+    assert result.meta["sample_count"] >= 6
+    assert result.meta["metabolite_count"] > 0
+    assert "metabolomics_normalization" in result.meta["capabilities"]
+
+
+def test_intake_detects_comma_delimited_protein_group_tsv(tmp_path: Path) -> None:
+    source_path = ROOT / "testdata" / "Leaf.report.pg_matrix.tsv"
+
+    result = run_data_intake_agent(
+        source_path=source_path,
+        output_dir=tmp_path / "outputs",
+        params={"use_llm": False},
+    )
+
+    assert result.meta["data_type"] == "metabolomics_matrix"
+    assert result.meta["assay_profile"] == "protein"
+    assert result.meta["feature_label"] == "proteins"
+    assert result.meta["sample_count"] == 6
+    assert 12000 <= result.meta["metabolite_count"] <= 13286
+    assert result.meta["conditions"] == {"MT": 3, "WT": 3}
+    assert result.meta["standardization"]["mode"] == "protein_group_matrix"
+    assert result.meta["standardization"]["source_encoding"] == "utf-8-sig"
+    assert result.meta["standardization"]["selected_sample_count"] == 6
+    assert "metabolomics_differential" in result.meta["capabilities"]
 
 
 def test_metabolomics_statistics_runs_r_outputs_tables(tmp_path: Path) -> None:
@@ -110,13 +169,46 @@ def test_metabolomics_statistics_runs_r_outputs_tables(tmp_path: Path) -> None:
     assert result.type == "metabolomics_statistics_result"
     assert result.meta["metabolite_count"] == 3
     assert result.meta["comparison_label"] == "case vs control"
-    for key in ["metabolomics_result_file", "qc_file", "pca_scores_file", "sample_correlation_file"]:
+    for key in [
+        "metabolomics_result_file",
+        "qc_file",
+        "pca_scores_file",
+        "plsda_scores_file",
+        "vip_file",
+        "sample_correlation_file",
+    ]:
         assert Path(result.meta[key]).exists()
 
     with Path(result.meta["metabolomics_result_file"]).open(encoding="utf-8-sig", newline="") as file:
         rows = list(csv.DictReader(file))
     assert rows
-    assert {"feature_id", "metabolite", "log2fc", "p_value"}.issubset(rows[0])
+    assert {"feature_id", "metabolite", "log2fc", "p_value", "t_p_value", "wilcox_p_value", "vip", "vip_gt_1"}.issubset(rows[0])
+    assert result.meta["univariate_method"] == "t_test"
+    assert result.meta["vip_threshold"] == 1.0
+    assert result.meta["vip_available"] is True
+
+
+def test_metabolomics_statistics_can_use_wilcox_as_primary_p_value(tmp_path: Path) -> None:
+    maf, sample = _write_metabolights_fixture(tmp_path)
+    source = run_data_intake_agent(
+        source_path=maf,
+        metadata_path=sample,
+        output_dir=tmp_path / "intake",
+        params={"use_llm": False},
+    )
+
+    result = create_metabolomics_statistics_result(
+        source=source,
+        output_dir=tmp_path / "stats",
+        node_id="metabolomics_statistics__matrix",
+        params={"case_condition": "case", "control_condition": "control", "univariate_method": "wilcox"},
+    )
+
+    assert result.meta["univariate_method"] == "wilcox"
+    with Path(result.meta["metabolomics_result_file"]).open(encoding="utf-8-sig", newline="") as file:
+        rows = list(csv.DictReader(file))
+    assert rows
+    assert rows[0]["p_value"] == rows[0]["wilcox_p_value"]
 
 
 def test_metabolomics_differential_result_has_focused_output_type(tmp_path: Path) -> None:

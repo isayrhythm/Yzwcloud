@@ -178,6 +178,10 @@ export function PlotPreviewPanel({
   saveBackStatus,
   saveBackError,
   onSaveBack,
+  plotExportStatus,
+  plotExportError,
+  onExportImage,
+  onExportPdf,
   tableSummary,
   params,
   specError,
@@ -188,6 +192,7 @@ export function PlotPreviewPanel({
   InteractivePlotComponent,
   EmptyPreview,
 }) {
+  const canExportPlot = Boolean(previewSpec?.data?.length);
   return (
     <section className="plot-preview-panel plot-preview-main">
       <div className="panel-title">
@@ -197,6 +202,24 @@ export function PlotPreviewPanel({
         </div>
         <div className="plot-preview-actions">
           <span className="muted">{specStatus === "loading" ? t("rendering") : specStatus === "ready" ? t("ready") : specStatus}</span>
+          <button
+            className="plot-export-action"
+            type="button"
+            onClick={onExportImage}
+            disabled={!canExportPlot || plotExportStatus === "image" || plotExportStatus === "pdf"}
+            title="按当前导出格式和 DPI 保存真实交互图"
+          >
+            {plotExportStatus === "image" ? "导出中..." : "导出高清图"}
+          </button>
+          <button
+            className="plot-export-action"
+            type="button"
+            onClick={onExportPdf}
+            disabled={!canExportPlot || plotExportStatus === "image" || plotExportStatus === "pdf"}
+            title="打开干净版图表页面并保存为 PDF"
+          >
+            {plotExportStatus === "pdf" ? "生成中..." : "导出 PDF"}
+          </button>
           {normalizedReturnTarget ? (
             <button
               className="plot-save-back"
@@ -211,6 +234,7 @@ export function PlotPreviewPanel({
         </div>
       </div>
       {saveBackError ? <p className="plot-error">{saveBackError}</p> : null}
+      {plotExportError ? <p className="plot-error">{plotExportError}</p> : null}
       <MethodOverview preset={selectedPreset} source={selectedSource} tableSummary={tableSummary} t={t} />
       <MappingSummary preset={selectedPreset} params={params} tableSummary={tableSummary} />
       {specError ? <p className="plot-error">{specError}</p> : null}

@@ -46,6 +46,8 @@ def create_metabolomics_statistics_result(
     prefix = _safe_slug(node_id)
     p_value = float(params.get("p_value", 0.05))
     log2fc = float(params.get("log2fc", 1.0))
+    univariate_method = _metabolomics_univariate_method(params)
+    vip_threshold = float(params.get("vip_threshold", 1.0))
     run_r_script(
         script_path=script_path,
         args=[
@@ -57,6 +59,8 @@ def create_metabolomics_statistics_result(
             control_condition,
             str(p_value),
             str(log2fc),
+            univariate_method,
+            str(vip_threshold),
         ],
         cwd=Path(__file__).resolve().parents[3],
         log_path=log_path,
@@ -68,9 +72,12 @@ def create_metabolomics_statistics_result(
     normalized_file = output_dir / f"{prefix}_normalized_matrix.csv"
     qc_file = output_dir / f"{prefix}_qc.csv"
     pca_file = output_dir / f"{prefix}_pca_scores.csv"
+    plsda_file = output_dir / f"{prefix}_plsda_scores.csv"
+    vip_file = output_dir / f"{prefix}_vip.csv"
+    oplsda_file = output_dir / f"{prefix}_oplsda_scores.csv"
     correlation_file = output_dir / f"{prefix}_sample_correlation.csv"
     differential_file = output_dir / f"{prefix}_differential.csv"
-    for path in [summary_file, normalized_file, qc_file, pca_file, correlation_file, differential_file]:
+    for path in [summary_file, normalized_file, qc_file, pca_file, plsda_file, vip_file, correlation_file, differential_file]:
         if not path.exists():
             raise ValueError(f"R metabolomics statistics finished without expected output: {path}")
 
@@ -92,6 +99,8 @@ def create_metabolomics_statistics_result(
         "diff_result_file": str(differential_file),
         "qc_file": str(qc_file),
         "pca_scores_file": str(pca_file),
+        "plsda_scores_file": str(plsda_file),
+        "vip_file": str(vip_file),
         "sample_correlation_file": str(correlation_file),
         "r_script_file": str(script_path),
         "r_matrix_file": str(r_matrix),
@@ -104,21 +113,35 @@ def create_metabolomics_statistics_result(
         "control_condition": control_condition,
         "comparison_label": f"{case_condition} vs {control_condition}",
         "significant_metabolite_count": len(significant),
+        "univariate_method": univariate_method,
         "p_value_threshold": p_value,
         "log2fc_threshold": log2fc,
+        "vip_threshold": vip_threshold,
+        "vip_available": bool(summary.get("vip_available")),
+        "vip_feature_count": int(summary.get("vip_feature_count") or 0),
+        "plsda_available": bool(summary.get("plsda_available")),
+        "plsda_message": str(summary.get("plsda_message") or ""),
+        "oplsda_available": bool(summary.get("oplsda_available")),
+        "oplsda_message": str(summary.get("oplsda_message") or ""),
         "available_tables": [
             "normalized_matrix",
             "qc",
             "pca_scores",
+            "plsda_scores",
+            "vip",
             "sample_correlation",
             "differential",
         ],
         "not_implemented": [
             "database-backed KEGG/HMDB enrichment",
             "species-specific pathway enrichment",
-            "OPLS-DA/VIP package-dependent modeling",
         ],
     }
+    if oplsda_file.exists():
+        meta["oplsda_scores_file"] = str(oplsda_file)
+        meta["available_tables"].append("oplsda_scores")
+    if not meta["oplsda_available"]:
+        meta["not_implemented"].append("OPLS-DA requires the ropls R package")
     write_json_detail(
         output_json.with_name(output_json.stem.replace("_output", "_detail") + ".json"),
         {
@@ -508,10 +531,28 @@ def _read_diff_rows(path: Path) -> list[dict[str, Any]]:
                     "feature_id": raw.get("feature_id") or "",
                     "log2fc": _float(raw.get("log2fc")),
                     "p_value": _float(raw.get("p_value"), default=1.0),
+                    "vip": _float(raw.get("vip"), default=0.0),
                 }
             )
     rows.sort(key=lambda row: row["p_value"])
     return rows
+
+
+def _metabolomics_univariate_method(params: dict[str, Any]) -> str:
+    value = str(
+        params.get("univariate_method")
+        or params.get("statistical_test")
+        or params.get("test_method")
+        or params.get("method")
+        or "t_test"
+    ).strip().lower()
+    if value in {"", "r_metabolomics", "r_metabolomics_univariate_pca_qc", "r_transcriptomics"}:
+        return "t_test"
+    if value in {"t", "ttest", "t-test", "t_test", "student", "welch", "welch_t"}:
+        return "t_test"
+    if value in {"wilcox", "wilcoxon", "wilcox-test", "wilcox_test", "mann_whitney", "mann-whitney"}:
+        return "wilcox"
+    raise ValueError("Metabolomics univariate method must be t_test or wilcox")
 
 
 def _float(value: Any, default: float = 0.0) -> float:

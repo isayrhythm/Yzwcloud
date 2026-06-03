@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +16,7 @@ from typing import Any
 from yzwcloud.models import Graph, GraphNode
 from yzwcloud.task_store import get_task_dir, load_graph, load_task, read_log
 
-DEFAULT_REPORT_MODEL = "deepseek-chat"
+DEFAULT_REPORT_MODEL = "deepseek-v4-flash"
 
 TASK_REPORT_SYSTEM_PROMPT = """You are YZW BioCloud Workflow Report Agent.
 Write a concise Chinese workflow-level report from node-level bioinformatics reports.
@@ -41,7 +42,7 @@ def build_task_report(task_id: str) -> dict[str, Any]:
     workflow_svg_path = output_dir / "analysis_report_current_workflow.svg"
     workflow_svg_path.write_text(_workflow_svg(nodes, graph.edges), encoding="utf-8")
     steps = [_node_report_entry(node, output_dir) for node in nodes]
-    figures = _figure_entries(nodes, output_dir)
+    figures = _figure_entries(nodes, output_dir, task.task_id)
     report = {
         "task": task.model_dump(mode="json"),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -145,10 +146,20 @@ def _task_summary(nodes: list[GraphNode]) -> dict[str, Any]:
         "completed_nodes": len(completed),
         "failed_nodes": len(failed),
         "output_nodes": len(outputs),
-        "figure_count": sum(bool(node.output and node.output.meta.get("preview_file")) for node in nodes),
+        "figure_count": sum(
+            bool(
+                node.output
+                and (
+                    node.output.meta.get("html_file")
+                    or node.output.meta.get("plot_studio_result", {}).get("html_file")
+                    or node.output.meta.get("preview_file")
+                )
+            )
+            for node in nodes
+        ),
         "status_text": (
             f"当前流程包含 {len(nodes)} 个节点，已完成 {len(completed)} 个，"
-            f"有 {len(outputs)} 个可汇报输出，失败节点 {len(failed)} 个。"
+            f"已形成 {len(outputs)} 个结果输出，失败节点 {len(failed)} 个。"
         ),
     }
 
@@ -163,6 +174,7 @@ def _node_report_entry(node: GraphNode, output_dir: Path) -> dict[str, Any]:
         "description": node.description,
         "status": str(node.status.value if hasattr(node.status, "value") else node.status),
         "depends_on": node.depends_on,
+        "has_output": output is not None,
         "output_type": output.type if output else node.output_type,
         "params": _compact_params(node.params),
         "summary": report.get("summary") or _fallback_node_summary(node),
@@ -174,13 +186,14 @@ def _node_report_entry(node: GraphNode, output_dir: Path) -> dict[str, Any]:
     }
 
 
-def _figure_entries(nodes: list[GraphNode], output_dir: Path) -> list[dict[str, Any]]:
+def _figure_entries(nodes: list[GraphNode], output_dir: Path, task_id: str) -> list[dict[str, Any]]:
     figures = []
     for node in nodes:
         if not node.output:
             continue
         preview = _preview_data_uri(node.output.meta.get("preview_file"), output_dir)
-        if not preview:
+        html_url = _result_html_url(node.output.meta, output_dir, task_id)
+        if not preview and not html_url:
             continue
         report = node.output.meta.get("agent_report") or {}
         figures.append(
@@ -189,6 +202,7 @@ def _figure_entries(nodes: list[GraphNode], output_dir: Path) -> list[dict[str, 
                 "title": node.name,
                 "output_type": node.output.type,
                 "summary": report.get("summary") or _fallback_node_summary(node),
+                "html_url": html_url,
                 "preview": preview,
             }
         )
@@ -226,7 +240,17 @@ def _method_lines(meta: dict[str, Any], params: dict[str, Any]) -> list[str]:
     methods = []
     if meta.get("method"):
         methods.append(f"方法：{meta['method']}。")
-    for key in ("qc_preset", "p_value", "log2fc", "cluster_method", "normalization_method", "transform", "scaling"):
+    for key in (
+        "qc_preset",
+        "p_value",
+        "log2fc",
+        "univariate_method",
+        "vip_threshold",
+        "cluster_method",
+        "normalization_method",
+        "transform",
+        "scaling",
+    ):
         value = (meta.get("params") or {}).get(key, meta.get(key, params.get(key)))
         if value not in {None, ""}:
             methods.append(f"{key}={value}")
@@ -250,6 +274,7 @@ def _create_task_agent_summary(
             "edge_count": len(graph.edges),
             "completed_nodes": sum(step["status"] == "completed" for step in steps),
             "failed_nodes": sum(step["status"] == "failed" for step in steps),
+            "output_nodes": sum(bool(step["has_output"]) for step in steps),
             "figure_count": len(figures),
             "lineage": [
                 {
@@ -264,6 +289,7 @@ def _create_task_agent_summary(
                 "id": step["id"],
                 "name": step["name"],
                 "status": step["status"],
+                "has_output": step["has_output"],
                 "output_type": step["output_type"],
                 "summary": step["summary"],
                 "findings": step["findings"][:4],
@@ -307,7 +333,7 @@ def _rule_based_task_summary(evidence: dict[str, Any]) -> dict[str, Any]:
     workflow = evidence["workflow"]
     nodes = evidence["nodes"]
     completed = [node for node in nodes if node["status"] == "completed"]
-    output_nodes = [node for node in completed if node["output_type"]]
+    output_nodes = [node for node in completed if node["has_output"]]
     method_lines = _dedupe([item for node in completed for item in node.get("methods", [])])[:8]
     result_lines = _dedupe([node["summary"] for node in output_nodes if node.get("summary")])[:8]
     limitation_lines = _dedupe([item for node in nodes for item in node.get("warnings", [])])[:8]
@@ -317,12 +343,12 @@ def _rule_based_task_summary(evidence: dict[str, Any]) -> dict[str, Any]:
     return {
         "summary": (
             f"{task.get('name') or '当前任务'} 已形成包含 {workflow['node_count']} 个节点的分析流程，"
-            f"当前完成 {workflow['completed_nodes']} 个节点，产出 {workflow['figure_count']} 张可汇报结果图。"
+            f"当前完成 {workflow['completed_nodes']} 个节点，已有 {workflow['output_nodes']} 个结果输出。"
         ),
         "narrative": [
             f"用户当前围绕任务“{task.get('name') or task.get('id')}”构建分析流程，状态为 {task.get('status') or 'unknown'}。",
             f"流程从 {first_node} 开始，沿依赖关系逐步生成到 {last_node} 等结果节点。",
-            f"当前报告由 {len(output_nodes)} 个节点级 Agent 总结组合而成，并嵌入 {workflow['figure_count']} 张实际分析图。",
+            f"本报告按流程顺序整理 {len(output_nodes)} 个结果节点，展示当前分析已经得到的图表、方法和结论。",
         ],
         "methods": method_lines or ["当前节点报告中尚未记录可汇总的方法参数。"],
         "results": result_lines or ["当前流程尚未产生可汇总的结果节点。"],
@@ -393,13 +419,10 @@ def _compact_params(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _preview_data_uri(value: Any, output_dir: Path) -> str:
-    if not value:
+    resolved = _resolve_output_path(value, output_dir)
+    if not resolved:
         return ""
-    path = Path(str(value))
     try:
-        resolved = path.resolve()
-        if output_dir.resolve() not in resolved.parents or not resolved.exists():
-            return ""
         suffix = resolved.suffix.lower()
         mime = {
             ".svg": "image/svg+xml",
@@ -416,21 +439,45 @@ def _preview_data_uri(value: Any, output_dir: Path) -> str:
         return ""
 
 
+def _result_html_url(meta: dict[str, Any], output_dir: Path, task_id: str) -> str:
+    html_file = (meta.get("plot_studio_result") or {}).get("html_file") or meta.get("html_file")
+    if not html_file:
+        return ""
+    path = _resolve_output_path(html_file, output_dir)
+    if not path or not path.exists() or path.suffix.lower() not in {".html", ".htm"}:
+        return ""
+    filename = urllib.parse.quote(path.name, safe="")
+    return f"/api/tasks/{urllib.parse.quote(task_id, safe='')}/outputs/{filename}"
+
+
+def _resolve_output_path(value: Any, output_dir: Path) -> Path | None:
+    if not value:
+        return None
+    path = Path(str(value))
+    try:
+        resolved = path.resolve()
+        if output_dir.resolve() not in resolved.parents or not resolved.exists():
+            return None
+        return resolved
+    except OSError:
+        return None
+
+
 def _workflow_svg(nodes: list[GraphNode], edges: list[dict[str, str]]) -> str:
     levels = _workflow_levels(nodes, edges)
     grouped: dict[int, list[GraphNode]] = {}
     for node in nodes:
         grouped.setdefault(levels.get(node.id, 0), []).append(node)
 
-    card_width = 220
-    card_height = 60
-    column_gap = 42
-    row_gap = 28
-    left_pad = 42
-    top_pad = 36
+    card_width = 238
+    card_height = 74
+    column_gap = 72
+    row_gap = 30
+    left_pad = 54
+    top_pad = 48
     max_level = max(grouped, default=0)
     max_rows = max((len(group) for group in grouped.values()), default=1)
-    width = max(980, left_pad * 2 + (max_level + 1) * card_width + max_level * column_gap)
+    width = max(1120, left_pad * 2 + (max_level + 1) * card_width + max_level * column_gap)
     height = max(300, top_pad * 2 + max_rows * card_height + (max_rows - 1) * row_gap)
 
     node_positions: dict[str, tuple[int, int]] = {}
@@ -453,29 +500,40 @@ def _workflow_svg(nodes: list[GraphNode], edges: list[dict[str, str]]) -> str:
         source_y = source[1] + card_height // 2
         target_x = target[0]
         target_y = target[1] + card_height // 2
-        curve = max(48, (target_x - source_x) // 2)
+        curve = max(56, (target_x - source_x) // 2)
         edge_lines.append(
             f'<path d="M {source_x} {source_y} C {source_x + curve} {source_y}, {target_x - curve} {target_y}, {target_x} {target_y}" '
-            'fill="none" stroke="#8ab9b5" stroke-width="3" marker-end="url(#arrow)"/>'
+            'fill="none" stroke="#67a9a5" stroke-width="3.4" stroke-linecap="round" marker-end="url(#arrow)"/>'
         )
     cards = []
     for node in nodes:
         x, y = node_positions[node.id]
-        color = {"completed": "#0f8a8f", "failed": "#c44f3a", "running": "#315fd6"}.get(
-            node.status.value if hasattr(node.status, "value") else str(node.status),
-            "#7d8d99",
-        )
+        status = str(node.status.value if hasattr(node.status, "value") else node.status)
+        color = {"completed": "#0f8a8f", "failed": "#c44f3a", "running": "#315fd6", "ready": "#7b61b5"}.get(status, "#7d8d99")
+        soft_color = {
+            "completed": "#e5f8f4",
+            "failed": "#fff1ed",
+            "running": "#edf4ff",
+            "ready": "#f4f0ff",
+        }.get(status, "#f4f7f8")
         cards.append(
-            f'<rect x="{x}" y="{y}" width="{card_width}" height="{card_height}" rx="14" fill="#ffffff" stroke="{color}" stroke-width="2"/>'
-            f'<circle cx="{x + 23}" cy="{y + 32}" r="8" fill="{color}"/>'
-            f'<text x="{x + 38}" y="{y + 25}" fill="#14303a" font-size="13" font-weight="700">{html.escape(_short_svg_text(node.name, 23))}</text>'
-            f'<text x="{x + 38}" y="{y + 44}" fill="#6b7c88" font-size="10">{html.escape(_short_svg_text(node.id, 20))} · {html.escape(str(node.status.value if hasattr(node.status, "value") else node.status))}</text>'
+            f'<g filter="url(#cardShadow)">'
+            f'<rect x="{x}" y="{y}" width="{card_width}" height="{card_height}" rx="16" fill="#ffffff" stroke="#d9e9e9" stroke-width="1.4"/>'
+            f'<rect x="{x + 10}" y="{y + 10}" width="36" height="36" rx="12" fill="{soft_color}"/>'
+            f'<circle cx="{x + 28}" cy="{y + 28}" r="6" fill="{color}"/>'
+            f'<text x="{x + 56}" y="{y + 27}" fill="#102b35" font-size="14" font-weight="800">{html.escape(_short_svg_text(node.name, 22))}</text>'
+            f'<text x="{x + 56}" y="{y + 48}" fill="#5f7480" font-size="10.5">{html.escape(_short_svg_text(node.id, 24))}</text>'
+            f'<rect x="{x + 14}" y="{y + 53}" width="64" height="16" rx="8" fill="{soft_color}"/>'
+            f'<text x="{x + 46}" y="{y + 65}" text-anchor="middle" fill="{color}" font-size="9.5" font-weight="800">{html.escape(status)}</text>'
+            f'</g>'
         )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
-        '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
-        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#8ab9b5"/></marker></defs>'
-        '<rect width="100%" height="100%" rx="24" fill="#f6fbfb"/>'
+        '<defs><filter id="cardShadow" x="-10%" y="-20%" width="120%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#0f2f3a" flood-opacity=".10"/></filter>'
+        '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#67a9a5"/></marker></defs>'
+        '<rect width="100%" height="100%" rx="28" fill="#f6fbfb"/>'
+        '<path d="M 24 38 H 100%" stroke="#dceced" stroke-width="1"/><path d="M 24 104 H 100%" stroke="#edf5f5" stroke-width="1"/>'
         f'{"".join(edge_lines)}{"".join(cards)}</svg>'
     )
 
@@ -510,7 +568,7 @@ def _workflow_levels(nodes: list[GraphNode], edges: list[dict[str, str]]) -> dic
 
 def _short_svg_text(value: Any, max_chars: int) -> str:
     text = str(value)
-    return text if len(text) <= max_chars else f"{text[: max_chars - 1]}…"
+    return text if len(text) <= max_chars else f"{text[: max_chars - 3]}..."
 
 
 def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
@@ -523,7 +581,7 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
         _page(
             "01",
             "分析任务总览",
-            f"""<div class="cover"><p class="eyebrow">YZW BioCloud · Analysis Report</p>
+            f"""<div class="cover"><p class="eyebrow">YZW BioCloud · 流程报告</p>
 <h1>{html.escape(str(report["task"]["name"]))}</h1>
 <p class="lead">{html.escape(agent_summary["summary"])}</p>
 <p class="stamp">{html.escape(summary["status_text"])}</p>
@@ -553,7 +611,7 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
     pages.append(
         _page(
             f"{5 + (len(figures) + 1) // 2:02d}",
-            "Agent 汇总与解释边界",
+            "结果解读与注意事项",
             f"""<div class="split"><section><h2>当前结论</h2>{_finding_cards(steps)}</section>
 <section><h2>需要注意</h2>{_list(report["warnings"])}</section></div>""",
         )
@@ -567,15 +625,16 @@ def _task_report_html(report: dict[str, Any], workflow_svg_path: Path) -> str:
         )
     )
     return f"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>{html.escape(str(report["task"]["name"]))} · Analysis Report</title>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>{html.escape(str(report["task"]["name"]))} · 流程报告</title>
 <style>{_report_css()}</style></head><body>
 <button class="print-button" onclick="window.print()">打印 / 保存为 PDF</button>
 {"".join(pages)}
+<script>{_report_script()}</script>
 </body></html>"""
 
 
 def _page(number: str, title: str, content: str) -> str:
-    return f'<article class="slide"><header><span>{number}</span><h1>{html.escape(title)}</h1></header><main>{content}</main><footer>YZW BioCloud · Agent-driven bioinformatics workflow</footer></article>'
+    return f'<article class="slide"><header><span>{number}</span><h1>{html.escape(title)}</h1></header><main>{content}</main><footer>YZW BioCloud · 可追溯生信分析流程</footer></article>'
 
 
 def _metric(label: str, value: Any) -> str:
@@ -596,9 +655,22 @@ def _step_table(steps: list[dict[str, Any]]) -> str:
 def _figure_grid(figures: list[dict[str, Any]]) -> str:
     cards = []
     for figure in figures:
+        media = ""
+        if figure.get("html_url"):
+            media += (
+                f'<iframe class="result-frame" src="{html.escape(figure["html_url"])}" '
+                f'title="{html.escape(figure["title"])}" loading="lazy" '
+                'scrolling="no" sandbox="allow-scripts allow-same-origin"></iframe>'
+            )
+        if figure.get("preview"):
+            fallback_class = "print-fallback" if figure.get("html_url") else ""
+            media += (
+                f'<img class="{fallback_class}" src="{figure["preview"]}" '
+                f'alt="{html.escape(figure["title"])}"/>'
+            )
         cards.append(
             f"""<section class="figure-card"><div><h2>{html.escape(figure["title"])}</h2>
-<span>{html.escape(figure["output_type"])}</span></div><img src="{figure["preview"]}" alt="{html.escape(figure["title"])}"/>
+<span>{html.escape(figure["output_type"])}</span></div><div class="result-media">{media}</div>
 <p>{html.escape(figure["summary"])}</p></section>"""
         )
     return f'<div class="figure-grid">{"".join(cards)}</div>'
@@ -628,11 +700,29 @@ main{padding-top:20px}.cover{display:grid;align-content:center;min-height:570px}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:34px 0}.metrics div{padding:16px;border:1px solid #d8e6e7;border-radius:16px;background:#f8fbfb}.metrics span{display:block;color:#68808a;font-size:13px}.metrics strong{display:block;margin-top:6px;color:#0f6b57;font-size:30px}
 .workflow-figure{height:520px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#f6fbfb}.workflow-figure img{display:block;width:100%;height:auto}
 table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}th,td{padding:10px;border-bottom:1px solid #e4eeee;text-align:left;vertical-align:top}th{color:#0f6b57;background:#f0f8f7}td small{display:block;margin-top:4px;color:#829198}
-.figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 300px auto;padding:16px;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.figure-card div{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#7b61b5;font-size:12px;font-weight:800}.figure-card img{width:100%;height:290px;object-fit:contain}.figure-card p{margin:8px 0 0;color:#546b75;font-size:14px;line-height:1.55}
+.figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 330px auto;padding:16px;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.figure-card>div:first-child{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#7b61b5;font-size:12px;font-weight:800}.result-media{--frame-width:1280px;--frame-height:760px;--frame-scale:.4;position:relative;overflow:hidden;border:1px solid #e2ecec;border-radius:14px;background:#fff}.result-frame{width:var(--frame-width);height:var(--frame-height);border:0;background:#fff;transform:scale(var(--frame-scale));transform-origin:top left}.figure-card img{width:100%;height:100%;object-fit:contain}.print-fallback{display:none}.figure-card p{margin:8px 0 0;color:#546b75;font-size:14px;line-height:1.55}
 .split,.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split>section,.summary-grid>section{padding:16px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.split>section{max-height:560px}.summary-grid>section{max-height:250px}.note{margin:0 0 10px;padding:10px;border-left:4px solid #0f8a8f;background:#f4fbfb}.note strong{color:#0f6b57}.note ul,ul{margin:8px 0;padding-left:20px}li{margin:5px 0;line-height:1.45}pre{max-height:470px;padding:12px;overflow:auto;border-radius:12px;background:#102b35;color:#d8f5f0;font-size:11px;white-space:pre-wrap}
 footer{position:absolute;right:44px;bottom:18px;color:#8b999e;font-size:11px}
-@media(max-width:760px){.slide{padding:26px 24px 34px}.cover h1{font-size:38px}.metrics{grid-template-columns:repeat(2,1fr)}.split,.summary-grid,.figure-grid{grid-template-columns:1fr}.figure-card{grid-template-rows:auto 220px auto}.figure-card img{height:210px}}
-@media print{body{background:#fff}.print-button{display:none}.slide{width:1280px;height:720px;margin:0;padding:34px 44px 38px;overflow:hidden;box-shadow:none}.split,.summary-grid,.figure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.slide{padding:26px 24px 34px}.cover h1{font-size:38px}.metrics{grid-template-columns:repeat(2,1fr)}.split,.summary-grid,.figure-grid{grid-template-columns:1fr}.figure-card{grid-template-rows:auto 220px auto}.result-media{--frame-scale:.26}.figure-card img{height:210px}}
+@media print{body{background:#fff}.print-button{display:none}.slide{width:1280px;height:720px;margin:0;padding:34px 44px 38px;overflow:hidden;box-shadow:none}.split,.summary-grid,.figure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.result-frame{display:none}.print-fallback{display:block}}
+"""
+
+
+def _report_script() -> str:
+    return """
+function fitResultFrames(){
+  document.querySelectorAll('.result-media').forEach(function(media){
+    var frame = media.querySelector('.result-frame');
+    if (!frame) return;
+    var frameWidth = parseFloat(getComputedStyle(media).getPropertyValue('--frame-width')) || 1280;
+    var frameHeight = parseFloat(getComputedStyle(media).getPropertyValue('--frame-height')) || 760;
+    var scale = Math.min(media.clientWidth / frameWidth, media.clientHeight / frameHeight);
+    media.style.setProperty('--frame-scale', Math.max(0.18, Math.min(0.6, scale)).toFixed(4));
+  });
+}
+window.addEventListener('load', fitResultFrames);
+window.addEventListener('resize', fitResultFrames);
+setTimeout(fitResultFrames, 250);
 """
 
 

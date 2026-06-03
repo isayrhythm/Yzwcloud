@@ -58,14 +58,17 @@ export function PlotTypePanel({
           placeholder={t("plotSearchPlaceholder")}
           aria-label={t("plotSearchPlaceholder")}
         />
-        <button
+        <Button
           className={recommendedOnly ? "active" : ""}
-          type="button"
           onClick={onToggleRecommendedOnly}
           disabled={!recommendedPlotIds.length}
+          shape="round"
+          size="small"
+          theme={recommendedOnly ? "primary" : "default"}
+          variant={recommendedOnly ? "base" : "outline"}
         >
           {t("recommendedOnly")}
-        </button>
+        </Button>
         <span>{visiblePlotCount} / {plotPresets.length}</span>
       </div>
       <div className="plot-type-toolbox">
@@ -117,14 +120,17 @@ export function PlotTypePanel({
                           </span>
                         </span>
                       </button>
-                      <button
+                      <Button
                         className="plot-example-action"
-                        type="button"
                         onClick={() => onLoadExampleData(plot)}
                         disabled={exampleLoadingId === plot.id}
+                        loading={exampleLoadingId === plot.id}
+                        shape="round"
+                        size="small"
+                        variant="outline"
                       >
                         {exampleLoadingId === plot.id ? t("loadingExample") : t("useExampleData")}
-                      </button>
+                      </Button>
                     </article>
                   );
                 })}
@@ -153,9 +159,14 @@ export function PlotTypePanel({
                 <span>{output.type}</span>
               </div>
               <p>{output.summary}</p>
-              <button type="button" onClick={() => onSelectSource?.(normalizePlotStudioSource(output))}>
+              <Button
+                shape="round"
+                size="small"
+                variant="outline"
+                onClick={() => onSelectSource?.(normalizePlotStudioSource(output))}
+              >
                 {t("useAsSource")}
-              </button>
+              </Button>
             </article>
           )) : (
             <p className="muted">

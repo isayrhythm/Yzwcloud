@@ -2949,27 +2949,12 @@ h2 {
   font-size: 13px;
 }
 
-.plot-type-filter button {
+.plot-type-filter .t-button {
   height: 36px;
   padding: 0 10px;
-  border: 1px solid rgba(0, 82, 217, 0.2);
   border-radius: 9px;
-  background: #f2f6ff;
-  color: var(--accent-strong);
-  cursor: pointer;
   font-size: 12px;
   font-weight: 900;
-}
-
-.plot-type-filter button.active {
-  border-color: rgba(0, 82, 217, 0.52);
-  background: var(--accent);
-  color: #ffffff;
-}
-
-.plot-type-filter button:disabled {
-  cursor: not-allowed;
-  opacity: 0.52;
 }
 
 .plot-type-filter span {
@@ -3067,24 +3052,13 @@ h2 {
 .plot-example-action {
   width: fit-content;
   min-height: 28px;
-  padding: 5px 10px;
-  border: 1px solid rgba(0, 82, 217, 0.24);
-  border-radius: 8px;
-  background: #ffffff;
-  color: var(--accent-strong);
-  cursor: pointer;
   font-size: 12px;
   font-weight: 850;
 }
 
 .plot-example-action:hover {
   border-color: rgba(0, 82, 217, 0.46);
-  background: rgba(109, 232, 231, 0.13);
-}
-
-.plot-example-action:disabled {
-  cursor: wait;
-  opacity: 0.68;
+  background: rgba(0, 82, 217, 0.08);
 }
 
 .plot-type-unsupported-reason {
@@ -4495,14 +4469,8 @@ h2 {
   line-height: 1.45;
 }
 
-.plot-output-grid article button {
+.plot-output-grid article .t-button {
   width: fit-content;
-  padding: 7px 10px;
-  border: 1px solid rgba(0, 82, 217, 0.22);
-  border-radius: 10px;
-  background: rgba(0, 82, 217, 0.08);
-  color: var(--accent-strong);
-  cursor: pointer;
   font-size: 12px;
   font-weight: 800;
 }

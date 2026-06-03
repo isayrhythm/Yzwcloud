@@ -4,13 +4,14 @@ from collections.abc import Iterable, Mapping
 
 
 CONDITION_PALETTE = [
-    "#0f8a8f",
+    "#0052d9",
+    "#2b74d6",
     "#315fd6",
-    "#c44f3a",
-    "#7b61b5",
-    "#20804f",
-    "#c27a18",
-    "#8b5f4d",
+    "#244ba8",
+    "#7a4fb3",
+    "#475467",
+    "#98a2b3",
+    "#d54941",
     "#b33d7a",
 ]
 

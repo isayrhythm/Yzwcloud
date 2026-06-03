@@ -6,13 +6,14 @@ from typing import Any
 
 PLOT_STUDIO_VERSION = "0.1"
 PLOTLY_PALETTE = [
-    "#0f8a8f",
+    "#0052d9",
+    "#2b74d6",
     "#315fd6",
-    "#c44f3a",
-    "#20804f",
+    "#244ba8",
     "#7a4fb3",
-    "#b7791f",
-    "#2d7a9f",
+    "#475467",
+    "#98a2b3",
+    "#d54941",
     "#9a3f6f",
 ]
 SUPPORTED_PLOTLY_SPEC_TYPES = {

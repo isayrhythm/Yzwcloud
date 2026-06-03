@@ -201,21 +201,21 @@ export function AgentReportModal({ node, onClose }) {
 }
 
 const CONDITION_COLOR_PRESETS = [
-  "#0f8a8f",
+  "#0052d9",
+  "#2b74d6",
   "#315fd6",
-  "#c44f3a",
-  "#7b61b5",
-  "#20804f",
-  "#c27a18",
-  "#b33d7a",
+  "#244ba8",
+  "#7a4fb3",
   "#52616b",
+  "#98a2b3",
   "#d94f40",
-  "#3776c4",
-  "#12a36f",
-  "#aa6f19",
+  "#b33d7a",
+  "#1d2939",
+  "#667085",
+  "#175cd3",
 ];
 
-function normalizeColor(value, fallback = "#0f8a8f") {
+function normalizeColor(value, fallback = "#0052d9") {
   const text = String(value || "").trim();
   return /^#[0-9a-fA-F]{6}$/.test(text) ? text : fallback;
 }
@@ -286,7 +286,7 @@ export function DatasetParamsModal({ payload, onClose, onSubmit }) {
               <label
                 key={sample.sample}
                 style={{
-                  "--group-row-color": colorByCondition[assignments[sample.sample] || ""] || "#0f8a8f",
+                  "--group-row-color": colorByCondition[assignments[sample.sample] || ""] || "#0052d9",
                 }}
               >
                 <span>{sample.sample}</span>

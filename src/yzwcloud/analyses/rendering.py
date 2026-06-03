@@ -54,13 +54,13 @@ const tip = document.getElementById('tip');
 canvas.width = left + data.samples.length * cell + 32;
 canvas.height = topPad + data.genes.length * cell + 42;
 const ctx = canvas.getContext('2d');
-const fallbackPalette = ['#0f8a8f', '#315fd6', '#c44f3a', '#7b61b5', '#20804f', '#c27a18', '#8b5f4d'];
+const fallbackPalette = ['#0052d9', '#2b74d6', '#315fd6', '#244ba8', '#7a4fb3', '#475467', '#d54941'];
 const conditions = [...new Set(data.samples.map(sample => sample.condition || 'unknown'))];
 const conditionColors = Object.fromEntries(conditions.map((condition, index) => [
   condition,
   data.conditionColors?.[condition] || fallbackPalette[index % fallbackPalette.length],
 ]));
-const rowPalette = ['#315fd6', '#0f8a8f', '#c44f3a', '#7b61b5', '#20804f', '#c27a18'];
+const rowPalette = ['#315fd6', '#0052d9', '#2b74d6', '#244ba8', '#7a4fb3', '#475467'];
 function sampleName(index) {{ return data.samples[index]?.name || String(index + 1); }}
 function sampleCondition(index) {{ return data.samples[index]?.condition || 'unknown'; }}
 

@@ -256,7 +256,7 @@ function App() {
             type: MarkerType.ArrowClosed,
             width: 18,
             height: 18,
-            color: "#0f6b57",
+            color: "#0052d9",
           },
         };
       });
@@ -945,7 +945,7 @@ function App() {
                 <Background gap={28} color="#b9cbd8" />
                 <Controls position="top-right" />
                 {showMiniMap ? (
-                  <MiniMap pannable zoomable nodeColor={(node) => statusColor[node.data.node.status] || "#d2cabd"} />
+                  <MiniMap pannable zoomable nodeColor={(node) => statusColor[node.data.node.status] || "#c9d4e5"} />
                 ) : null}
               </ReactFlow>
             ) : (

@@ -199,12 +199,12 @@ def _plot_studio_result_html(title: str, spec: dict[str, object]) -> str:
       justify-content: space-between;
       gap: 16px;
       padding: 14px 18px;
-      border-bottom: 1px solid rgba(15, 107, 87, 0.14);
+      border-bottom: 1px solid rgba(0, 82, 217, 0.14);
       background: #ffffff;
     }}
     header h1 {{
       margin: 0;
-      color: #0f6b57;
+      color: #003cab;
       font-size: 17px;
     }}
     header span {{

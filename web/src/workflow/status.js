@@ -8,10 +8,10 @@ export const statusLabel = {
 };
 
 export const statusColor = {
-  pending: "#d2cabd",
-  ready: "#2f78c4",
+  pending: "#c9d4e5",
+  ready: "#2b74d6",
   running: "#315fd6",
-  completed: "#20804f",
-  failed: "#b93d2f",
-  blocked: "#8c8172",
+  completed: "#0052d9",
+  failed: "#d54941",
+  blocked: "#98a2b3",
 };

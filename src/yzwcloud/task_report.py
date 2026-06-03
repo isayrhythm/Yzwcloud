@@ -641,37 +641,37 @@ def _workflow_svg(nodes: list[GraphNode], edges: list[dict[str, str]]) -> str:
         curve = max(56, (target_x - source_x) // 2)
         edge_lines.append(
             f'<path d="M {source_x} {source_y} C {source_x + curve} {source_y}, {target_x - curve} {target_y}, {target_x} {target_y}" '
-            'fill="none" stroke="#67a9a5" stroke-width="3.4" stroke-linecap="round" marker-end="url(#arrow)"/>'
+            'fill="none" stroke="#6c9ff8" stroke-width="3.4" stroke-linecap="round" marker-end="url(#arrow)"/>'
         )
     cards = []
     for node in nodes:
         x, y = node_positions[node.id]
         status = str(node.status.value if hasattr(node.status, "value") else node.status)
-        color = {"completed": "#0f8a8f", "failed": "#c44f3a", "running": "#315fd6", "ready": "#7b61b5"}.get(status, "#7d8d99")
+        color = {"completed": "#0052d9", "failed": "#d54941", "running": "#315fd6", "ready": "#2b74d6"}.get(status, "#667085")
         soft_color = {
-            "completed": "#e5f8f4",
-            "failed": "#fff1ed",
+            "completed": "#f2f6ff",
+            "failed": "#fff3f2",
             "running": "#edf4ff",
-            "ready": "#f4f0ff",
-        }.get(status, "#f4f7f8")
+            "ready": "#f2f6ff",
+        }.get(status, "#f7f9fc")
         cards.append(
             f'<g filter="url(#cardShadow)">'
-            f'<rect x="{x}" y="{y}" width="{card_width}" height="{card_height}" rx="16" fill="#ffffff" stroke="#d9e9e9" stroke-width="1.4"/>'
+            f'<rect x="{x}" y="{y}" width="{card_width}" height="{card_height}" rx="16" fill="#ffffff" stroke="#d9e2ec" stroke-width="1.4"/>'
             f'<rect x="{x + 10}" y="{y + 10}" width="36" height="36" rx="12" fill="{soft_color}"/>'
             f'<circle cx="{x + 28}" cy="{y + 28}" r="6" fill="{color}"/>'
-            f'<text x="{x + 56}" y="{y + 27}" fill="#102b35" font-size="14" font-weight="800">{html.escape(_short_svg_text(node.name, 22))}</text>'
-            f'<text x="{x + 56}" y="{y + 48}" fill="#5f7480" font-size="10.5">{html.escape(_short_svg_text(node.id, 24))}</text>'
+            f'<text x="{x + 56}" y="{y + 27}" fill="#1d2939" font-size="14" font-weight="800">{html.escape(_short_svg_text(node.name, 22))}</text>'
+            f'<text x="{x + 56}" y="{y + 48}" fill="#667085" font-size="10.5">{html.escape(_short_svg_text(node.id, 24))}</text>'
             f'<rect x="{x + 14}" y="{y + 53}" width="64" height="16" rx="8" fill="{soft_color}"/>'
             f'<text x="{x + 46}" y="{y + 65}" text-anchor="middle" fill="{color}" font-size="9.5" font-weight="800">{html.escape(status)}</text>'
             f'</g>'
         )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
-        '<defs><filter id="cardShadow" x="-10%" y="-20%" width="120%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#0f2f3a" flood-opacity=".10"/></filter>'
+        '<defs><filter id="cardShadow" x="-10%" y="-20%" width="120%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#1d2939" flood-opacity=".10"/></filter>'
         '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
-        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#67a9a5"/></marker></defs>'
-        '<rect width="100%" height="100%" rx="28" fill="#f6fbfb"/>'
-        '<path d="M 24 38 H 100%" stroke="#dceced" stroke-width="1"/><path d="M 24 104 H 100%" stroke="#edf5f5" stroke-width="1"/>'
+        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#6c9ff8"/></marker></defs>'
+        '<rect width="100%" height="100%" rx="28" fill="#f7f9fc"/>'
+        '<path d="M 24 38 H 100%" stroke="#d9e2ec" stroke-width="1"/><path d="M 24 104 H 100%" stroke="#e7edf5" stroke-width="1"/>'
         f'{"".join(edge_lines)}{"".join(cards)}</svg>'
     )
 
@@ -830,19 +830,19 @@ def _list(items: list[str]) -> str:
 
 def _report_css() -> str:
     return """
-@page{size:13.333in 7.5in;margin:0}*{box-sizing:border-box}body{margin:0;background:#dfeaea;color:#112b35;font-family:Inter,"Microsoft YaHei",Arial,sans-serif}
-.print-button{position:fixed;right:18px;top:18px;z-index:10;padding:10px 14px;border:0;border-radius:999px;background:#0f6b57;color:#fff;font-weight:800;cursor:pointer}
-.slide{position:relative;width:min(1280px,calc(100vw - 24px));height:720px;margin:22px auto;padding:34px 44px 38px;overflow:auto;background:#fff;box-shadow:0 18px 54px rgba(17,43,53,.16);page-break-after:always}
-header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #d9e9e9;padding-bottom:12px}header span{display:grid;width:34px;height:34px;place-items:center;border-radius:999px;background:#0f8a8f;color:#fff;font-size:12px;font-weight:900}
-h1{margin:0;color:#0f5e59;font-size:30px}h2{margin:0 0 8px;color:#0e5160;font-size:17px}.eyebrow{color:#0f8a8f;font-size:14px;font-weight:900;letter-spacing:.18em;text-transform:uppercase}
-main{padding-top:20px}.cover{display:grid;align-content:center;min-height:570px}.cover h1{max-width:940px;font-size:52px}.lead{max-width:1040px;color:#536b76;font-size:19px;line-height:1.65}.stamp,.muted{color:#7a8b93}
-.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:34px 0}.metrics div{padding:16px;border:1px solid #d8e6e7;border-radius:16px;background:#f8fbfb}.metrics span{display:block;color:#68808a;font-size:13px}.metrics strong{display:block;margin-top:6px;color:#0f6b57;font-size:30px}
-.workflow-figure{height:520px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#f6fbfb}.workflow-figure img{display:block;width:100%;height:auto}
-table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}th,td{padding:10px;border-bottom:1px solid #e4eeee;text-align:left;vertical-align:top}th{color:#0f6b57;background:#f0f8f7}td small{display:block;margin-top:4px;color:#829198}
-.figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 330px auto;padding:16px;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.figure-card>div:first-child{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#7b61b5;font-size:12px;font-weight:800}.result-media{--frame-width:1280px;--frame-height:760px;--frame-scale:.4;position:relative;overflow:hidden;border:1px solid #e2ecec;border-radius:14px;background:#fff}.result-frame{width:var(--frame-width);height:var(--frame-height);border:0;background:#fff;transform:scale(var(--frame-scale));transform-origin:top left}.figure-card img{width:100%;height:100%;object-fit:contain}.print-fallback{display:none}.figure-card p{margin:8px 0 0;color:#546b75;font-size:14px;line-height:1.55}
-.executive-summary{margin-bottom:18px;padding:18px 20px;border:1px solid #bfe3df;border-left:6px solid #0f8a8f;border-radius:18px;background:#f3fbfa}.executive-summary p{margin:0;color:#183843;font-size:19px;line-height:1.7}
-.split,.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split>section,.summary-grid>section{padding:16px;overflow:auto;border:1px solid #d8e6e7;border-radius:18px;background:#fbfdfd}.split>section{max-height:560px}.summary-grid>section{max-height:210px}.note{margin:0 0 10px;padding:10px;border-left:4px solid #0f8a8f;background:#f4fbfb}.note strong{color:#0f6b57}.note ul,ul{margin:8px 0;padding-left:20px}li{margin:5px 0;line-height:1.45}pre{max-height:470px;padding:12px;overflow:auto;border-radius:12px;background:#102b35;color:#d8f5f0;font-size:11px;white-space:pre-wrap}
-footer{position:absolute;right:44px;bottom:18px;color:#8b999e;font-size:11px}
+@page{size:13.333in 7.5in;margin:0}*{box-sizing:border-box}body{margin:0;background:#e7edf5;color:#1d2939;font-family:Inter,"Microsoft YaHei",Arial,sans-serif}
+.print-button{position:fixed;right:18px;top:18px;z-index:10;padding:10px 14px;border:0;border-radius:999px;background:#0052d9;color:#fff;font-weight:800;cursor:pointer}
+.slide{position:relative;width:min(1280px,calc(100vw - 24px));height:720px;margin:22px auto;padding:34px 44px 38px;overflow:auto;background:#fff;box-shadow:0 18px 54px rgba(29,41,57,.14);page-break-after:always}
+header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #d9e2ec;padding-bottom:12px}header span{display:grid;width:34px;height:34px;place-items:center;border-radius:999px;background:#0052d9;color:#fff;font-size:12px;font-weight:900}
+h1{margin:0;color:#003cab;font-size:30px}h2{margin:0 0 8px;color:#1d2939;font-size:17px}.eyebrow{color:#0052d9;font-size:14px;font-weight:900;letter-spacing:.18em;text-transform:uppercase}
+main{padding-top:20px}.cover{display:grid;align-content:center;min-height:570px}.cover h1{max-width:940px;font-size:52px}.lead{max-width:1040px;color:#475467;font-size:19px;line-height:1.65}.stamp,.muted{color:#667085}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:34px 0}.metrics div{padding:16px;border:1px solid #d9e2ec;border-radius:16px;background:#f8fafc}.metrics span{display:block;color:#667085;font-size:13px}.metrics strong{display:block;margin-top:6px;color:#0052d9;font-size:30px}
+.workflow-figure{height:520px;overflow:auto;border:1px solid #d9e2ec;border-radius:18px;background:#f7f9fc}.workflow-figure img{display:block;width:100%;height:auto}
+table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}th,td{padding:10px;border-bottom:1px solid #e7edf5;text-align:left;vertical-align:top}th{color:#003cab;background:#f2f6ff}td small{display:block;margin-top:4px;color:#667085}
+.figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.figure-card{display:grid;grid-template-rows:auto 330px auto;padding:16px;border:1px solid #d9e2ec;border-radius:18px;background:#f8fafc}.figure-card>div:first-child{display:flex;justify-content:space-between;gap:14px}.figure-card span{color:#244ba8;font-size:12px;font-weight:800}.result-media{--frame-width:1280px;--frame-height:760px;--frame-scale:.4;position:relative;overflow:hidden;border:1px solid #d9e2ec;border-radius:14px;background:#fff}.result-frame{width:var(--frame-width);height:var(--frame-height);border:0;background:#fff;transform:scale(var(--frame-scale));transform-origin:top left}.figure-card img{width:100%;height:100%;object-fit:contain}.print-fallback{display:none}.figure-card p{margin:8px 0 0;color:#475467;font-size:14px;line-height:1.55}
+.executive-summary{margin-bottom:18px;padding:18px 20px;border:1px solid #b7cffb;border-left:6px solid #0052d9;border-radius:18px;background:#f2f6ff}.executive-summary p{margin:0;color:#1d2939;font-size:19px;line-height:1.7}
+.split,.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.split>section,.summary-grid>section{padding:16px;overflow:auto;border:1px solid #d9e2ec;border-radius:18px;background:#f8fafc}.split>section{max-height:560px}.summary-grid>section{max-height:210px}.note{margin:0 0 10px;padding:10px;border-left:4px solid #0052d9;background:#f2f6ff}.note strong{color:#003cab}.note ul,ul{margin:8px 0;padding-left:20px}li{margin:5px 0;line-height:1.45}pre{max-height:470px;padding:12px;overflow:auto;border-radius:12px;background:#1d2939;color:#eef4ff;font-size:11px;white-space:pre-wrap}
+footer{position:absolute;right:44px;bottom:18px;color:#98a2b3;font-size:11px}
 @media(max-width:760px){.slide{padding:26px 24px 34px}.cover h1{font-size:38px}.metrics{grid-template-columns:repeat(2,1fr)}.split,.summary-grid,.figure-grid{grid-template-columns:1fr}.figure-card{grid-template-rows:auto 220px auto}.result-media{--frame-scale:.26}.figure-card img{height:210px}}
 @media print{body{background:#fff}.print-button{display:none}.slide{width:1280px;height:720px;margin:0;padding:34px 44px 38px;overflow:hidden;box-shadow:none}.split,.summary-grid,.figure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.result-frame{display:none}.print-fallback{display:block}}
 """

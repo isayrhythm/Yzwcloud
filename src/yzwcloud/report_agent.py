@@ -654,13 +654,13 @@ def _report_html(report: dict[str, Any]) -> str:
 <html lang="zh-CN"><head><meta charset="utf-8"><title>{html.escape(report["title"])}</title>
 <style>
 @page{{size:A4 landscape;margin:12mm}}*{{box-sizing:border-box}}
-body{{margin:0;background:#eef5f5;color:#102333;font-family:Inter,"Microsoft YaHei",Arial,sans-serif}}
-.page{{width:min(1120px,100%);min-height:720px;margin:20px auto;padding:34px;border:1px solid #d5e5e6;border-radius:24px;background:#fff;box-shadow:0 18px 44px rgba(23,58,70,.10)}}
-.top{{display:flex;justify-content:space-between;gap:24px;border-bottom:2px solid #dceced;padding-bottom:18px}}
-h1{{margin:0;color:#0f6b57;font-size:30px}}.badge{{align-self:flex-start;padding:7px 10px;border-radius:999px;background:#e8f7f4;color:#0f6b57;font-size:12px;font-weight:800}}
-.summary{{margin:20px 0;padding:16px 18px;border-left:5px solid #0f8a8f;background:#f4fbfb;font-size:17px;line-height:1.7}}
+body{{margin:0;background:#eef4fb;color:#1d2939;font-family:Inter,"Microsoft YaHei",Arial,sans-serif}}
+.page{{width:min(1120px,100%);min-height:720px;margin:20px auto;padding:34px;border:1px solid #d9e2ec;border-radius:24px;background:#fff;box-shadow:0 18px 44px rgba(29,41,57,.10)}}
+.top{{display:flex;justify-content:space-between;gap:24px;border-bottom:2px solid #d9e2ec;padding-bottom:18px}}
+h1{{margin:0;color:#003cab;font-size:30px}}.badge{{align-self:flex-start;padding:7px 10px;border-radius:999px;background:#f2f6ff;color:#003cab;font-size:12px;font-weight:800}}
+.summary{{margin:20px 0;padding:16px 18px;border-left:5px solid #0052d9;background:#f2f6ff;font-size:17px;line-height:1.7}}
 .grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}}
-section{{padding:16px;border:1px solid #dbe7ec;border-radius:16px}}h2{{margin:0 0 8px;color:#0e5160;font-size:16px}}ul{{margin:0;padding-left:19px}}li{{margin:6px 0;line-height:1.5}}
+section{{padding:16px;border:1px solid #d9e2ec;border-radius:16px;background:#f8fafc}}h2{{margin:0 0 8px;color:#1d2939;font-size:16px}}ul{{margin:0;padding-left:19px}}li{{margin:6px 0;line-height:1.5}}
 footer{{margin-top:18px;color:#6a7b88;font-size:12px}}@media print{{body{{background:#fff}}.page{{margin:0;border:0;box-shadow:none}}}}
 </style></head><body><article class="page">
 <div class="top"><div><h1>{html.escape(report["title"])}</h1><p>{html.escape(report["output_type"])}</p></div><span class="badge">{badge}</span></div>

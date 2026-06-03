@@ -176,7 +176,7 @@ def test_transcriptome_workflow() -> None:
             condition: color
             for condition, color in zip(
                 sorted({item["condition"] for item in group_payload["samples"] if item.get("condition")}),
-                ["#0f8a8f", "#c44f3a", "#315fd6", "#20804f"],
+                ["#0052d9", "#d54941", "#315fd6", "#2b74d6"],
                 strict=False,
             )
         }

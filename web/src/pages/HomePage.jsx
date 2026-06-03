@@ -309,11 +309,11 @@ function PcaPreview() {
     [24, 36, "#3d7eff"],
     [31, 29, "#3d7eff"],
     [37, 42, "#3d7eff"],
-    [56, 61, "#18a999"],
-    [62, 54, "#18a999"],
-    [70, 64, "#18a999"],
-    [47, 27, "#ee6c4d"],
-    [53, 34, "#ee6c4d"],
+    [56, 61, "#2b74d6"],
+    [62, 54, "#2b74d6"],
+    [70, 64, "#2b74d6"],
+    [47, 27, "#d54941"],
+    [53, 34, "#d54941"],
   ];
   return (
     <svg className="demo-chart" viewBox="0 0 420 260" role="img" aria-label="PCA chart preview">
@@ -363,7 +363,7 @@ function VolcanoPreview() {
           cx={point.x}
           cy={point.y}
           r={point.signal ? 5 : 3}
-          fill={point.signal ? (point.up ? "#ee6c4d" : "#3d7eff") : "#9fb2c3"}
+          fill={point.signal ? (point.up ? "#d54941" : "#3d7eff") : "#9fb2c3"}
           opacity={point.signal ? 0.92 : 0.42}
         />
       ))}
@@ -389,8 +389,8 @@ function CorrelationPreview() {
 function BoxplotPreview() {
   const groups = [
     { x: 110, color: "#3d7eff", median: 124, top: 82, bottom: 172 },
-    { x: 210, color: "#18a999", median: 96, top: 56, bottom: 148 },
-    { x: 310, color: "#ee6c4d", median: 146, top: 102, bottom: 198 },
+    { x: 210, color: "#2b74d6", median: 96, top: 56, bottom: 148 },
+    { x: 310, color: "#d54941", median: 146, top: 102, bottom: 198 },
   ];
   return (
     <svg className="demo-chart" viewBox="0 0 420 260" role="img" aria-label="Boxplot preview">

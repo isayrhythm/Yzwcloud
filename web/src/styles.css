@@ -93,8 +93,8 @@ button {
   border-radius: 14px;
   color: #ecffff;
   background:
-    radial-gradient(circle at 32% 28%, #79f3f2, transparent 28%),
-    linear-gradient(135deg, #10344f, #1ca6c9 54%, #0d1f35);
+    radial-gradient(circle at 32% 28%, #b7cffb, transparent 28%),
+    linear-gradient(135deg, #10344f, #2b74d6 54%, #0d1f35);
   font-weight: 900;
   box-shadow: 0 14px 40px rgba(28, 166, 201, 0.24);
 }
@@ -220,9 +220,9 @@ button {
   min-height: 680px;
   overflow: hidden;
   padding: clamp(34px, 6vw, 78px);
-  border: 1px solid rgba(121, 243, 242, 0.18);
+  border: 1px solid rgba(183, 207, 251, 0.18);
   border-radius: 24px;
-  color: #eefcff;
+  color: #f2f6ff;
   background:
     linear-gradient(132deg, rgba(9, 31, 47, 0.98) 0%, rgba(20, 89, 110, 0.96) 46%, rgba(13, 24, 42, 0.99) 100%);
   box-shadow: 0 34px 120px rgba(16, 39, 58, 0.28);
@@ -244,7 +244,7 @@ button {
   inset: 0;
   content: "";
   background:
-    linear-gradient(112deg, transparent 0 43%, rgba(121, 243, 242, 0.08) 49%, transparent 56%),
+    linear-gradient(112deg, transparent 0 43%, rgba(183, 207, 251, 0.08) 49%, transparent 56%),
     linear-gradient(180deg, rgba(232, 252, 255, 0.05), transparent 34%);
   pointer-events: none;
 }
@@ -264,12 +264,12 @@ button {
   width: 3px;
   content: "";
   border-radius: 999px;
-  background: linear-gradient(180deg, #79f3f2, #ee6c4d 54%, rgba(121, 243, 242, 0));
-  box-shadow: 0 0 28px rgba(121, 243, 242, 0.42);
+  background: linear-gradient(180deg, #b7cffb, #d54941 54%, rgba(183, 207, 251, 0));
+  box-shadow: 0 0 28px rgba(183, 207, 251, 0.42);
 }
 
 .landing .eyebrow {
-  color: #79f3f2;
+  color: #b7cffb;
 }
 
 .hero-copy h1 {
@@ -298,20 +298,20 @@ button {
 .primary.launch {
   padding: 16px 28px;
   color: #07131f;
-  background: linear-gradient(135deg, #79f3f2, #eafcff);
-  box-shadow: 0 18px 52px rgba(121, 243, 242, 0.22);
+  background: linear-gradient(135deg, #b7cffb, #f2f6ff);
+  box-shadow: 0 18px 52px rgba(183, 207, 251, 0.22);
   font-weight: 800;
 }
 
 .hero-actions a {
-  color: #e8fcff;
+  color: #f2f6ff;
   text-decoration: none;
 }
 
 .hero-ghost {
   padding: 14px 18px;
   border: 1px solid rgba(232, 252, 255, 0.24);
-  color: #e8fcff;
+  color: #f2f6ff;
   background: rgba(232, 252, 255, 0.08);
 }
 
@@ -320,10 +320,10 @@ button {
 }
 
 .hero-ghost.active {
-  border-color: rgba(121, 243, 242, 0.72);
+  border-color: rgba(183, 207, 251, 0.72);
   color: #07131f;
-  background: #79f3f2;
-  box-shadow: 0 12px 34px rgba(121, 243, 242, 0.2);
+  background: #b7cffb;
+  box-shadow: 0 12px 34px rgba(183, 207, 251, 0.2);
 }
 
 .hero-system-strip {
@@ -393,11 +393,11 @@ button {
   width: min(360px, 62%);
   aspect-ratio: 1;
   content: "";
-  border: 1px dashed rgba(121, 243, 242, 0.3);
+  border: 1px dashed rgba(183, 207, 251, 0.3);
   border-radius: 50%;
   background:
-    conic-gradient(from 210deg, rgba(121, 243, 242, 0.22), transparent 32%, rgba(238, 108, 77, 0.14), transparent 68%, rgba(121, 243, 242, 0.18)),
-    radial-gradient(circle, transparent 0 54%, rgba(121, 243, 242, 0.08) 55% 57%, transparent 58%);
+    conic-gradient(from 210deg, rgba(183, 207, 251, 0.22), transparent 32%, rgba(238, 108, 77, 0.14), transparent 68%, rgba(183, 207, 251, 0.18)),
+    radial-gradient(circle, transparent 0 54%, rgba(183, 207, 251, 0.08) 55% 57%, transparent 58%);
   opacity: 0.78;
   transform: translate(-8%, -4%);
   animation: workflow-radar 13s linear infinite;
@@ -409,7 +409,7 @@ button {
   z-index: 2;
   width: 40%;
   content: "";
-  background: linear-gradient(90deg, transparent, rgba(121, 243, 242, 0.12), transparent);
+  background: linear-gradient(90deg, transparent, rgba(183, 207, 251, 0.12), transparent);
   filter: blur(1px);
   pointer-events: none;
   transform: skewX(-13deg);
@@ -425,7 +425,7 @@ button {
   gap: 3px;
   min-width: 172px;
   padding: 10px 12px;
-  border: 1px solid rgba(121, 243, 242, 0.4);
+  border: 1px solid rgba(183, 207, 251, 0.4);
   border-radius: 12px;
   background: rgba(235, 252, 255, 0.94);
   color: #07131f;
@@ -442,15 +442,15 @@ button {
   gap: 4px;
   min-width: 142px;
   padding: 10px 12px;
-  border: 1px solid rgba(121, 243, 242, 0.32);
+  border: 1px solid rgba(183, 207, 251, 0.32);
   border-radius: 12px;
-  color: #eaffff;
+  color: #f2f6ff;
   background: rgba(4, 15, 24, 0.66);
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.25);
 }
 
 .workflow-hud span {
-  color: #79f3f2;
+  color: #b7cffb;
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.14em;
@@ -468,7 +468,7 @@ button {
   top: 100%;
   width: 1px;
   height: 92px;
-  background: linear-gradient(180deg, rgba(121, 243, 242, 0.9), rgba(121, 243, 242, 0));
+  background: linear-gradient(180deg, rgba(183, 207, 251, 0.9), rgba(183, 207, 251, 0));
 }
 
 .demo-data-packet span {
@@ -497,9 +497,9 @@ button {
 
 .workflow-edges path {
   fill: none;
-  stroke: rgba(121, 243, 242, 0.58);
+  stroke: rgba(183, 207, 251, 0.58);
   stroke-width: 0.6;
-  filter: drop-shadow(0 0 4px rgba(121, 243, 242, 0.45));
+  filter: drop-shadow(0 0 4px rgba(183, 207, 251, 0.45));
   stroke-dasharray: 7 4;
   animation: workflow-edge-flow 1.8s linear infinite;
 }
@@ -514,7 +514,7 @@ button {
   padding: 11px 13px;
   border: 1px solid rgba(217, 255, 247, 0.24);
   border-radius: 14px;
-  color: #eefcff;
+  color: #f2f6ff;
   text-align: left;
   background: rgba(14, 38, 56, 0.92);
   box-shadow: 0 14px 38px rgba(0, 0, 0, 0.22);
@@ -525,14 +525,14 @@ button {
 
 .workflow-node:hover,
 .workflow-node.active {
-  border-color: rgba(121, 243, 242, 0.8);
+  border-color: rgba(183, 207, 251, 0.8);
   background: rgba(23, 68, 88, 0.98);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(121, 243, 242, 0.14) inset;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(183, 207, 251, 0.14) inset;
   transform: translateY(-2px);
 }
 
 .workflow-node.level-0 {
-  background: linear-gradient(135deg, rgba(121, 243, 242, 0.18), rgba(61, 126, 255, 0.18)), rgba(14, 38, 56, 0.92);
+  background: linear-gradient(135deg, rgba(183, 207, 251, 0.18), rgba(61, 126, 255, 0.18)), rgba(14, 38, 56, 0.92);
 }
 
 .workflow-node.level-2 {
@@ -569,8 +569,8 @@ button {
 }
 
 .workflow-inspector.chart-expanded {
-  border-color: rgba(121, 243, 242, 0.48);
-  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(121, 243, 242, 0.14) inset;
+  border-color: rgba(183, 207, 251, 0.48);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(183, 207, 251, 0.14) inset;
 }
 
 .workflow-inspector h2 {
@@ -616,14 +616,14 @@ button {
 }
 
 .agent-trace span.done {
-  border-color: rgba(121, 243, 242, 0.42);
-  color: #eaffff;
-  background: rgba(121, 243, 242, 0.1);
+  border-color: rgba(183, 207, 251, 0.42);
+  color: #f2f6ff;
+  background: rgba(183, 207, 251, 0.1);
 }
 
 .agent-trace span.done::before {
-  background: #79f3f2;
-  box-shadow: 0 0 16px rgba(121, 243, 242, 0.65);
+  background: #b7cffb;
+  box-shadow: 0 0 16px rgba(183, 207, 251, 0.65);
 }
 
 .plot-card-preview {
@@ -643,7 +643,7 @@ button {
 }
 
 .workflow-inspector.chart-expanded .plot-card-preview {
-  border-color: rgba(121, 243, 242, 0.78);
+  border-color: rgba(183, 207, 251, 0.78);
   box-shadow: 0 24px 62px rgba(0, 0, 0, 0.26);
 }
 
@@ -707,7 +707,7 @@ button {
 
 .plot-preview-meta span:last-child {
   color: #003cab;
-  background: rgba(121, 243, 242, 0.24);
+  background: rgba(183, 207, 251, 0.24);
 }
 
 .demo-chart {
@@ -736,7 +736,7 @@ button {
 }
 
 .dendrogram.accent {
-  stroke: #ee6c4d;
+  stroke: #d54941;
 }
 
 @keyframes workflow-node-in {
@@ -822,7 +822,7 @@ button {
   height: 5px;
   margin-bottom: 20px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #48ffe0, #2f8cff);
+  background: linear-gradient(90deg, #b7cffb, #2f8cff);
 }
 
 .feature-card p,
@@ -3525,12 +3525,12 @@ h2 {
 
 .mini-calendar span {
   border-radius: 3px;
-  background: #f5d6a0;
+  background: #b7cffb;
 }
 
-.mini-calendar span:nth-child(3n) { background: #f08b4f; }
+.mini-calendar span:nth-child(3n) { background: #d54941; }
 .mini-calendar span:nth-child(4n) { background: #c44f3a; }
-.mini-calendar span:nth-child(5n) { background: #fff1c2; }
+.mini-calendar span:nth-child(5n) { background: #e8f1ff; }
 .mini-calendar span:nth-child(7n) { background: #e9eef2; }
 
 .mini-density .ring {
@@ -4267,7 +4267,7 @@ h2 {
 }
 
 .mini-enrichment-bar span:nth-child(2) { background: linear-gradient(90deg, #315fd6, #7a4fb3); }
-.mini-enrichment-bar span:nth-child(3) { background: linear-gradient(90deg, #c44f3a, #b7791f); }
+.mini-enrichment-bar span:nth-child(3) { background: linear-gradient(90deg, #c44f3a, #d54941); }
 .mini-enrichment-bar span:nth-child(4) { background: linear-gradient(90deg, #2b74d6, #0052d9); }
 .mini-enrichment-bar span:nth-child(5) { background: linear-gradient(90deg, #7a4fb3, #9a3f6f); }
 
@@ -4737,8 +4737,8 @@ h2 {
 .plot-preview-empty-copy span {
   padding: 4px 9px;
   border-radius: 999px;
-  background: #fff2db;
-  color: #8b4b11;
+  background: #f2f6ff;
+  color: #244ba8;
   font-size: 12px;
   font-weight: 850;
 }
@@ -4882,8 +4882,8 @@ h2 {
 }
 
 .plot-warning-list strong {
-  color: #8b4b11;
-  background: #fff2db;
+  color: #244ba8;
+  background: #f2f6ff;
 }
 
 .plot-warning-list span {
@@ -5714,7 +5714,7 @@ h2 {
 
 .lab-module-tile.active {
   border-color: var(--accent);
-  background: #fffdf7;
+  background: #f8fafc;
   box-shadow: inset 0 0 0 1px rgba(0, 82, 217, 0.14), 0 24px 80px rgba(47, 39, 22, 0.1);
 }
 
@@ -5968,8 +5968,8 @@ h2 {
 }
 
 .risk-medium .risk-badge {
-  color: #8a6414;
-  background: #fff3d4;
+  color: #475467;
+  background: #f2f6ff;
 }
 
 .risk-low .risk-badge {

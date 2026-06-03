@@ -221,8 +221,8 @@ def test_plot_studio_explains_unsupported_plot_cards() -> None:
 
     for fragment in [
         ".plot-type-unsupported-reason",
-        "background: #fff8f6",
-        "color: #9a352a !important",
+        "background: var(--td-warning-1)",
+        "color: var(--td-warning-6) !important",
         "-webkit-line-clamp: 3 !important",
     ]:
         assert fragment in styles
@@ -443,6 +443,7 @@ def test_analysis_nodes_surface_agent_summary_reports() -> None:
     for fragment in [
         ".analysis-agent-report-modal",
         ".agent-report-badge.fallback",
+        "background: var(--td-warning-1)",
         ".analysis-agent-report-grid",
     ]:
         assert fragment in styles

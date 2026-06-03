@@ -1407,7 +1407,7 @@ p{{margin:0;color:#52616b}}
 .summary span{{padding:7px 10px;border:1px solid #d8e5ee;border-radius:999px;background:white;font-size:12px;font-weight:800;color:#345}}
 #plot{{width:1180px;height:680px;border:1px solid #d8e5ee;border-radius:14px;background:white}}
 .plot-frame{{width:min(100%,1180px);overflow:auto}}
-.plot-error{{padding:18px;border:1px solid #efb8ae;border-radius:12px;background:#fff6f3;color:#9a352a;font-weight:800}}
+.plot-error{{padding:18px;border:1px solid #efb8ae;border-radius:12px;background:#fff3f2;color:#9a352a;font-weight:800}}
 .modebar,.modebar-container,.modebar-btn--logo,.plotlyjsicon,.modebar-logo{{display:none!important}}
 </style>
 </head><body><div class="wrap"><div class="head"><div><h1>{html.escape(plot_title)}: {html.escape(str(gene_payload["gene"]))}</h1><p>{html.escape(str(gene_payload["gene_id"]))}</p></div><div class="summary" id="summary"></div></div><div class="plot-frame"><div id="plot"></div></div></div>

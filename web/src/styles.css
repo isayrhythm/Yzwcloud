@@ -2312,8 +2312,8 @@ h2 {
 }
 
 .agent-report-badge.fallback {
-  color: #6b4d12;
-  background: #fff6dd;
+  color: var(--td-warning-6);
+  background: var(--td-warning-1);
 }
 
 .analysis-agent-report-grid {
@@ -3063,10 +3063,10 @@ h2 {
 
 .plot-type-unsupported-reason {
   padding: 7px 9px;
-  border: 1px solid rgba(185, 61, 47, 0.18);
+  border: 1px solid rgba(102, 112, 133, 0.2);
   border-radius: 9px;
-  background: #fff8f6;
-  color: #9a352a !important;
+  background: var(--td-warning-1);
+  color: var(--td-warning-6) !important;
   font-size: 11px;
   font-weight: 760;
   -webkit-line-clamp: 3 !important;
@@ -5156,8 +5156,8 @@ h2 {
 }
 
 .plot-report-section.warning {
-  border-color: rgba(185, 61, 47, 0.22);
-  background: #fff8f6;
+  border-color: rgba(102, 112, 133, 0.2);
+  background: var(--td-warning-1);
 }
 
 .plot-report-guidance {
@@ -5345,7 +5345,7 @@ h2 {
   padding: 10px 12px;
   border: 1px solid rgba(185, 61, 47, 0.22);
   border-radius: 12px;
-  background: #fff8f6;
+  background: var(--failed);
   color: #9a352a;
   font-weight: 800;
 }

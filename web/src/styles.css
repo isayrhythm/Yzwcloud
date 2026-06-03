@@ -1,15 +1,24 @@
 :root {
-  --bg: #eef4f7;
-  --ink: #16232f;
-  --muted: #5f7284;
-  --card: rgba(252, 254, 255, 0.94);
-  --line: #d9e4ec;
-  --accent: #0f8a8f;
-  --accent-strong: #0e5160;
-  --ready: #e9f7ff;
-  --running: #e4eeff;
-  --completed: #e4f7ef;
-  --failed: #ffe5e2;
+  --bg: #f2f6fb;
+  --ink: #1d2939;
+  --muted: #667085;
+  --card: rgba(255, 255, 255, 0.96);
+  --line: #d9e2ec;
+  --accent: #0052d9;
+  --accent-strong: #003cab;
+  --ready: #f2f6ff;
+  --running: #edf3ff;
+  --completed: #f2f8ff;
+  --failed: #fff3f2;
+  --td-brand: #0052d9;
+  --td-brand-1: #f2f6ff;
+  --td-brand-2: #d9e7ff;
+  --td-brand-6: #0052d9;
+  --td-brand-7: #003cab;
+  --td-success-1: #f2f8ff;
+  --td-success-6: #2b74d6;
+  --td-warning-1: #f7f9fc;
+  --td-warning-6: #667085;
 }
 
 * {
@@ -29,9 +38,9 @@ body {
   color: var(--ink);
   font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   background:
-    radial-gradient(circle at 12% 8%, rgba(15, 138, 143, 0.14), transparent 30rem),
-    radial-gradient(circle at 86% 12%, rgba(50, 128, 214, 0.12), transparent 26rem),
-    linear-gradient(135deg, #f3f8fb 0%, #edf5fb 52%, #f2f8f7 100%);
+    radial-gradient(circle at 12% 8%, rgba(0, 82, 217, 0.1), transparent 30rem),
+    radial-gradient(circle at 86% 12%, rgba(43, 116, 214, 0.08), transparent 26rem),
+    linear-gradient(135deg, #f6f9fc 0%, #eef4fb 52%, #f8fafc 100%);
 }
 
 button,
@@ -969,7 +978,7 @@ h2 {
   overflow: hidden;
   padding: 14px;
   border-radius: 0 22px 22px 0;
-  background: rgba(250, 253, 255, 0.92);
+  background: rgba(247, 250, 253, 0.96);
 }
 
 .task-sidebar-top {
@@ -980,8 +989,8 @@ h2 {
 
 .new-task-button {
   width: 100%;
-  padding: 13px 14px;
-  box-shadow: 0 12px 26px rgba(15, 138, 143, 0.2);
+  height: 44px;
+  box-shadow: 0 12px 26px rgba(0, 82, 217, 0.18);
 }
 
 .task-sidebar-actions {
@@ -992,6 +1001,13 @@ h2 {
 
 .task-sidebar-actions .ghost {
   width: 100%;
+}
+
+.task-sidebar-actions .t-button {
+  height: 36px;
+  border-color: #d9e2ec;
+  color: var(--accent-strong);
+  background: #ffffff;
 }
 
 .task-list-title {
@@ -1065,8 +1081,8 @@ h2 {
 
 .workflow-report-primary {
   color: #fff;
-  background: linear-gradient(135deg, var(--accent), #0f6b57);
-  box-shadow: 0 12px 26px rgba(15, 107, 87, 0.22);
+  background: linear-gradient(135deg, var(--accent), #2b74d6);
+  box-shadow: 0 12px 26px rgba(0, 82, 217, 0.18);
 }
 
 .panel-title {
@@ -1084,8 +1100,8 @@ h2 {
 
 .task-list {
   display: grid;
-  grid-auto-rows: max-content;
-  gap: 10px;
+  grid-auto-rows: 116px;
+  gap: 12px;
 }
 
 .task-item {
@@ -1094,16 +1110,19 @@ h2 {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  min-height: 94px;
-  padding: 8px;
+  height: 116px;
+  min-height: 116px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 16px;
-  background: #fffaf0;
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(29, 41, 57, 0.04);
 }
 
 .task-item.active {
   border-color: var(--accent);
-  box-shadow: inset 4px 0 0 var(--accent);
+  background: #f7faff;
+  box-shadow: inset 4px 0 0 var(--accent), 0 10px 24px rgba(0, 82, 217, 0.08);
 }
 
 .task-item.editing {
@@ -1112,10 +1131,25 @@ h2 {
 }
 
 .task-select {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  height: 100%;
   min-width: 0;
   padding: 6px;
   text-align: left;
   background: transparent;
+}
+
+.task-select strong {
+  display: -webkit-box;
+  overflow: hidden;
+  min-height: 36px;
+  color: #101828;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .task-rename-form {
@@ -1140,10 +1174,20 @@ h2 {
 
 .task-id {
   display: block;
-  margin-top: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   word-break: break-all;
+}
+
+.task-meta {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.task-status-tag {
+  width: fit-content;
+  max-width: 100%;
 }
 
 .task-delete {
@@ -1159,14 +1203,14 @@ h2 {
 }
 
 .task-menu-button {
+  color: #475467;
+  background: #f2f4f7;
+}
+
+.task-menu-button.t-button {
   width: 30px;
   height: 30px;
-  border-radius: 999px;
-  color: #52616b;
-  background: rgba(232, 239, 229, 0.92);
-  font-size: 15px;
-  font-weight: 900;
-  line-height: 1;
+  min-width: 30px;
 }
 
 .task-menu-button:hover {

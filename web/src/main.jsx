@@ -11,7 +11,10 @@ import {
   applyNodeChanges,
   useReactFlow,
 } from "@xyflow/react";
+import { Button, Dropdown, Tag } from "tdesign-react";
+import { AddIcon, HomeIcon, MoreIcon, RefreshIcon } from "tdesign-icons-react";
 import "@xyflow/react/dist/style.css";
+import "tdesign-react/es/style/index.css";
 import { AnalysisNode } from "./components/AnalysisNode.jsx";
 import { AppChrome } from "./components/AppChrome.jsx";
 import { HeatmapParamsModal } from "./components/HeatmapParamsModal.jsx";
@@ -130,8 +133,6 @@ function App() {
   const [edges, setEdges] = useState([]);
   const [page, setPage] = useState(initialPage);
   const [showMiniMap, setShowMiniMap] = useState(false);
-  const [taskMenuId, setTaskMenuId] = useState(null);
-  const [taskMenuPosition, setTaskMenuPosition] = useState(null);
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editingTaskName, setEditingTaskName] = useState("");
   const [plotStudioSession, setPlotStudioSession] = useState(() => createPlotStudioSession());
@@ -210,17 +211,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!taskMenuId) return undefined;
-    const closeTaskMenu = (event) => {
-      if (event.target.closest?.(".task-menu-wrap, .task-menu")) return;
-      setTaskMenuId(null);
-      setTaskMenuPosition(null);
-    };
-    window.addEventListener("pointerdown", closeTaskMenu);
-    return () => window.removeEventListener("pointerdown", closeTaskMenu);
-  }, [taskMenuId]);
-
-  useEffect(() => {
     if (!detail) {
       setNodes([]);
       setEdges([]);
@@ -285,8 +275,6 @@ function App() {
   };
 
   const requestDeleteTask = (task) => {
-    setTaskMenuId(null);
-    setTaskMenuPosition(null);
     setModal({
       kind: "confirmDelete",
       title: "删除任务",
@@ -297,8 +285,6 @@ function App() {
   };
 
   const deleteTask = async (taskId) => {
-    setTaskMenuId(null);
-    setTaskMenuPosition(null);
     await api(`/api/tasks/${taskId}`, { method: "DELETE" });
     if (taskId === activeTaskId) {
       const nextTask = tasks.find((task) => task.task_id !== taskId);
@@ -326,10 +312,18 @@ function App() {
   };
 
   const startRenameTask = (task) => {
-    setTaskMenuId(null);
-    setTaskMenuPosition(null);
     setEditingTaskId(task.task_id);
     setEditingTaskName(task.name);
+  };
+
+  const handleTaskMenuClick = (task, item) => {
+    if (item.value === "rename") {
+      startRenameTask(task);
+      return;
+    }
+    if (item.value === "delete") {
+      requestDeleteTask(task);
+    }
   };
 
   const cancelRenameTask = () => {
@@ -737,6 +731,12 @@ function App() {
 
   const openWorkbench = () => navigatePage("workbench");
   const taskReportHtmlUrl = detail ? `/api/tasks/${encodeURIComponent(detail.task.task_id)}/report.html` : "";
+  const taskStatusTheme = (status) => {
+    if (status === "failed") return "danger";
+    if (status === "completed") return "success";
+    if (status === "running") return "primary";
+    return "default";
+  };
 
   if (page === "home") {
     return (
@@ -801,16 +801,32 @@ function App() {
       <section className="workbench-layout">
         <aside className="panel task-sidebar">
           <div className="task-sidebar-top">
-            <button className="workbench-brand" onClick={() => setPage("home")}>
+            <Button
+              className="workbench-brand"
+              variant="text"
+              icon={<HomeIcon />}
+              onClick={() => setPage("home")}
+            >
               <span className="brand-mark">Y</span>
               <span>
                 <strong>YZW BioCloud</strong>
                 <small>{t("home")}</small>
               </span>
-            </button>
-            <button className="primary new-task-button" onClick={createTask}>{t("newAnalysisTask")}</button>
+            </Button>
+            <Button
+              className="new-task-button"
+              theme="primary"
+              shape="round"
+              block
+              icon={<AddIcon />}
+              onClick={createTask}
+            >
+              {t("newAnalysisTask")}
+            </Button>
             <div className="task-sidebar-actions">
-              <button className="ghost" onClick={loadTasks}>{t("refresh")}</button>
+              <Button variant="outline" shape="round" block icon={<RefreshIcon />} onClick={loadTasks}>
+                {t("refresh")}
+              </Button>
             </div>
           </div>
           <div className="panel-title task-list-title">
@@ -847,43 +863,40 @@ function App() {
                 ) : (
                   <button className="task-select" onClick={() => setActiveTaskId(task.task_id)}>
                     <strong>{task.name}</strong>
-                    <span className="task-id">{task.status} · {task.task_id}</span>
+                    <span className="task-meta">
+                      <Tag
+                        className={`task-status-tag ${task.status}`}
+                        theme={taskStatusTheme(task.status)}
+                        variant="light"
+                        shape="round"
+                        size="small"
+                      >
+                        {task.status}
+                      </Tag>
+                      <span className="task-id">{task.task_id}</span>
+                    </span>
                   </button>
                 )}
                 <div className="task-menu-wrap">
-                  <button
-                    className="task-menu-button"
-                    type="button"
-                    aria-label={t("task")}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      const menuHeight = 104;
-                      const openUp = rect.bottom + menuHeight > window.innerHeight - 12;
-                      setTaskMenuPosition({
-                        top: openUp ? rect.top - menuHeight - 6 : rect.bottom + 6,
-                        right: window.innerWidth - rect.right,
-                      });
-                      setTaskMenuId((current) => {
-                        if (current === task.task_id) {
-                          setTaskMenuPosition(null);
-                          return null;
-                        }
-                        return task.task_id;
-                      });
-                    }}
+                  <Dropdown
+                    trigger="click"
+                    placement="bottom-right"
+                    options={[
+                      { content: t("rename"), value: "rename" },
+                      { content: t("delete"), value: "delete", theme: "error" },
+                    ]}
+                    onClick={(item) => handleTaskMenuClick(task, item)}
                   >
-                    ...
-                  </button>
-                  {taskMenuId === task.task_id ? (
-                    <div
-                      className="task-menu"
-                      style={taskMenuPosition ? { top: taskMenuPosition.top, right: taskMenuPosition.right } : undefined}
+                    <Button
+                      className="task-menu-button"
+                      type="button"
+                      aria-label={t("task")}
+                      shape="circle"
+                      variant="text"
+                      icon={<MoreIcon />}
                     >
-                      <button type="button" onClick={() => startRenameTask(task)}>{t("rename")}</button>
-                      <button type="button" className="danger" onClick={() => requestDeleteTask(task)}>{t("delete")}</button>
-                    </div>
-                  ) : null}
+                    </Button>
+                  </Dropdown>
                 </div>
               </div>
             ))}

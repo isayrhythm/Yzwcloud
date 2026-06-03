@@ -1997,6 +1997,14 @@ h2 {
   box-shadow: 0 24px 70px rgba(29, 41, 57, 0.24);
 }
 
+.td-param-dialog .modal {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .confirm-delete-copy {
   margin: 0;
   color: var(--muted);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Modal } from "./Modal.jsx";
+import { Button, Dialog } from "tdesign-react";
 
 const QC_PRESET_VALUES = {
   expression: {
@@ -137,9 +137,19 @@ export function NodeParamsModal({ node, detail, onClose, onSubmit }) {
   };
 
   return (
-    <Modal onClose={onClose}>
+    <Dialog
+      visible
+      header="QC parameters"
+      width={720}
+      placement="center"
+      closeOnOverlayClick
+      destroyOnClose
+      footer={false}
+      dialogClassName="td-workflow-dialog td-param-dialog"
+      onClose={onClose}
+      onCancel={onClose}
+    >
       <form className="modal node-param-modal" onSubmit={submit}>
-        <h2>QC parameters</h2>
         <p>Choose a QC strictness preset. Defaults are selected for the current {qcProfile} data profile.</p>
         <div className="qc-preset-grid">
           {QC_PRESETS.map((item) => (
@@ -154,9 +164,9 @@ export function NodeParamsModal({ node, detail, onClose, onSubmit }) {
             </button>
           ))}
         </div>
-        <button type="button" className="advanced-toggle" onClick={() => setShowAdvanced((value) => !value)}>
+        <Button type="button" variant="text" className="advanced-toggle" onClick={() => setShowAdvanced((value) => !value)}>
           {showAdvanced ? "Hide advanced parameters" : "Show advanced parameters"}
-        </button>
+        </Button>
         {qcProfile === "metabolomics" ? (
           <section className="metabolomics-processing">
             <label className="checkbox-line">
@@ -292,14 +302,14 @@ export function NodeParamsModal({ node, detail, onClose, onSubmit }) {
         ) : null}
         {error ? <p className="modal-error">{error}</p> : null}
         <div className="modal-actions">
-          <button type="button" className="ghost" onClick={onClose}>
+          <Button type="button" variant="outline" shape="round" onClick={onClose}>
             Cancel
-          </button>
-          <button className="primary compact" disabled={running}>
+          </Button>
+          <Button theme="primary" shape="round" type="submit" loading={running} disabled={running}>
             {running ? "Running..." : "Run QC"}
-          </button>
+          </Button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }

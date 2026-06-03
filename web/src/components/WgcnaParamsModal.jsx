@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Modal } from "./Modal.jsx";
+import { Button, Dialog } from "tdesign-react";
 
 const NETWORK_TYPE_HELP = {
   signed: "signed：区分正负相关，负相关连接会被弱化；通常更适合表达共表达模块。",
@@ -51,9 +51,19 @@ export function WgcnaParamsModal({ node, onClose, onSubmit }) {
   };
 
   return (
-    <Modal onClose={onClose}>
+    <Dialog
+      visible
+      header="WGCNA parameters"
+      width={720}
+      placement="center"
+      closeOnOverlayClick
+      destroyOnClose
+      footer={false}
+      dialogClassName="td-workflow-dialog td-param-dialog"
+      onClose={onClose}
+      onCancel={onClose}
+    >
       <form className="modal wgcna-param-modal" onSubmit={submit}>
-        <h2>WGCNA parameters</h2>
         <p>选择进入共表达网络的高变基因数量。演示默认使用方差最大的前 2000 个基因，速度更稳定。</p>
         <div className="qc-preset-grid">
           <button
@@ -149,14 +159,14 @@ export function WgcnaParamsModal({ node, onClose, onSubmit }) {
         </div>
         {error ? <p className="modal-error">{error}</p> : null}
         <div className="modal-actions">
-          <button type="button" className="ghost" onClick={onClose}>
+          <Button type="button" variant="outline" shape="round" onClick={onClose}>
             Cancel
-          </button>
-          <button className="primary compact" disabled={running}>
+          </Button>
+          <Button theme="primary" shape="round" type="submit" loading={running} disabled={running}>
             {running ? "Running..." : "Run WGCNA"}
-          </button>
+          </Button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }

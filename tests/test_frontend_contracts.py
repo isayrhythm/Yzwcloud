@@ -13,6 +13,7 @@ STYLESHEET = ROOT / "web" / "src" / "styles.css"
 STATIC_INDEX = ROOT / "src" / "yzwcloud" / "static" / "index.html"
 STATIC_ASSETS = ROOT / "src" / "yzwcloud" / "static" / "assets"
 I18N = ROOT / "web" / "src" / "i18n.jsx"
+APP_CHROME = ROOT / "web" / "src" / "components" / "AppChrome.jsx"
 ANALYSIS_NODE = ROOT / "web" / "src" / "components" / "AnalysisNode.jsx"
 WORKFLOW_MODALS = ROOT / "web" / "src" / "components" / "WorkflowModals.jsx"
 REPORTS_PAGE = ROOT / "web" / "src" / "pages" / "ReportsPage.jsx"
@@ -466,6 +467,33 @@ def test_reports_page_links_slide_html_and_pdf_exports() -> None:
         'className="report-output-table"',
     ]:
         assert fragment in source
+
+
+def test_app_chrome_uses_tdesign_buttons_for_navigation() -> None:
+    app_chrome = _source(APP_CHROME)
+    i18n = _source(I18N)
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        'import { Button } from "tdesign-react"',
+        "<Button",
+        "theme={page === item.id ? \"primary\" : \"default\"}",
+        "variant={page === item.id ? \"base\" : \"text\"}",
+    ]:
+        assert fragment in app_chrome
+
+    for fragment in [
+        'import { Button } from "tdesign-react"',
+        "theme={locale === \"zh\" ? \"primary\" : \"default\"}",
+        "variant={locale === \"en\" ? \"base\" : \"text\"}",
+    ]:
+        assert fragment in i18n
+
+    for fragment in [
+        ".topnav .t-button",
+        ".language-toggle .t-button",
+    ]:
+        assert fragment in styles
 
 
 def test_workflow_header_exposes_task_report_exports() -> None:

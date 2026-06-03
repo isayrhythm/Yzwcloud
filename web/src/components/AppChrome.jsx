@@ -1,3 +1,4 @@
+import { Button } from "tdesign-react";
 import { LanguageToggle, useI18n } from "../i18n.jsx";
 
 export function AppChrome({ page, onNavigate, children }) {
@@ -27,13 +28,16 @@ export function AppChrome({ page, onNavigate, children }) {
         </button>
         <nav className="topnav">
           {items.map((item) => (
-            <button
+            <Button
               className={page === item.id ? "active" : ""}
               key={item.id}
               onClick={() => onNavigate(item.id)}
+              shape="round"
+              theme={page === item.id ? "primary" : "default"}
+              variant={page === item.id ? "base" : "text"}
             >
               {item.label}
-            </button>
+            </Button>
           ))}
         </nav>
         <LanguageToggle />

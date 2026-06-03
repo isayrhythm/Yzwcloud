@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { Button } from "tdesign-react";
 
 const LOCALE_STORAGE_KEY = "yzwcloud.locale";
 
@@ -349,12 +350,26 @@ export function LanguageToggle() {
   const { locale, setLocale, t } = useI18n();
   return (
     <div className="language-toggle" role="group" aria-label="Language">
-      <button className={locale === "zh" ? "active" : ""} onClick={() => setLocale("zh")} type="button">
+      <Button
+        className={locale === "zh" ? "active" : ""}
+        onClick={() => setLocale("zh")}
+        shape="round"
+        size="small"
+        theme={locale === "zh" ? "primary" : "default"}
+        variant={locale === "zh" ? "base" : "text"}
+      >
         {t("languageZh")}
-      </button>
-      <button className={locale === "en" ? "active" : ""} onClick={() => setLocale("en")} type="button">
+      </Button>
+      <Button
+        className={locale === "en" ? "active" : ""}
+        onClick={() => setLocale("en")}
+        shape="round"
+        size="small"
+        theme={locale === "en" ? "primary" : "default"}
+        variant={locale === "en" ? "base" : "text"}
+      >
         {t("languageEn")}
-      </button>
+      </Button>
     </div>
   );
 }

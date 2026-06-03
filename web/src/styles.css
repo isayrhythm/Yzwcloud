@@ -2644,15 +2644,9 @@ h2 {
   align-items: center;
 }
 
-.report-hero-actions a {
-  padding: 10px 14px;
-  border: 1px solid rgba(0, 82, 217, 0.2);
-  border-radius: 999px;
-  color: var(--accent-strong);
-  background: white;
-  font-size: 13px;
+.report-hero-actions .t-button {
+  min-width: 118px;
   font-weight: 800;
-  text-decoration: none;
 }
 
 .plot-studio-layout {
@@ -5596,7 +5590,6 @@ h2 {
 }
 
 .report-insight-list,
-.report-output-list,
 .report-structure-grid {
   display: grid;
   gap: 12px;
@@ -5606,8 +5599,7 @@ h2 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.report-insight,
-.report-output-card {
+.report-insight {
   display: grid;
   gap: 8px;
   padding: 14px;
@@ -5616,14 +5608,11 @@ h2 {
   background: white;
 }
 
-.report-insight strong,
-.report-output-card strong {
+.report-insight strong {
   color: var(--accent-strong);
 }
 
-.report-insight p,
-.report-output-card p,
-.report-output-card small {
+.report-insight p {
   margin: 0;
 }
 
@@ -5633,15 +5622,14 @@ h2 {
   line-height: 1.7;
 }
 
-.report-insight p,
-.report-output-card p {
+.report-insight p {
   color: var(--muted);
   line-height: 1.6;
 }
 
 .report-insight.positive {
   border-color: rgba(43, 116, 214, 0.24);
-  background: rgba(228, 247, 239, 0.7);
+  background: rgba(49, 95, 214, 0.08);
 }
 
 .report-insight.warning {
@@ -5649,23 +5637,37 @@ h2 {
   background: rgba(255, 229, 226, 0.7);
 }
 
-.report-output-card div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+.report-output-table {
+  overflow: hidden;
+  border-radius: 14px;
 }
 
-.report-output-card span,
-.report-output-card small {
+.report-output-table.t-table {
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.report-output-table.t-table th,
+.report-output-table.t-table .t-table__th-cell-inner {
+  background: var(--td-brand-1);
   color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
 }
 
-.report-output-card a {
+.report-output-name {
+  display: grid;
+  gap: 4px;
+}
+
+.report-output-name strong {
   color: var(--accent-strong);
-  font-size: 13px;
-  font-weight: 800;
-  text-decoration: none;
+}
+
+.report-output-name small,
+.report-output-status,
+.report-output-type {
+  color: var(--muted);
 }
 
 .report-log {

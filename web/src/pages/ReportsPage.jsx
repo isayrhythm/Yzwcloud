@@ -1,3 +1,4 @@
+import { Button, Table } from "tdesign-react";
 import { outputUrl } from "../workflow/format.js";
 import { summarizeOutput } from "../workflow/options.js";
 import { useI18n } from "../i18n.jsx";
@@ -133,6 +134,62 @@ function buildReportSections(detail, summary, outputs, insights) {
   ];
 }
 
+function buildOutputColumns() {
+  return [
+    {
+      colKey: "name",
+      title: "Output",
+      minWidth: 240,
+      cell: ({ row }) => (
+        <div className="report-output-name">
+          <strong>{row.name}</strong>
+          <small>{row.summary}</small>
+        </div>
+      ),
+    },
+    {
+      colKey: "type",
+      title: "Type",
+      width: 160,
+      cell: ({ row }) => <span className="report-output-type">{row.type}</span>,
+    },
+    {
+      colKey: "status",
+      title: "Status",
+      width: 190,
+      cell: ({ row }) => (
+        <span className="report-output-status">
+          {row.status}
+          {row.hasHtml ? " / interactive" : ""}
+          {row.hasPreview ? " / preview" : ""}
+        </span>
+      ),
+    },
+    {
+      colKey: "action",
+      title: "Action",
+      width: 150,
+      cell: ({ row }) => {
+        const href = row.htmlUrl || row.previewUrl;
+        return href ? (
+          <Button
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            size="small"
+            variant="outline"
+            shape="round"
+          >
+            Open output
+          </Button>
+        ) : (
+          <span className="muted">-</span>
+        );
+      },
+    },
+  ];
+}
+
 export function buildReportModel(detail, logs) {
   const summary = summarizeTaskGraph(detail);
   const outputs = collectReportOutputs(detail);
@@ -170,6 +227,7 @@ export function ReportsPage({ tasks, activeTaskId, report, onSelectTask, onOpenA
   const logPreview = report?.logTail || "";
   const reportHtmlUrl = task ? `/api/tasks/${encodeURIComponent(task.task_id)}/report.html` : "";
   const reportPdfUrl = task ? `/api/tasks/${encodeURIComponent(task.task_id)}/report.pdf` : "";
+  const outputColumns = buildOutputColumns();
 
   return (
     <main className="reports-page shell">
@@ -180,9 +238,19 @@ export function ReportsPage({ tasks, activeTaskId, report, onSelectTask, onOpenA
           <p className="summary">{t("reportSummary")}</p>
         </div>
         <div className="report-hero-actions">
-          {task ? <a href={reportHtmlUrl} target="_blank" rel="noreferrer">演示版 HTML</a> : null}
-          {task ? <a href={reportPdfUrl} target="_blank" rel="noreferrer">导出 PDF</a> : null}
-          <button className="primary" onClick={onOpenAnalysis}>{t("backToAnalysis")}</button>
+          {task ? (
+            <Button href={reportHtmlUrl} target="_blank" rel="noreferrer" variant="outline" shape="round">
+              演示版 HTML
+            </Button>
+          ) : null}
+          {task ? (
+            <Button href={reportPdfUrl} target="_blank" rel="noreferrer" variant="outline" shape="round">
+              导出 PDF
+            </Button>
+          ) : null}
+          <Button theme="primary" shape="round" onClick={onOpenAnalysis}>
+            {t("backToAnalysis")}
+          </Button>
         </div>
       </section>
 
@@ -238,28 +306,16 @@ export function ReportsPage({ tasks, activeTaskId, report, onSelectTask, onOpenA
               <h2>{t("outputs")}</h2>
               <span className="muted">{outputs.length} item(s)</span>
             </div>
-            <div className="report-output-list">
-              {outputs.length ? outputs.map((output) => {
-                const href = output.htmlUrl || output.previewUrl;
-                return (
-                  <article key={output.id} className="report-output-card">
-                    <div>
-                      <strong>{output.name}</strong>
-                      <span>{output.type}</span>
-                    </div>
-                    <p>{output.summary}</p>
-                    <small>
-                      {output.status}
-                      {output.hasHtml ? " / interactive" : ""}
-                      {output.hasPreview ? " / preview" : ""}
-                    </small>
-                    <div className="report-output-actions">
-                      {href ? <a href={href} target="_blank" rel="noreferrer">Open output</a> : null}
-                    </div>
-                  </article>
-                );
-              }) : <p className="muted">No output object is ready for reporting yet.</p>}
-            </div>
+            <Table
+              className="report-output-table"
+              rowKey="id"
+              data={outputs}
+              columns={outputColumns}
+              bordered
+              hover
+              size="small"
+              empty="No output object is ready for reporting yet."
+            />
           </section>
 
           <section className="report-surface">

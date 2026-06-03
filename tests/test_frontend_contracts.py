@@ -456,9 +456,16 @@ def test_reports_page_links_slide_html_and_pdf_exports() -> None:
 
     for fragment in [
         ".report-hero-actions",
-        ".report-hero-actions a",
+        ".report-hero-actions .t-button",
+        ".report-output-table",
     ]:
         assert fragment in styles
+
+    for fragment in [
+        'import { Button, Table } from "tdesign-react"',
+        'className="report-output-table"',
+    ]:
+        assert fragment in source
 
 
 def test_workflow_header_exposes_task_report_exports() -> None:

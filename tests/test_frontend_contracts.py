@@ -36,18 +36,19 @@ def test_plot_studio_preview_forces_safe_plotly_config() -> None:
     source = _plot_studio_source()
 
     config_function = re.search(
-        r"function fitPlotlyConfigToPreview\(config\) \{(?P<body>.*?)\n\}",
+        r"function fitPlotlyConfigToPreview\(config, layout\) \{(?P<body>.*?)\n\}",
         source,
         flags=re.S,
     )
     assert config_function, "Plot Studio must keep a preview-specific Plotly config helper."
     body = config_function.group("body")
 
-    assert re.search(r"\.\.\.\(config \|\| \{\}\).*displayModeBar:\s*false", body, flags=re.S)
+    assert re.search(r"\.\.\.\(config \|\| \{\}\).*displayModeBar:\s*has3dScene \? \"hover\" : false", body, flags=re.S)
     assert "responsive: true" in body
     assert "displaylogo: false" in body
-    assert "scrollZoom: false" in body
-    assert "Plotly.react(plotElement, spec.data || [], previewLayout, fitPlotlyConfigToPreview(spec.config))" in source
+    assert "const has3dScene = Boolean(layout?.scene)" in body
+    assert "scrollZoom: has3dScene || Boolean(config?.scrollZoom)" in body
+    assert "Plotly.react(plotElement, spec.data || [], previewLayout, fitPlotlyConfigToPreview(spec.config, previewLayout))" in source
 
 
 def test_plot_studio_preview_exposes_hd_image_and_pdf_export() -> None:
@@ -147,7 +148,6 @@ def test_plot_studio_preview_layout_is_container_bound() -> None:
         "inset: 0 !important",
         "position: absolute !important",
         ".plotly-preview .modebar-container",
-        "display: none !important",
         "@media (max-width: 1500px)",
         "@media (max-width: 980px)",
         "grid-column: 1 / -1",
@@ -236,6 +236,22 @@ def test_plot_studio_gallery_cards_load_targeted_examples_directly() -> None:
         "cursor: pointer",
     ]:
         assert fragment in styles
+
+
+def test_plot_studio_preview_allows_3d_camera_interaction() -> None:
+    page_source = _plot_studio_source()
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        "const has3dScene = Boolean(layout?.scene)",
+        'previewLayout.dragmode = ["orbit", "turntable"].includes(layout.dragmode) ? layout.dragmode : "orbit"',
+        'displayModeBar: has3dScene ? "hover" : false',
+        "scrollZoom: has3dScene || Boolean(config?.scrollZoom)",
+        "fitPlotlyConfigToPreview(spec.config, previewLayout)",
+    ]:
+        assert fragment in page_source
+
+    assert ".plotly-preview .modebar-container {\n  display: none !important;" not in styles
 
 
 def test_plot_studio_preview_empty_explains_unsupported_selected_plot() -> None:

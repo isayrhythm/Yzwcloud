@@ -801,6 +801,7 @@ function fitPlotlyLayoutToPreview(layout, width, height) {
       ...layout.scene,
       domain: { ...(layout.scene.domain || {}), x: [0.04, 0.96], y: [0.05, 0.95] },
     };
+    previewLayout.dragmode = ["orbit", "turntable"].includes(layout.dragmode) ? layout.dragmode : "orbit";
   }
   if (layout?.ternary) {
     previewLayout.ternary = {
@@ -811,13 +812,14 @@ function fitPlotlyLayoutToPreview(layout, width, height) {
   return previewLayout;
 }
 
-function fitPlotlyConfigToPreview(config) {
+function fitPlotlyConfigToPreview(config, layout) {
+  const has3dScene = Boolean(layout?.scene);
   return {
     ...(config || {}),
     responsive: true,
     displaylogo: false,
-    displayModeBar: false,
-    scrollZoom: false,
+    displayModeBar: has3dScene ? "hover" : false,
+    scrollZoom: has3dScene || Boolean(config?.scrollZoom),
   };
 }
 
@@ -845,7 +847,7 @@ function InteractivePlot({ spec, plotRef: externalPlotRef }) {
         if (!force && width === lastSize.width && height === lastSize.height) return;
         lastSize = { width, height };
         const previewLayout = fitPlotlyLayoutToPreview(spec.layout, width, height);
-        Plotly.react(plotElement, spec.data || [], previewLayout, fitPlotlyConfigToPreview(spec.config));
+        Plotly.react(plotElement, spec.data || [], previewLayout, fitPlotlyConfigToPreview(spec.config, previewLayout));
       };
       renderPlot(true);
       resizeObserver = new ResizeObserver(() => {

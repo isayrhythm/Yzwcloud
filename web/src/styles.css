@@ -5288,10 +5288,6 @@ h2 {
   overflow: hidden;
 }
 
-.plotly-preview .modebar-container {
-  display: none !important;
-}
-
 .plot-preview-empty {
   display: grid;
   align-content: center;

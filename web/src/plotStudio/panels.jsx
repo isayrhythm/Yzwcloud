@@ -502,26 +502,6 @@ export function PlotParamsPanel({
         <h2>{selectedPreset ? `${selectedPreset.label} ${t("parameters")}` : t("parameters")}</h2>
         <span className="muted">{selectedPreset?.engine || "-"}</span>
       </div>
-      <div className="plot-action-strip">
-        <Button shape="round" variant="outline" onClick={onResetParams}>
-          {t("resetDefaults")}
-        </Button>
-        <Button className="primary" theme="primary" shape="round" onClick={onRunPreview}>
-          {t("runPreview")}
-        </Button>
-      </div>
-      <div className="plot-param-search" role="search">
-        <input
-          type="search"
-          value={parameterSearch}
-          onChange={(event) => onParameterSearchChange(event.target.value)}
-          placeholder={t("parameterSearchPlaceholder")}
-          aria-label={t("parameterSearchPlaceholder")}
-        />
-        {parameterSearch ? (
-          <Button shape="round" size="small" variant="outline" onClick={onClearParameterSearch}>{t("clear")}</Button>
-        ) : null}
-      </div>
       <form className="plot-agent-editor" onSubmit={onApplyEditCommand}>
         <label htmlFor="plot-agent-edit">PS Agent</label>
         <textarea
@@ -542,6 +522,26 @@ export function PlotParamsPanel({
           {editCommandStatus ? <span>{editCommandStatus}</span> : null}
         </div>
       </form>
+      <div className="plot-action-strip">
+        <Button shape="round" variant="outline" onClick={onResetParams}>
+          {t("resetDefaults")}
+        </Button>
+        <Button className="primary" theme="primary" shape="round" onClick={onRunPreview}>
+          {t("runPreview")}
+        </Button>
+      </div>
+      <div className="plot-param-search" role="search">
+        <input
+          type="search"
+          value={parameterSearch}
+          onChange={(event) => onParameterSearchChange(event.target.value)}
+          placeholder={t("parameterSearchPlaceholder")}
+          aria-label={t("parameterSearchPlaceholder")}
+        />
+        {parameterSearch ? (
+          <Button shape="round" size="small" variant="outline" onClick={onClearParameterSearch}>{t("clear")}</Button>
+        ) : null}
+      </div>
       <div className="plot-param-groups">
         {filteredBasicParameterGroups.length ? (
           <details className="plot-param-advanced plot-param-basic">

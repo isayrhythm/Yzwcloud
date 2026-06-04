@@ -1,6 +1,157 @@
 import { Button } from "tdesign-react";
 import { normalizePlotStudioSource } from "./session.js";
 
+export function PlotGalleryPanel({
+  t,
+  sourceStatus,
+  selectedSource,
+  plotSearch,
+  onPlotSearchChange,
+  recommendedOnly,
+  onToggleRecommendedOnly,
+  recommendedPlotIds,
+  visiblePlotCount,
+  plotPresets,
+  filteredGroupedPresets,
+  selectedPreset,
+  activeCategory,
+  onActiveCategoryChange,
+  tableSummary,
+  tableSuitabilityWarning,
+  onSelectPlot,
+  onLoadExampleData,
+  exampleLoadingId,
+  onOpenWorkbench,
+  Thumbnail,
+}) {
+  const recommendedSet = new Set(recommendedPlotIds);
+  const categoryGroups = [{ category: "All", items: filteredGroupedPresets.flatMap((group) => group.items) }, ...filteredGroupedPresets];
+  const visibleGroups = activeCategory === "All"
+    ? filteredGroupedPresets
+    : filteredGroupedPresets.filter((group) => group.category === activeCategory);
+
+  return (
+    <section className="plot-gallery-page">
+      <aside className="plot-gallery-nav" aria-label="Plot gallery categories">
+        <div className="plot-gallery-brand">
+          <strong>Plot Studio</strong>
+          <span>{sourceStatus === "loading" ? t("updating") : selectedSource?.type || t("selectSourceFirst")}</span>
+        </div>
+        <div className="plot-gallery-category-list">
+          {categoryGroups.map((group) => (
+            <button
+              className={activeCategory === group.category ? "active" : ""}
+              key={group.category}
+              type="button"
+              onClick={() => onActiveCategoryChange(group.category)}
+            >
+              <span>{group.category}</span>
+              <strong>{group.items.length}</strong>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <div className="plot-gallery-main">
+        <div className="plot-gallery-head">
+          <div>
+            <p className="eyebrow">Example Gallery</p>
+            <h2>当前可绘图示例</h2>
+            <span>{visiblePlotCount} / {plotPresets.length} chart templates</span>
+          </div>
+          <div className="plot-gallery-actions">
+            <input
+              type="search"
+              value={plotSearch}
+              onChange={(event) => onPlotSearchChange(event.target.value)}
+              placeholder={t("plotSearchPlaceholder")}
+              aria-label={t("plotSearchPlaceholder")}
+            />
+            <Button
+              className={recommendedOnly ? "active" : ""}
+              onClick={onToggleRecommendedOnly}
+              disabled={!recommendedPlotIds.length}
+              shape="round"
+              theme={recommendedOnly ? "primary" : "default"}
+              variant={recommendedOnly ? "base" : "outline"}
+            >
+              {t("recommendedOnly")}
+            </Button>
+            <Button shape="round" theme="primary" variant="outline" onClick={onOpenWorkbench}>
+              参数工作台
+            </Button>
+          </div>
+        </div>
+
+        {visibleGroups.length ? visibleGroups.map((group) => (
+          <section className="plot-gallery-section" key={group.category}>
+            <div className="plot-gallery-section-title">
+              <h3>{group.category}</h3>
+              <span>{group.items.length}</span>
+            </div>
+            <div className="plot-gallery-grid">
+              {group.items.map((plot) => {
+                const recommended = recommendedSet.has(plot.id);
+                const active = selectedPreset?.id === plot.id;
+                const unsupportedReason = tableSuitabilityWarning(plot, tableSummary);
+                const supported = !unsupportedReason;
+                return (
+                  <article
+                    className={`plot-gallery-card ${recommended ? "recommended" : ""} ${active ? "active" : ""} ${supported ? "" : "unsupported"}`}
+                    key={plot.id}
+                    title={supported ? plot.label : unsupportedReason}
+                  >
+                    <button
+                      className="plot-gallery-card-main"
+                      type="button"
+                      disabled={!supported}
+                      onClick={() => {
+                        onSelectPlot(plot);
+                        onOpenWorkbench();
+                      }}
+                    >
+                      <span className="plot-gallery-thumb">
+                        <Thumbnail plotId={plot.id} thumbnail={plot.thumbnail} />
+                      </span>
+                      <span className="plot-gallery-copy">
+                        <strong>{plot.label}</strong>
+                        <small>{plot.use_case || plot.description}</small>
+                      </span>
+                    </button>
+                    <div className="plot-gallery-meta">
+                      <span>{plot.engine}</span>
+                      {recommended ? <span className="recommended">{t("recommendedForSource")}</span> : null}
+                      {!supported ? <span className="unsupported">{t("chartNotSuitable")}</span> : null}
+                    </div>
+                    <Button
+                      className="plot-gallery-example"
+                      onClick={() => onLoadExampleData(plot)}
+                      disabled={exampleLoadingId === plot.id}
+                      loading={exampleLoadingId === plot.id}
+                      shape="round"
+                      size="small"
+                      theme="primary"
+                      variant={active ? "base" : "outline"}
+                    >
+                      {exampleLoadingId === plot.id ? t("loadingExample") : t("useExampleData")}
+                    </Button>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )) : (
+          <p className="plot-gallery-empty">
+            {recommendedOnly && selectedSource && sourceStatus === "loading"
+              ? "正在更新推荐图表..."
+              : plotPresets.length ? t("noPlotTypeMatches") : t("loadingPresets")}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function PlotTypePanel({
   t,
   sourceStatus,

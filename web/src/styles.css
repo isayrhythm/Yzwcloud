@@ -2658,6 +2658,313 @@ h2 {
   font-weight: 800;
 }
 
+.plot-view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.plot-view-switch .t-button {
+  min-width: 112px;
+}
+
+.plot-gallery-page {
+  display: grid;
+  grid-template-columns: minmax(160px, 210px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  min-width: 0;
+}
+
+.plot-gallery-nav,
+.plot-gallery-main {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 24px 80px rgba(47, 39, 22, 0.1);
+}
+
+.plot-gallery-nav {
+  position: sticky;
+  top: 84px;
+  display: grid;
+  gap: 14px;
+  max-height: calc(100vh - 100px);
+  padding: 16px;
+  overflow: auto;
+}
+
+.plot-gallery-brand {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(0, 82, 217, 0.12);
+}
+
+.plot-gallery-brand strong {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.plot-gallery-brand span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.plot-gallery-category-list {
+  display: grid;
+  gap: 6px;
+}
+
+.plot-gallery-category-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #506173;
+  text-align: left;
+}
+
+.plot-gallery-category-list button.active,
+.plot-gallery-category-list button:hover {
+  border-color: rgba(0, 82, 217, 0.18);
+  background: #f2f6ff;
+  color: var(--accent-strong);
+}
+
+.plot-gallery-category-list span {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plot-gallery-category-list strong {
+  display: inline-grid;
+  min-width: 26px;
+  height: 22px;
+  place-items: center;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(0, 82, 217, 0.1);
+  color: var(--accent-strong);
+  font-size: 11px;
+}
+
+.plot-gallery-main {
+  display: grid;
+  gap: 22px;
+  padding: 24px;
+}
+
+.plot-gallery-head {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(0, 82, 217, 0.12);
+}
+
+.plot-gallery-head h2 {
+  margin: 4px 0 6px;
+  color: var(--ink);
+  font-size: 28px;
+  line-height: 1.12;
+}
+
+.plot-gallery-head span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.plot-gallery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.plot-gallery-actions input {
+  width: min(360px, 42vw);
+  min-width: 220px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.plot-gallery-actions .t-button {
+  min-height: 38px;
+  font-weight: 900;
+}
+
+.plot-gallery-section {
+  display: grid;
+  gap: 14px;
+}
+
+.plot-gallery-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plot-gallery-section-title h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 20px;
+}
+
+.plot-gallery-section-title span {
+  display: inline-grid;
+  min-width: 32px;
+  height: 26px;
+  place-items: center;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: #edf3ff;
+  color: #244ba8;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.plot-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 22px;
+}
+
+.plot-gallery-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(0, 82, 217, 0.12);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 14px 36px rgba(17, 42, 61, 0.08);
+}
+
+.plot-gallery-card.active,
+.plot-gallery-card.recommended {
+  border-color: rgba(0, 82, 217, 0.38);
+  box-shadow: 0 18px 44px rgba(0, 82, 217, 0.12);
+}
+
+.plot-gallery-card-main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plot-gallery-card-main:disabled {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+.plot-gallery-thumb .mini-plot {
+  height: 178px;
+  border-radius: 10px;
+  background-size: 100% 44px, 54px 100%, auto;
+}
+
+.plot-gallery-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.plot-gallery-copy strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.28;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plot-gallery-copy small {
+  display: -webkit-box;
+  min-height: 38px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.plot-gallery-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.plot-gallery-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid rgba(0, 82, 217, 0.14);
+  border-radius: 999px;
+  background: #f8fbfc;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.plot-gallery-meta .recommended {
+  background: #edf3ff;
+  text-transform: none;
+}
+
+.plot-gallery-meta .unsupported {
+  border-color: rgba(185, 61, 47, 0.18);
+  background: var(--failed);
+  color: #9a352a;
+  text-transform: none;
+}
+
+.plot-gallery-example {
+  justify-self: start;
+  min-height: 32px;
+  font-weight: 900;
+}
+
+.plot-gallery-empty {
+  margin: 0;
+  padding: 32px;
+  border: 1px dashed rgba(0, 82, 217, 0.22);
+  border-radius: 16px;
+  background: #f8fbfc;
+  color: var(--muted);
+  font-weight: 850;
+}
+
 .report-hero-actions {
   display: flex;
   flex-wrap: wrap;
@@ -5485,6 +5792,35 @@ h2 {
 }
 
 @media (max-width: 980px) {
+  .plot-gallery-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .plot-gallery-nav {
+    position: relative;
+    top: auto;
+    max-height: none;
+  }
+
+  .plot-gallery-category-list {
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .plot-gallery-category-list button {
+    min-width: 150px;
+  }
+
+  .plot-gallery-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .plot-gallery-actions,
+  .plot-gallery-actions input {
+    width: 100%;
+  }
+
   .plot-studio-layout {
     grid-template-columns: minmax(0, 1fr);
   }

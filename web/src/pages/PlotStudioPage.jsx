@@ -11,6 +11,7 @@ import {
 } from "../plotStudio/api.js";
 import {
   PlotDataPreviewPanel,
+  PlotGalleryPanel,
   PlotParamsPanel,
   PlotPreviewPanel,
   PlotReportPanel,
@@ -1399,6 +1400,8 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
   const [plotSearch, setPlotSearch] = useState("");
   const [parameterSearch, setParameterSearch] = useState("");
   const [recommendedOnly, setRecommendedOnly] = useState(false);
+  const [plotStudioView, setPlotStudioView] = useState("gallery");
+  const [activeGalleryCategory, setActiveGalleryCategory] = useState("All");
   const [editCommand, setEditCommand] = useState("");
   const [editCommandStatus, setEditCommandStatus] = useState("");
   const [expandedPlotCategories, setExpandedPlotCategories] = useState(() => new Set());
@@ -1529,8 +1532,10 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
     const categories = filteredGroupedPresets.map((group) => group.category);
     if (!categories.length) {
       setExpandedPlotCategories(new Set());
+      setActiveGalleryCategory("All");
       return;
     }
+    setActiveGalleryCategory((current) => (current === "All" || categories.includes(current) ? current : "All"));
     const requiredOpen = new Set();
     if (selectedPreset?.category) requiredOpen.add(selectedPreset.category || "Other");
     filteredGroupedPresets.forEach((group) => {
@@ -1712,6 +1717,7 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
       setParams(defaultParamsFromPreset(plot));
       setEditCommandStatus("");
       setUploadStatus("idle");
+      setPlotStudioView("workbench");
     } catch (exampleFailure) {
       setUploadError(exampleFailure.message);
     } finally {
@@ -1870,12 +1876,57 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
           <p className="eyebrow">Plot Studio</p>
           <h1>{t("figureWorkspaceTitle")}</h1>
         </div>
-        <Button theme="primary" shape="round" onClick={onOpenAnalysis}>
-          {t("backToAnalysis")}
-        </Button>
+        <div className="plot-view-switch">
+          <Button
+            className={plotStudioView === "gallery" ? "active" : ""}
+            theme={plotStudioView === "gallery" ? "primary" : "default"}
+            variant={plotStudioView === "gallery" ? "base" : "outline"}
+            shape="round"
+            onClick={() => setPlotStudioView("gallery")}
+          >
+            示例画廊
+          </Button>
+          <Button
+            className={plotStudioView === "workbench" ? "active" : ""}
+            theme={plotStudioView === "workbench" ? "primary" : "default"}
+            variant={plotStudioView === "workbench" ? "base" : "outline"}
+            shape="round"
+            onClick={() => setPlotStudioView("workbench")}
+          >
+            参数工作台
+          </Button>
+          <Button theme="primary" variant="outline" shape="round" onClick={onOpenAnalysis}>
+            {t("backToAnalysis")}
+          </Button>
+        </div>
       </section>
 
-      <section className="plot-studio-layout">
+      {plotStudioView === "gallery" ? (
+        <PlotGalleryPanel
+          t={t}
+          sourceStatus={sourceStatus}
+          selectedSource={selectedSource}
+          plotSearch={plotSearch}
+          onPlotSearchChange={setPlotSearch}
+          recommendedOnly={recommendedOnly}
+          onToggleRecommendedOnly={() => setRecommendedOnly((current) => !current)}
+          recommendedPlotIds={recommendedPlotIds}
+          visiblePlotCount={visiblePlotCount}
+          plotPresets={plotPresets}
+          filteredGroupedPresets={filteredGroupedPresets}
+          selectedPreset={selectedPreset}
+          activeCategory={activeGalleryCategory}
+          onActiveCategoryChange={setActiveGalleryCategory}
+          tableSummary={tableSummary}
+          tableSuitabilityWarning={tableSuitabilityWarning}
+          onSelectPlot={selectPlotPreset}
+          onLoadExampleData={loadExampleData}
+          exampleLoadingId={exampleLoadingId}
+          onOpenWorkbench={() => setPlotStudioView("workbench")}
+          Thumbnail={MiniPlotThumbnail}
+        />
+      ) : (
+        <section className="plot-studio-layout">
         <PlotTypePanel
           t={t}
           sourceStatus={sourceStatus}
@@ -1996,7 +2047,8 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
             ReportPromptComponent={ReportPrompt}
           />
         </aside>
-      </section>
+        </section>
+      )}
     </main>
   );
 }

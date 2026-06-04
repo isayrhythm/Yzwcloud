@@ -655,6 +655,17 @@ def test_feature_intensity_profile_uses_generic_feature_labels() -> None:
     assert "metabolomics_ml_explainability_result" in options_source
 
 
+def test_metabolomics_qc_exposes_normalization_before_ml() -> None:
+    options_source = _source(ROOT / "web" / "src" / "workflow" / "options.js")
+
+    assert 'profile.qcProfile === "metabolomics"' in options_source
+    assert 'type: "metabolomics_normalization"' in options_source
+    assert 'label: "Normalize / impute / scale"' in options_source
+    assert 'node.id.startsWith("metabolomics_normalization__")' in options_source
+    assert 'type: "metabolomics_ml_modeling"' in options_source
+    assert "sampleCount >= 100" in options_source
+
+
 def test_output_urls_stay_same_origin_outside_explicit_api_base() -> None:
     source = _source(ROOT / "web" / "src" / "workflow" / "format.js")
     plot_source = _source(PLOT_STUDIO_PAGE)

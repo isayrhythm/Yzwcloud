@@ -23,6 +23,9 @@ export function nextAnalysisOptions(node, detail) {
       if (!created((target) => target.startsWith("gene_expression__"))) {
         options.push({ type: "gene_expression", label: `Single ${profile.featureSingular} abundance` });
       }
+      if (!created((target) => target.startsWith("metabolomics_normalization__"))) {
+        options.push({ type: "metabolomics_normalization", label: "Normalize / impute / scale" });
+      }
       if (!created((target) => target.startsWith("metabolomics_differential__"))) {
         options.push({ type: "metabolomics_differential", label: `Differential ${profile.featureLabel}` });
       }

@@ -199,6 +199,7 @@ export function PlotPreviewPanel({
   specError,
   recommendedPresets,
   onSelectPlot,
+  plotRef,
   MethodOverview,
   MappingSummary,
   InteractivePlotComponent,
@@ -257,7 +258,7 @@ export function PlotPreviewPanel({
       <MappingSummary preset={selectedPreset} params={params} tableSummary={tableSummary} />
       {specError ? <p className="plot-error">{specError}</p> : null}
       {previewSpec?.data?.length ? (
-        <InteractivePlotComponent spec={previewSpec} />
+        <InteractivePlotComponent spec={previewSpec} plotRef={plotRef} />
       ) : (
         <EmptyPreview
           selectedPreset={selectedPreset}

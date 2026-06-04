@@ -844,16 +844,14 @@ function InteractivePlot({ spec, plotRef: externalPlotRef }) {
         lastSize = { width, height };
         const previewLayout = fitPlotlyLayoutToPreview(spec.layout, width, height);
         Plotly.react(plotElement, spec.data || [], previewLayout, fitPlotlyConfigToPreview(spec.config));
-        Plotly.Plots.resize(plotElement);
       };
       renderPlot(true);
       resizeObserver = new ResizeObserver(() => {
         if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
         resizeFrame = window.requestAnimationFrame(renderPlot);
       });
-      resizeObserver.observe(plotElement);
       const shellElement = plotElement.closest(".plotly-preview-shell");
-      if (shellElement && shellElement !== plotElement) resizeObserver.observe(shellElement);
+      resizeObserver.observe(shellElement || plotElement);
     }).catch((error) => {
       if (!cancelled) setPlotError(error.message || "Plotly failed to load");
     });
@@ -1929,9 +1927,10 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
             specError={specError}
             recommendedPresets={recommendedPresets}
             onSelectPlot={selectPlotPreset}
+            plotRef={plotExportRef}
             MethodOverview={PlotMethodOverview}
             MappingSummary={PlotMappingSummary}
-            InteractivePlotComponent={(props) => <InteractivePlot {...props} plotRef={plotExportRef} />}
+            InteractivePlotComponent={InteractivePlot}
             EmptyPreview={PlotPreviewEmpty}
           />
           <PlotDataPreviewPanel

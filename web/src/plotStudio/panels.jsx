@@ -56,7 +56,6 @@ export function PlotGalleryPanel({
         <div className="plot-gallery-head">
           <div>
             <p className="eyebrow">Example Gallery</p>
-            <h2>当前可绘图示例</h2>
             <span>{visiblePlotCount} / {plotPresets.length} chart templates</span>
           </div>
           <div className="plot-gallery-actions">

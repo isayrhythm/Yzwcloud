@@ -210,22 +210,45 @@ def test_plot_studio_marks_modified_parameters() -> None:
         assert fragment in styles
 
 
-def test_plot_studio_explains_unsupported_plot_cards() -> None:
+def test_plot_studio_gallery_cards_load_targeted_examples_directly() -> None:
     page_source = _plot_studio_source()
     styles = _source(STYLESHEET)
 
-    assert "const unsupportedReason = tableSuitabilityWarning(plot, tableSummary)" in page_source
-    assert "const supported = !unsupportedReason" in page_source
-    assert "title={supported ? plot.label : unsupportedReason}" in page_source
-    assert "plot-type-unsupported-reason" in page_source
+    assert "onClick={() => {" in page_source
+    assert "onLoadExampleData(plot)" in page_source
+    assert "title={plot.label}" in page_source
+    assert "plot-gallery-card-main" in page_source
+    assert "plot-type-select" in page_source
+
+    for removed in [
+        "plot-gallery-example",
+        "plot-example-action",
+        "plot-type-unsupported-reason",
+        "plot-type-card.unsupported",
+        "unsupported-badge",
+    ]:
+        assert removed not in page_source
+        assert removed not in styles
 
     for fragment in [
-        ".plot-type-unsupported-reason",
-        "background: var(--td-warning-1)",
-        "color: var(--td-warning-6) !important",
-        "-webkit-line-clamp: 3 !important",
+        ".plot-gallery-card-main",
+        ".plot-type-select",
+        "cursor: pointer",
     ]:
         assert fragment in styles
+
+
+def test_plot_studio_preview_empty_explains_unsupported_selected_plot() -> None:
+    page_source = _plot_studio_source()
+
+    for fragment in [
+        "function PlotPreviewEmpty",
+        "const warning = tableSuitabilityWarning(preset, tableSummary)",
+        't("chartNotSuitable")',
+    ]:
+        assert fragment in page_source
+
+    assert ".plot-type-unsupported-reason" not in page_source
 
 
 def test_plot_studio_surfaces_llm_report_guidance() -> None:
@@ -304,15 +327,13 @@ def test_plot_studio_has_collapsed_categories_examples_and_upload() -> None:
         "/api/plot-studio/examples/",
         'sourceKind === "plot_studio_example"',
         "selectedSource?.meta?.plot_id",
-        "plot-example-action",
         "<Button",
         "theme={recommendedOnly ? \"primary\" : \"default\"}",
-        "loading={exampleLoadingId === plot.id}",
+        "exampleLoadingId === plot.id",
         "onSelectSource?.(normalizePlotStudioSource(output))",
         "plot-upload-card",
         "plot-card-example",
         't("plotExample")',
-        't("useExampleData")',
     ]:
         assert fragment in page_source
 
@@ -321,7 +342,6 @@ def test_plot_studio_has_collapsed_categories_examples_and_upload() -> None:
         ".plot-type-section.expanded .plot-type-section-header",
         ".plot-upload-card",
         ".plot-type-select",
-        ".plot-example-action",
         ".plot-type-filter .t-button",
         ".plot-output-grid article .t-button",
         ".plot-card-example",
@@ -329,7 +349,7 @@ def test_plot_studio_has_collapsed_categories_examples_and_upload() -> None:
     ]:
         assert fragment in styles
 
-    for key in ["uploadTable", "uploadTableHint", "uploading", "plotExample", "useExampleData", "loadingExample"]:
+    for key in ["uploadTable", "uploadTableHint", "uploading", "plotExample", "loadingExample"]:
         assert key in i18n
 
     for removed in [

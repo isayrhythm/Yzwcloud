@@ -50,3 +50,7 @@ export function createPlotStudioAgentEdit(payload) {
 export function loadPlotStudioExample(plotId) {
   return fetchPlotStudioJson(`/api/plot-studio/examples/${encodeURIComponent(plotId)}`);
 }
+
+export function loadDefaultPlotStudioExample() {
+  return fetchPlotStudioJson("/api/plot-studio/examples/default");
+}

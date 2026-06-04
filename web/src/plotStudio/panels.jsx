@@ -16,9 +16,6 @@ export function PlotGalleryPanel({
   selectedPreset,
   activeCategory,
   onActiveCategoryChange,
-  tableSummary,
-  tableSuitabilityWarning,
-  onSelectPlot,
   onLoadExampleData,
   exampleLoadingId,
   onOpenWorkbench,
@@ -92,21 +89,17 @@ export function PlotGalleryPanel({
               {group.items.map((plot) => {
                 const recommended = recommendedSet.has(plot.id);
                 const active = selectedPreset?.id === plot.id;
-                const unsupportedReason = tableSuitabilityWarning(plot, tableSummary);
-                const supported = !unsupportedReason;
                 return (
                   <article
-                    className={`plot-gallery-card ${recommended ? "recommended" : ""} ${active ? "active" : ""} ${supported ? "" : "unsupported"}`}
+                    className={`plot-gallery-card ${recommended ? "recommended" : ""} ${active ? "active" : ""}`}
                     key={plot.id}
-                    title={supported ? plot.label : unsupportedReason}
+                    title={plot.label}
                   >
                     <button
                       className="plot-gallery-card-main"
                       type="button"
-                      disabled={!supported}
                       onClick={() => {
-                        onSelectPlot(plot);
-                        onOpenWorkbench();
+                        onLoadExampleData(plot);
                       }}
                     >
                       <span className="plot-gallery-thumb">
@@ -120,20 +113,8 @@ export function PlotGalleryPanel({
                     <div className="plot-gallery-meta">
                       <span>{plot.engine}</span>
                       {recommended ? <span className="recommended">{t("recommendedForSource")}</span> : null}
-                      {!supported ? <span className="unsupported">{t("chartNotSuitable")}</span> : null}
+                      {exampleLoadingId === plot.id ? <span>{t("loadingExample")}</span> : null}
                     </div>
-                    <Button
-                      className="plot-gallery-example"
-                      onClick={() => onLoadExampleData(plot)}
-                      disabled={exampleLoadingId === plot.id}
-                      loading={exampleLoadingId === plot.id}
-                      shape="round"
-                      size="small"
-                      theme="primary"
-                      variant={active ? "base" : "outline"}
-                    >
-                      {exampleLoadingId === plot.id ? t("loadingExample") : t("useExampleData")}
-                    </Button>
                   </article>
                 );
               })}
@@ -170,9 +151,6 @@ export function PlotTypePanel({
   expandedPlotCategories,
   onTogglePlotCategory,
   selectedPreset,
-  tableSummary,
-  tableSuitabilityWarning,
-  onSelectPlot,
   onLoadExampleData,
   exampleLoadingId,
   outputs,
@@ -241,19 +219,16 @@ export function PlotTypePanel({
                 {group.items.map((plot) => {
                   const recommended = recommendedPlotIds.includes(plot.id);
                   const active = selectedPreset?.id === plot.id;
-                  const unsupportedReason = tableSuitabilityWarning(plot, tableSummary);
-                  const supported = !unsupportedReason;
                   return (
                     <article
-                      className={`plot-type-card ${recommended ? "recommended" : ""} ${active ? "active" : ""} ${supported ? "" : "unsupported"}`}
+                      className={`plot-type-card ${recommended ? "recommended" : ""} ${active ? "active" : ""}`}
                       key={plot.id}
-                      title={supported ? plot.label : unsupportedReason}
+                      title={plot.label}
                     >
                       <button
                         className="plot-type-select"
                         type="button"
-                        disabled={!supported}
-                        onClick={() => onSelectPlot(plot)}
+                        onClick={() => onLoadExampleData(plot)}
                       >
                         <span className="plot-card-example">
                           <Thumbnail plotId={plot.id} thumbnail={plot.thumbnail} />
@@ -262,25 +237,13 @@ export function PlotTypePanel({
                         <span className="plot-type-card-main">
                           <strong>{plot.label}</strong>
                           <small>{plot.use_case || plot.description}</small>
-                          {!supported ? <small className="plot-type-unsupported-reason">{unsupportedReason}</small> : null}
                           <span className="plot-type-meta">
                             <em>{plot.engine}</em>
                             {recommended ? <em className="recommended-badge">{t("recommendedForSource")}</em> : null}
-                            {!supported ? <em className="unsupported-badge">{t("chartNotSuitable")}</em> : null}
+                            {exampleLoadingId === plot.id ? <em>{t("loadingExample")}</em> : null}
                           </span>
                         </span>
                       </button>
-                      <Button
-                        className="plot-example-action"
-                        onClick={() => onLoadExampleData(plot)}
-                        disabled={exampleLoadingId === plot.id}
-                        loading={exampleLoadingId === plot.id}
-                        shape="round"
-                        size="small"
-                        variant="outline"
-                      >
-                        {exampleLoadingId === plot.id ? t("loadingExample") : t("useExampleData")}
-                      </Button>
                     </article>
                   );
                 })}

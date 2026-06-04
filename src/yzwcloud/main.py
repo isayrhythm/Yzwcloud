@@ -37,7 +37,7 @@ from yzwcloud.plot_studio import (
     resolve_plot_studio_source,
 )
 from yzwcloud.plot_studio_agent import create_plot_studio_agent_edit
-from yzwcloud.plot_studio_examples import example_source_for_plot
+from yzwcloud.plot_studio_examples import DEFAULT_PLOT_STUDIO_EXAMPLE_ID, example_source_for_plot
 from yzwcloud.task_store import (
     TaskNotFoundError,
     create_diff_analysis_branch,
@@ -303,6 +303,11 @@ async def api_upload_plot_studio_table(request: Request, filename: str = "plot_s
         },
     }
     return {"source": source}
+
+
+@app.get("/api/plot-studio/examples/default")
+def api_get_default_plot_studio_example() -> dict[str, object]:
+    return {"source": example_source_for_plot(DEFAULT_PLOT_STUDIO_EXAMPLE_ID)}
 
 
 @app.get("/api/plot-studio/examples/{plot_id}")

@@ -2972,6 +2972,23 @@ h2 {
   font-weight: 800;
 }
 
+.plot-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  margin: 0;
+  letter-spacing: 0.16em;
+}
+
+.plot-title-line small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .plot-view-switch {
   display: flex;
   flex-wrap: wrap;
@@ -3254,19 +3271,6 @@ h2 {
 .plot-gallery-meta .recommended {
   background: #edf3ff;
   text-transform: none;
-}
-
-.plot-gallery-meta .unsupported {
-  border-color: rgba(185, 61, 47, 0.18);
-  background: var(--failed);
-  color: #9a352a;
-  text-transform: none;
-}
-
-.plot-gallery-example {
-  justify-self: start;
-  min-height: 32px;
-  font-weight: 900;
 }
 
 .plot-gallery-empty {
@@ -3694,29 +3698,6 @@ h2 {
   overflow: hidden;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-}
-
-.plot-example-action {
-  width: fit-content;
-  min-height: 28px;
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.plot-example-action:hover {
-  border-color: rgba(0, 82, 217, 0.46);
-  background: rgba(0, 82, 217, 0.08);
-}
-
-.plot-type-unsupported-reason {
-  padding: 7px 9px;
-  border: 1px solid rgba(102, 112, 133, 0.2);
-  border-radius: 9px;
-  background: var(--td-warning-1);
-  color: var(--td-warning-6) !important;
-  font-size: 11px;
-  font-weight: 760;
-  -webkit-line-clamp: 3 !important;
 }
 
 .plot-type-meta {
@@ -5125,22 +5106,6 @@ h2 {
 .plot-type-card {
   text-align: left;
   cursor: default;
-}
-
-.plot-type-card.unsupported {
-  opacity: 0.58;
-  background: #f7fafc;
-  box-shadow: none;
-}
-
-.plot-type-card.unsupported .mini-plot {
-  filter: grayscale(0.75);
-}
-
-.unsupported-badge {
-  border-color: rgba(148, 163, 184, 0.34) !important;
-  background: rgba(148, 163, 184, 0.12) !important;
-  color: #64748b !important;
 }
 
 .plot-type-card.active {

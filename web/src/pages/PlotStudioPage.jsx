@@ -6,6 +6,7 @@ import {
   createPlotStudioReport,
   createPlotStudioSpec,
   fetchPlotStudioJson,
+  loadDefaultPlotStudioExample,
   loadPlotStudioExample,
   resolvePlotStudioSource,
 } from "../plotStudio/api.js";
@@ -1400,7 +1401,7 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
   const [plotSearch, setPlotSearch] = useState("");
   const [parameterSearch, setParameterSearch] = useState("");
   const [recommendedOnly, setRecommendedOnly] = useState(false);
-  const [plotStudioView, setPlotStudioView] = useState("gallery");
+  const [plotStudioView, setPlotStudioView] = useState("workbench");
   const [activeGalleryCategory, setActiveGalleryCategory] = useState("All");
   const [editCommand, setEditCommand] = useState("");
   const [editCommandStatus, setEditCommandStatus] = useState("");
@@ -1414,6 +1415,7 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
   const [plotExportError, setPlotExportError] = useState("");
   const [editHistory, setEditHistory] = useState(session?.editHistory || []);
   const plotExportRef = useRef(null);
+  const defaultExampleLoadedRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -1430,6 +1432,31 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
   }, []);
 
   const plotPresets = manifest?.presets || [];
+
+  useEffect(() => {
+    if (selectedSource || defaultExampleLoadedRef.current || !plotPresets.length) return;
+    defaultExampleLoadedRef.current = true;
+    setExampleLoadingId("default");
+    setUploadError("");
+    loadDefaultPlotStudioExample()
+      .then((payload) => {
+        const nextSource = normalizePlotStudioSource(payload.source);
+        const defaultPlotId = nextSource?.meta?.plot_id || "scatter";
+        const defaultPreset = plotPresets.find((preset) => preset.id === defaultPlotId);
+        onSelectSource?.(nextSource);
+        setSelectedPlotId(defaultPlotId);
+        if (defaultPreset) setParams(defaultParamsFromPreset(defaultPreset));
+        setEditCommandStatus("");
+        setUploadStatus("idle");
+        setPlotStudioView("workbench");
+      })
+      .catch((defaultExampleFailure) => {
+        setUploadError(defaultExampleFailure.message);
+      })
+      .finally(() => {
+        setExampleLoadingId("");
+      });
+  }, [onSelectSource, plotPresets, selectedSource]);
 
   useEffect(() => {
     const examplePlotId = selectedSource?.sourceKind === "plot_studio_example"
@@ -1873,8 +1900,10 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
     <main className="plot-page shell">
       <section className="hero plot-hero">
         <div>
-          <p className="eyebrow">Plot Studio</p>
-          <h1>{t("figureWorkspaceTitle")}</h1>
+          <p className="eyebrow plot-title-line">
+            <span>Plot Studio</span>
+            <small>{t("figureWorkspaceTitle")}</small>
+          </p>
         </div>
         <div className="plot-view-switch">
           <Button
@@ -1917,9 +1946,6 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
           selectedPreset={selectedPreset}
           activeCategory={activeGalleryCategory}
           onActiveCategoryChange={setActiveGalleryCategory}
-          tableSummary={tableSummary}
-          tableSuitabilityWarning={tableSuitabilityWarning}
-          onSelectPlot={selectPlotPreset}
           onLoadExampleData={loadExampleData}
           exampleLoadingId={exampleLoadingId}
           onOpenWorkbench={() => setPlotStudioView("workbench")}
@@ -1946,9 +1972,6 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
           expandedPlotCategories={expandedPlotCategories}
           onTogglePlotCategory={togglePlotCategory}
           selectedPreset={selectedPreset}
-          tableSummary={tableSummary}
-          tableSuitabilityWarning={tableSuitabilityWarning}
-          onSelectPlot={selectPlotPreset}
           onLoadExampleData={loadExampleData}
           exampleLoadingId={exampleLoadingId}
           outputs={outputs}

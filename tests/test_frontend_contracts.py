@@ -326,6 +326,7 @@ def test_plot_studio_has_collapsed_categories_examples_and_upload() -> None:
         "loadExampleData",
         "/api/plot-studio/examples/",
         'sourceKind === "plot_studio_example"',
+        'selectedSource.sourceKind !== "plot_studio_example"',
         "selectedSource?.meta?.plot_id",
         "<Button",
         "theme={recommendedOnly ? \"primary\" : \"default\"}",

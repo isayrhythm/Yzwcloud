@@ -1468,7 +1468,7 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
     setEditCommandStatus("");
     setEditHistory(session?.editHistory || []);
     setPlotSearch("");
-    setRecommendedOnly(Boolean(selectedSource));
+    setRecommendedOnly(Boolean(selectedSource && selectedSource.sourceKind !== "plot_studio_example"));
   }, [selectedSourceKey]);
 
   useEffect(() => {

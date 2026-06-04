@@ -2628,6 +2628,320 @@ h2 {
   gap: 18px;
 }
 
+.subscription-page {
+  display: grid;
+  gap: 18px;
+}
+
+.subscription-hero,
+.subscription-metrics,
+.subscription-plans,
+.subscription-detail-band {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 24px 80px rgba(47, 39, 22, 0.1);
+}
+
+.subscription-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+  gap: 28px;
+  align-items: end;
+  padding: 34px;
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(242, 246, 255, 0.92)),
+    #ffffff;
+}
+
+.subscription-hero-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.subscription-hero h1 {
+  max-width: 920px;
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(38px, 5vw, 72px);
+  line-height: 1.02;
+}
+
+.subscription-hero p {
+  max-width: 780px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.subscription-billing-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid rgba(0, 82, 217, 0.16);
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.subscription-billing-card > span {
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.subscription-billing-card small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.subscription-billing-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid rgba(0, 82, 217, 0.12);
+  border-radius: 999px;
+  background: #f5f9fc;
+}
+
+.subscription-billing-toggle strong {
+  display: inline-grid;
+  min-height: 38px;
+  place-items: center;
+  border-radius: 999px;
+  color: #506173;
+  font-size: 13px;
+}
+
+.subscription-billing-toggle .active {
+  color: #ffffff;
+  background: var(--accent);
+  box-shadow: 0 10px 24px rgba(0, 82, 217, 0.18);
+}
+
+.subscription-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 18px;
+}
+
+.subscription-metrics div {
+  display: grid;
+  gap: 6px;
+  padding: 18px 20px;
+  background: #ffffff;
+}
+
+.subscription-metrics span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.subscription-metrics strong {
+  color: var(--accent-strong);
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.subscription-plans {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding: 20px;
+  border-radius: 22px;
+}
+
+.subscription-plan {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  min-width: 0;
+  min-height: 560px;
+  padding: 24px;
+  border: 1px solid rgba(0, 82, 217, 0.12);
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.subscription-plan.highlighted {
+  border-color: rgba(0, 82, 217, 0.42);
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f2f6ff 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 82, 217, 0.1), 0 18px 48px rgba(0, 82, 217, 0.12);
+}
+
+.subscription-plan-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.subscription-plan-head div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.subscription-plan-head span,
+.subscription-plan-head > strong {
+  display: inline-grid;
+  width: fit-content;
+  min-height: 24px;
+  place-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.subscription-plan-head span {
+  border: 1px solid rgba(0, 82, 217, 0.16);
+  background: #f2f6ff;
+  color: var(--accent-strong);
+}
+
+.subscription-plan-head > strong {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.subscription-plan h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+.subscription-plan p {
+  min-height: 78px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.subscription-price {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: baseline;
+  color: var(--ink);
+}
+
+.subscription-price span {
+  color: var(--accent);
+  font-size: 24px;
+  font-weight: 950;
+}
+
+.subscription-price strong {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.subscription-price em {
+  color: var(--muted);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.subscription-quota {
+  min-height: 44px;
+  padding: 11px 12px;
+  border: 1px solid rgba(0, 82, 217, 0.12);
+  border-radius: 12px;
+  background: #f8fbfc;
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.5;
+}
+
+.subscription-plan .t-button {
+  min-height: 42px;
+  font-weight: 900;
+}
+
+.subscription-plan ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 2px 0 0;
+  list-style: none;
+}
+
+.subscription-plan li {
+  position: relative;
+  padding-left: 24px;
+  color: #3b4a5a;
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.55;
+}
+
+.subscription-plan li::before {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 50%;
+  background: #edf3ff;
+  color: var(--accent);
+  content: "✓";
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.subscription-detail-band {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 24px;
+  align-items: center;
+  padding: 28px;
+  border-radius: 22px;
+}
+
+.subscription-detail-band h2 {
+  margin: 0 0 10px;
+  color: var(--ink);
+  font-size: 28px;
+}
+
+.subscription-detail-band p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.subscription-scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.subscription-scenario-grid span {
+  min-height: 58px;
+  padding: 14px;
+  border: 1px solid rgba(0, 82, 217, 0.12);
+  border-radius: 14px;
+  background: #f8fbfc;
+  color: var(--accent-strong);
+  font-size: 14px;
+  font-weight: 900;
+}
+
 .plot-page {
   display: grid;
   gap: 18px;
@@ -5792,6 +6106,16 @@ h2 {
 }
 
 @media (max-width: 980px) {
+  .subscription-hero,
+  .subscription-detail-band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .subscription-metrics,
+  .subscription-plans {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .plot-gallery-page {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -6369,8 +6693,19 @@ h2 {
   .plot-studio-layout,
   .report-summary-grid,
   .report-section-grid,
-  .report-structure-grid {
+  .report-structure-grid,
+  .subscription-metrics,
+  .subscription-plans,
+  .subscription-scenario-grid {
     grid-template-columns: 1fr;
+  }
+
+  .subscription-hero {
+    padding: 24px;
+  }
+
+  .subscription-plan {
+    min-height: auto;
   }
 
   .plot-method-overview {

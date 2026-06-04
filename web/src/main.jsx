@@ -33,6 +33,7 @@ import { DocsPage } from "./pages/DocsPage.jsx";
 import { MolecularLabPage } from "./pages/MolecularLabPage.jsx";
 import { PlotStudioPage } from "./pages/PlotStudioPage.jsx";
 import { ReportsPage, buildReportModel } from "./pages/ReportsPage.jsx";
+import { SubscriptionPage } from "./pages/SubscriptionPage.jsx";
 import {
   createPlotStudioSession,
   createPlotStudioSessionFromSource,
@@ -55,7 +56,7 @@ import { statusColor } from "./workflow/status.js";
 import { I18nProvider, useI18n } from "./i18n.jsx";
 import "./styles.css";
 
-const PAGE_IDS = new Set(["home", "workbench", "plot", "docs", "lab", "reports"]);
+const PAGE_IDS = new Set(["home", "workbench", "plot", "subscription", "docs", "lab", "reports"]);
 const PAGE_STORAGE_KEY = "yzwcloud.currentPage";
 const TASK_STORAGE_KEY = "yzwcloud.activeTaskId";
 
@@ -780,6 +781,14 @@ function App() {
           onOpenAnalysis={openWorkbench}
           onSaveToResult={savePlotStudioBackToResult}
         />
+      </AppChrome>
+    );
+  }
+
+  if (page === "subscription") {
+    return (
+      <AppChrome page={page} onNavigate={navigatePage}>
+        <SubscriptionPage onStart={openWorkbench} />
       </AppChrome>
     );
   }

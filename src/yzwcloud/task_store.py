@@ -33,6 +33,8 @@ METABOLOMICS_ML_EXPLAIN_TYPES = {
     "metabolomics_explain_rf_importance",
 }
 
+INTENSITY_MATRIX_TYPES = {"metabolomics_matrix", "proteomics_matrix"}
+
 
 def ensure_storage() -> None:
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
@@ -192,17 +194,17 @@ def update_sample_groups(
 
     conditions = _count_values(row["condition"] for row in rows)
     groups = _count_values(row["group"] for row in rows)
-    is_metabolomics = upload_node.output.meta.get("data_type") == "metabolomics_matrix"
+    is_intensity_matrix = upload_node.output.meta.get("data_type") in INTENSITY_MATRIX_TYPES
     capabilities = ["qc", "sample_correlation", "expression_heatmap", "gene_expression", "pca"]
-    if is_metabolomics:
+    if is_intensity_matrix:
         capabilities.append("metabolomics_normalization")
         capabilities.append("metabolomics_differential")
         capabilities.append(METABOLOMICS_ML_MODELING_TYPE)
-    if sum(conditions.values()) > 20 and not is_metabolomics:
+    if sum(conditions.values()) > 20 and not is_intensity_matrix:
         capabilities.append("wgcna")
-    if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()) and not is_metabolomics:
+    if len(conditions) >= 2 and all(count >= 2 for count in conditions.values()) and not is_intensity_matrix:
         capabilities.append("diff_analysis")
-    if len(conditions) >= 3 and not is_metabolomics:
+    if len(conditions) >= 3 and not is_intensity_matrix:
         capabilities.append("multigroup_differential")
     upload_node.output.meta["conditions"] = conditions
     upload_node.output.meta["condition_options"] = sorted(conditions)
@@ -861,6 +863,7 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
         params.update(
             {
                 "data_type": str(source_meta.get("data_type") or ""),
+                "assay_profile": profile["assay_profile"],
                 "analysis_profile": profile["analysis_profile"],
                 "feature_label": profile["feature_label"],
             }
@@ -873,7 +876,8 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             description = "Impute missing feature values, normalize sample signal, transform, and scale for downstream feature analysis."
         params.update(
             {
-                "data_type": "metabolomics_matrix",
+                "data_type": str(source_meta.get("data_type") or "metabolomics_matrix"),
+                "assay_profile": profile["assay_profile"],
                 "analysis_profile": profile["analysis_profile"],
                 "feature_label": profile["feature_label"],
             }
@@ -886,7 +890,8 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             description = "Prepare normalized feature intensities for one downstream classification model."
         params.update(
             {
-                "data_type": "metabolomics_matrix",
+                "data_type": str(source_meta.get("data_type") or "metabolomics_matrix"),
+                "assay_profile": profile["assay_profile"],
                 "analysis_profile": profile["analysis_profile"],
                 "feature_label": profile["feature_label"],
             }
@@ -901,12 +906,13 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             description = "Train one classifier on QC-passed normalized feature intensities."
         params.update(
             {
-                "data_type": "metabolomics_matrix",
+                "data_type": str(source_meta.get("data_type") or "metabolomics_matrix"),
+                "assay_profile": profile["assay_profile"],
                 "analysis_profile": profile["analysis_profile"],
                 "feature_label": profile["feature_label"],
             }
         )
-    elif analysis_type == "gene_expression" and source_meta.get("data_type") == "metabolomics_matrix":
+    elif analysis_type == "gene_expression" and source_meta.get("data_type") in INTENSITY_MATRIX_TYPES:
         profile = _matrix_profile(source_meta)
         if profile["assay_profile"] == "protein":
             name = "Single protein abundance"
@@ -919,7 +925,8 @@ def _add_expression_downstream_node(graph: Graph, analysis_type: str, source_nod
             description = "View one metabolite abundance distribution across sample groups."
         params.update(
             {
-                "data_type": "metabolomics_matrix",
+                "data_type": str(source_meta.get("data_type") or "metabolomics_matrix"),
+                "assay_profile": profile["assay_profile"],
                 "feature_label": profile["feature_singular"],
             }
         )
@@ -1016,18 +1023,18 @@ def _add_ml_explainability_node(graph: Graph, source_node_id: str, analysis_type
 
 
 def _qc_defaults_for_data_type(meta: dict[str, Any]) -> dict[str, Any]:
-    if meta.get("data_type") == "metabolomics_matrix":
+    if meta.get("data_type") in INTENSITY_MATRIX_TYPES:
         profile = _matrix_profile(meta)
-        metabolite_count = int(meta.get("metabolite_count") or meta.get("gene_count") or 0)
+        feature_count = int(meta.get("feature_count") or meta.get("protein_count") or meta.get("metabolite_count") or meta.get("gene_count") or 0)
         return {
             "qc_preset": "normal",
-            "qc_profile": profile["analysis_profile"],
-            "data_type": "metabolomics_matrix",
+            "qc_profile": "metabolomics",
+            "data_type": str(meta.get("data_type") or "metabolomics_matrix"),
             "assay_profile": profile["assay_profile"],
             "feature_label": profile["feature_label"],
             "min_total_ratio": 0.20,
             "max_zero_ratio": 0.60,
-            "min_detected_features": max(1, round(metabolite_count * 0.50)) if metabolite_count else 0,
+            "min_detected_features": max(1, round(feature_count * 0.50)) if feature_count else 0,
             "max_distribution_mad": 4.5,
             "max_value_iqr_multiplier": 3.0,
         }
@@ -1055,10 +1062,10 @@ def _ensure_ml_sample_threshold(meta: dict[str, Any], params_min_samples: int = 
 
 
 def _qc_node_name_for_data_type(meta: dict[str, Any]) -> str:
+    if meta.get("data_type") == "proteomics_matrix":
+        return "Proteomics QC"
     if meta.get("data_type") == "metabolomics_matrix":
         profile = _matrix_profile(meta)
-        if profile["assay_profile"] == "protein":
-            return "Protein matrix QC"
         if profile["assay_profile"] == "feature_intensity":
             return "Feature matrix QC"
         return "Metabolomics QC"
@@ -1066,7 +1073,7 @@ def _qc_node_name_for_data_type(meta: dict[str, Any]) -> str:
 
 
 def _qc_node_description_for_data_type(meta: dict[str, Any]) -> str:
-    if meta.get("data_type") == "metabolomics_matrix":
+    if meta.get("data_type") in INTENSITY_MATRIX_TYPES:
         profile = _matrix_profile(meta)
         if profile["assay_profile"] == "protein":
             return "Inspect protein-group sample totals, missing/zero ratios, detected proteins, and distribution outliers."
@@ -1078,7 +1085,7 @@ def _qc_node_description_for_data_type(meta: dict[str, Any]) -> str:
 
 def _matrix_profile(meta: dict[str, Any]) -> dict[str, str]:
     assay_profile = str(meta.get("assay_profile") or "")
-    if assay_profile == "protein":
+    if meta.get("data_type") == "proteomics_matrix" or assay_profile == "protein":
         return {
             "assay_profile": "protein",
             "analysis_profile": "feature_intensity",
@@ -1113,7 +1120,8 @@ def _add_diff_downstream_node(graph: Graph, diff_node_id: str, analysis_type: st
             break
     comparison = diff_node.output.meta.get("comparison_label", suffix.replace("_", " "))
     is_metabolomics = diff_node.output.type == "metabolomics_differential_result"
-    feature_label = "metabolites" if is_metabolomics else "genes"
+    profile = _matrix_profile(diff_node.output.meta)
+    feature_label = profile["feature_label"] if is_metabolomics else "genes"
     specs = {
         "heatmap": (
             f"heatmap__{suffix}",

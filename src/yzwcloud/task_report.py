@@ -348,7 +348,7 @@ def _original_input_context(graph: Graph) -> dict[str, Any]:
         "data_type": meta.get("data_type") or upload.output.type,
         "assay_profile": meta.get("assay_profile", ""),
         "sample_count": meta.get("sample_count", 0),
-        "feature_count": meta.get("metabolite_count", meta.get("gene_count", 0)),
+        "feature_count": meta.get("feature_count") or meta.get("protein_count") or meta.get("metabolite_count") or meta.get("gene_count", 0),
         "feature_label": meta.get("feature_label", "features"),
         "conditions": meta.get("conditions") or {},
         "uploaded_files": [

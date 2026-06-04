@@ -29,6 +29,15 @@ def create_metabolomics_statistics_result(
     analysis_family: str = "metabolomics_statistics",
 ) -> DataObject:
     params = params or {}
+    source_data_type = str(source.meta.get("data_type") or params.get("data_type") or "metabolomics_matrix")
+    assay_profile = str(source.meta.get("assay_profile") or params.get("assay_profile") or "")
+    if source_data_type == "proteomics_matrix" and not assay_profile:
+        assay_profile = "protein"
+    feature_label = str(
+        source.meta.get("feature_label")
+        or params.get("feature_label")
+        or ("proteins" if source_data_type == "proteomics_matrix" or assay_profile == "protein" else "metabolites")
+    )
     matrix_path = Path(str(source.meta.get("differential_matrix_file") or source.meta["matrix_file"]))
     metadata_path = Path(str(source.meta["sample_metadata_file"]))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -91,7 +100,10 @@ def create_metabolomics_statistics_result(
     ]
     output_json = output_dir / f"{node_id}_output.json"
     meta = {
-        "method": "r_metabolomics_univariate_pca_qc",
+        "data_type": source_data_type,
+        "assay_profile": assay_profile,
+        "feature_label": feature_label,
+        "method": "r_proteomics_univariate_pca_qc" if source_data_type == "proteomics_matrix" else "r_metabolomics_univariate_pca_qc",
         "analysis_family": analysis_family,
         "matrix_file": str(normalized_file),
         "source_matrix_file": str(matrix_path),
@@ -109,6 +121,8 @@ def create_metabolomics_statistics_result(
         "r_log_file": str(log_path),
         "summary_file": str(summary_file),
         "metabolite_count": int(summary.get("metabolite_count") or len(diff_rows)),
+        "protein_count": int(summary.get("metabolite_count") or len(diff_rows)) if source_data_type == "proteomics_matrix" else 0,
+        "feature_count": int(summary.get("metabolite_count") or len(diff_rows)),
         "sample_count": int(summary.get("sample_count") or len(sample_columns)),
         "case_condition": case_condition,
         "control_condition": control_condition,
@@ -177,6 +191,15 @@ def create_metabolomics_normalization_result(
     params: dict[str, Any] | None = None,
 ) -> DataObject:
     params = params or {}
+    source_data_type = str(source.meta.get("data_type") or params.get("data_type") or "metabolomics_matrix")
+    assay_profile = str(source.meta.get("assay_profile") or params.get("assay_profile") or "")
+    if source_data_type == "proteomics_matrix" and not assay_profile:
+        assay_profile = "protein"
+    feature_label = str(
+        source.meta.get("feature_label")
+        or params.get("feature_label")
+        or ("proteins" if source_data_type == "proteomics_matrix" or assay_profile == "protein" else "metabolites")
+    )
     matrix_path = Path(str(source.meta["matrix_file"]))
     metadata_path = Path(str(source.meta["sample_metadata_file"]))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -215,7 +238,9 @@ def create_metabolomics_normalization_result(
 
     meta = {
         **source.meta,
-        "data_type": "metabolomics_matrix",
+        "data_type": source_data_type,
+        "assay_profile": assay_profile,
+        "feature_label": feature_label,
         "matrix_file": str(scaled_matrix_file),
         "differential_matrix_file": str(normalized_matrix_file),
         "source_matrix_file": str(matrix_path),
@@ -223,6 +248,8 @@ def create_metabolomics_normalization_result(
         "html_file": str(html_path),
         "preview_file": str(preview_path),
         "metabolite_count": len(features),
+        "protein_count": len(features) if source_data_type == "proteomics_matrix" else int(source.meta.get("protein_count") or 0),
+        "feature_count": len(features),
         "gene_count": len(features),
         "sample_count": len(sample_columns),
         "normalization_method": normalization_method,
@@ -332,7 +359,7 @@ def create_metabolomics_ml_classification_result(
     _write_ml_metrics(metrics_file, metrics_rows)
     _write_ml_model_html(
         html_path,
-        task_title="Metabolomics ML classification",
+        task_title="Proteomics ML classification" if source.meta.get("data_type") == "proteomics_matrix" else "Metabolomics ML classification",
         labels=labels,
         sample_names=sample_names,
         metrics_rows=metrics_rows,
@@ -350,7 +377,7 @@ def create_metabolomics_ml_classification_result(
         **source.meta,
         "analysis_family": "metabolomics_ml_classification",
         "method": f"sklearn_{model_name}",
-        "data_type": "metabolomics_matrix",
+        "data_type": str(source.meta.get("data_type") or "metabolomics_matrix"),
         "matrix_file": str(matrix_path),
         "sample_metadata_file": str(metadata_path),
         "html_file": str(html_path),
@@ -498,7 +525,7 @@ def create_metabolomics_ml_explainability_result(
         "explainability_method": resolved_method,
         "requested_explainability": method,
         "source_model": model_name,
-        "data_type": "metabolomics_matrix",
+        "data_type": str(source.meta.get("data_type") or "metabolomics_matrix"),
         "html_file": str(html_path),
         "preview_file": str(preview_path),
         "feature_importance_file": str(importance_file),

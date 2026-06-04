@@ -285,15 +285,19 @@ def test_intake_detects_comma_delimited_protein_group_tsv(tmp_path: Path) -> Non
         params={"use_llm": False},
     )
 
-    assert result.meta["data_type"] == "metabolomics_matrix"
+    assert result.meta["data_type"] == "proteomics_matrix"
     assert result.meta["assay_profile"] == "protein"
     assert result.meta["feature_label"] == "proteins"
+    assert result.meta["protein_count"] == result.meta["gene_count"]
+    assert result.meta["metabolite_count"] == 0
     assert result.meta["sample_count"] == 6
-    assert 12000 <= result.meta["metabolite_count"] <= 13286
+    assert 12000 <= result.meta["protein_count"] <= 13286
     assert result.meta["conditions"] == {"MT": 3, "WT": 3}
     assert result.meta["standardization"]["mode"] == "protein_group_matrix"
     assert result.meta["standardization"]["source_encoding"] == "utf-8-sig"
     assert result.meta["standardization"]["selected_sample_count"] == 6
+    assert Path(result.meta["matrix_file"]).name == "proteomics_matrix.csv"
+    assert Path(result.meta["gene_annotation_file"]).name == "protein_annotations.csv"
     assert "metabolomics_differential" in result.meta["capabilities"]
 
 

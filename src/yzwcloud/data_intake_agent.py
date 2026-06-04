@@ -112,6 +112,7 @@ def run_data_intake_agent(
                     standardizers={
                         "expression_matrix": _standardize_expression_like_table,
                         "metabolomics_matrix": _standardize_metabolomics_table,
+                        "proteomics_matrix": _standardize_metabolomics_table,
                     },
                 )
                 _emit_progress(progress_callback, "standardize_data", "completed", f"{attempt_label} 已规整")
@@ -151,18 +152,20 @@ def run_data_intake_agent(
         _emit_progress(progress_callback, "failed", "failed", "处理失败，等待重试")
         raise
 
-    standardized_data_type = str(success_strategy.get("data_type", "expression_matrix"))
     standardization = dict(standard_result.get("standardization") or {})
+    standardized_data_type = str(success_strategy.get("data_type", "expression_matrix"))
+    if standardization.get("assay_profile") == "protein":
+        standardized_data_type = "proteomics_matrix"
     assay_profile = str(
         standardization.get("assay_profile")
-        or ("metabolomics" if standardized_data_type == "metabolomics_matrix" else "expression")
+        or ("metabolomics" if standardized_data_type == "metabolomics_matrix" else "protein" if standardized_data_type == "proteomics_matrix" else "expression")
     )
     feature_label = str(
         standardization.get("feature_label")
-        or ("metabolites" if assay_profile == "metabolomics" else "features" if assay_profile == "feature_intensity" else "genes")
+        or ("metabolites" if assay_profile == "metabolomics" else "proteins" if assay_profile == "protein" else "features" if assay_profile == "feature_intensity" else "genes")
     )
     validated_capabilities = _capabilities_for_validation(validation)
-    if standardized_data_type == "metabolomics_matrix" and validation["valid"]:
+    if standardized_data_type in {"metabolomics_matrix", "proteomics_matrix"} and validation["valid"]:
         validated_capabilities.append("metabolomics_normalization")
         validated_capabilities.append("metabolomics_differential")
         validated_capabilities.append("metabolomics_ml_modeling")
@@ -180,6 +183,8 @@ def run_data_intake_agent(
         "sample_metadata_source": str(metadata_path) if metadata_path else "",
         "gene_count": validation["gene_count"],
         "metabolite_count": validation["gene_count"] if standardized_data_type == "metabolomics_matrix" else 0,
+        "protein_count": validation["gene_count"] if standardized_data_type == "proteomics_matrix" else 0,
+        "feature_count": validation["gene_count"],
         "sample_count": validation["sample_count"],
         "sample_groups": validation["sample_groups"],
         "conditions": validation["conditions"],
@@ -797,6 +802,9 @@ def _standardize_metabolomics_table(
         assay_profile = "protein" if is_protein_group_matrix else "feature_intensity" if is_generic_feature_matrix else "metabolomics"
         feature_kind = "protein" if is_protein_group_matrix else "feature" if is_generic_feature_matrix else "metabolite"
         feature_label = "proteins" if is_protein_group_matrix else "features" if is_generic_feature_matrix else "metabolites"
+        if is_protein_group_matrix:
+            matrix_path = output_dir / "proteomics_matrix.csv"
+            annotation_path = output_dir / "protein_annotations.csv"
         header_lookup = {name.strip().lower(): index for index, name in enumerate(header)}
         header_key_lookup = {_metadata_key(name): index for index, name in enumerate(header)}
         sample_indices = {index for _, index in selected_samples}
@@ -1176,13 +1184,22 @@ def _next_analyses_for_capabilities(capabilities: list[str]) -> list[dict[str, s
 
 
 def _heuristic_plan(inspection: dict[str, Any]) -> dict[str, Any]:
+    likely_proteomics = bool(inspection.get("likely_protein_group_matrix"))
     likely_metabolomics = bool(inspection.get("likely_metabolomics_columns"))
     likely_expression = bool(inspection.get("likely_gene_columns")) and (
         inspection.get("metadata_rows", 0) > 0 or inspection.get("numeric_column_ratio", 0) > 0.5
     )
     likely_single_cell = bool(inspection.get("likely_gene_columns")) and inspection.get("column_count", 0) > 1000
     likely_feature_table = not inspection.get("likely_gene_columns") and inspection.get("numeric_column_ratio", 0) > 0.6
-    if likely_metabolomics:
+    if likely_proteomics:
+        data_type = "proteomics_matrix"
+        capabilities = [
+            "pca",
+            "metabolomics_normalization",
+            "metabolomics_differential",
+            "metabolomics_ml_modeling",
+        ]
+    elif likely_metabolomics:
         data_type = "metabolomics_matrix"
         capabilities = [
             "pca",

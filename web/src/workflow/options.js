@@ -228,7 +228,27 @@ function addMlModelOptions(options, created, sampleCount, prefix = "") {
 }
 
 export function dataProfile(meta = {}) {
+  if (meta.data_type === "proteomics_matrix") {
+    return {
+      shortLabel: "Proteomics",
+      fullLabel: "Proteomics matrix",
+      featureLabel: "proteins",
+      featureSingular: "protein",
+      qcProfile: "metabolomics",
+      analyses: ["PCA", "Sample correlation", "Heatmap", "Protein abundance", "Differential analysis", "ML classification"],
+    };
+  }
   if (meta.data_type === "metabolomics_matrix") {
+    if (meta.assay_profile === "protein") {
+      return {
+        shortLabel: "Proteomics",
+        fullLabel: "Proteomics matrix",
+        featureLabel: "proteins",
+        featureSingular: "protein",
+        qcProfile: "metabolomics",
+        analyses: ["PCA", "Sample correlation", "Heatmap", "Protein abundance", "Differential analysis", "ML classification"],
+      };
+    }
     if (meta.assay_profile === "feature_intensity") {
       return {
         shortLabel: "Feature",

@@ -326,6 +326,9 @@ def create_volcano_result(diff: DataObject, output_dir: Path, node_id: str) -> D
     write_volcano_html(html_path, comparison, points, p_value_threshold, log2fc_threshold)
     write_volcano_preview(preview_path, points, comparison)
     meta = {
+        "data_type": diff.meta.get("data_type", ""),
+        "assay_profile": diff.meta.get("assay_profile", ""),
+        "feature_label": diff.meta.get("feature_label", ""),
         "comparison_label": comparison,
         "html_file": str(html_path),
         "preview_file": str(preview_path),
@@ -366,6 +369,9 @@ def create_heatmap_result(diff: DataObject, output_dir: Path, node_id: str) -> D
     write_heatmap_html(html_path, comparison, selected_columns, genes)
     write_heatmap_preview(preview_path, comparison, genes)
     meta = {
+        "data_type": diff.meta.get("data_type", ""),
+        "assay_profile": diff.meta.get("assay_profile", ""),
+        "feature_label": diff.meta.get("feature_label", ""),
         "comparison_label": comparison,
         "html_file": str(html_path),
         "preview_file": str(preview_path),

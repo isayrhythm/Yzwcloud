@@ -28,6 +28,16 @@ DATA_TYPE_CAPABILITY_MAP = {
         "metabolomics_differential",
         "metabolomics_ml_modeling",
     },
+    "proteomics_matrix": {
+        "qc",
+        "sample_correlation",
+        "expression_heatmap",
+        "gene_expression",
+        "pca",
+        "metabolomics_normalization",
+        "metabolomics_differential",
+        "metabolomics_ml_modeling",
+    },
     "single_cell_matrix": set(),
     "feature_table": set(),
     "diff_result": {"heatmap", "volcano", "enrichment"},
@@ -47,7 +57,9 @@ def build_processing_plan(
     file_type = str(inspection.get("file_type") or "unknown")
     has_metadata = bool(metadata_path and metadata_path.exists()) or inspection.get("metadata_rows", 0) > 0
     routed_type = detected_type
-    if inspection.get("likely_metabolomics_columns") or inspection.get("likely_quantitative_feature_matrix"):
+    if inspection.get("likely_protein_group_matrix"):
+        routed_type = "proteomics_matrix"
+    elif inspection.get("likely_metabolomics_columns") or inspection.get("likely_quantitative_feature_matrix"):
         routed_type = "metabolomics_matrix"
     if routed_type != "expression_matrix" and inspection.get("likely_gene_columns"):
         routed_type = "expression_matrix"
@@ -124,8 +136,8 @@ def _strategies_for_data_type(
 ) -> list[dict[str, Any]]:
     if data_type == "expression_matrix":
         return _expression_matrix_strategies(file_type, has_metadata)
-    if data_type == "metabolomics_matrix":
-        return _metabolomics_matrix_strategies(file_type, has_metadata)
+    if data_type in {"metabolomics_matrix", "proteomics_matrix"}:
+        return _metabolomics_matrix_strategies(file_type, has_metadata, data_type)
     return []
 
 
@@ -162,13 +174,17 @@ def _expression_matrix_strategies(file_type: str, has_metadata: bool) -> list[di
     return strategies
 
 
-def _metabolomics_matrix_strategies(file_type: str, has_metadata: bool) -> list[dict[str, Any]]:
+def _metabolomics_matrix_strategies(
+    file_type: str,
+    has_metadata: bool,
+    data_type: str = "metabolomics_matrix",
+) -> list[dict[str, Any]]:
     strategies: list[dict[str, Any]] = []
     strategies.append(
         {
             "id": f"{file_type}_metabolights_maf",
             "label": "按 MetaboLights MAF/代谢物峰表读取",
-            "data_type": "metabolomics_matrix",
+            "data_type": data_type,
             "metadata_mode": "auto",
         }
     )
@@ -177,7 +193,7 @@ def _metabolomics_matrix_strategies(file_type: str, has_metadata: bool) -> list[
             {
                 "id": f"{file_type}_metabolomics_metadata",
                 "label": "按上传 metadata 匹配代谢组样本列",
-                "data_type": "metabolomics_matrix",
+                "data_type": data_type,
                 "metadata_mode": "uploaded",
             }
         )

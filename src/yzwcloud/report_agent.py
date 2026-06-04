@@ -286,6 +286,8 @@ def _feature_kind(meta: dict[str, Any], inputs: dict[str, DataObject]) -> str:
             return "蛋白/蛋白定量特征"
         if assay_profile == "feature_intensity":
             return "未命名峰或通用定量特征"
+        if data_type == "proteomics_matrix":
+            return "铔嬬櫧"
         if data_type == "metabolomics_matrix" or "metabolite" in feature_label:
             return "代谢物或代谢物峰"
         if "protein" in feature_label:

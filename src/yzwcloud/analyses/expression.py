@@ -26,6 +26,9 @@ from yzwcloud.color_palette import condition_color_map
 from yzwcloud.models import DataObject
 
 
+INTENSITY_MATRIX_TYPES = {"metabolomics_matrix", "proteomics_matrix"}
+
+
 def create_pca_result(source: DataObject, output_dir: Path, node_id: str) -> DataObject:
     matrix_path = Path(str(source.meta["matrix_file"]))
     metadata_path = Path(str(source.meta["sample_metadata_file"]))
@@ -152,6 +155,13 @@ def create_qc_result(
     write_qc_html(html_path, stats, after_stats, qc_params)
     write_qc_preview(preview_path, stats, after_stats)
     meta = {
+        "data_type": source.meta.get("data_type", ""),
+        "assay_profile": source.meta.get("assay_profile", ""),
+        "feature_label": source.meta.get("feature_label", ""),
+        "feature_count": source.meta.get("feature_count") or source.meta.get("protein_count") or source.meta.get("metabolite_count") or source.meta.get("gene_count", 0),
+        "protein_count": source.meta.get("protein_count", 0),
+        "metabolite_count": source.meta.get("metabolite_count", 0),
+        "gene_count": source.meta.get("gene_count", 0),
         "matrix_file": str(matrix_path),
         "sample_metadata_file": str(filtered_metadata_path),
         "source_sample_metadata_file": str(metadata_path),
@@ -184,7 +194,6 @@ def create_qc_result(
                 data=str(matrix_path),
                 meta={
                     **source.meta,
-                    "data_type": "metabolomics_matrix",
                     "matrix_file": str(matrix_path),
                     "sample_metadata_file": str(filtered_metadata_path),
                     "condition_colors": meta["condition_colors"],
@@ -266,7 +275,7 @@ def resolve_qc_params(
     preset = str(params.get("qc_preset") or "normal").lower()
     if preset not in expression_presets:
         preset = "normal"
-    qc_profile = "metabolomics" if data_type == "metabolomics_matrix" else "expression"
+    qc_profile = "metabolomics" if data_type in INTENSITY_MATRIX_TYPES else "expression"
     if qc_profile == "metabolomics":
         base = metabolomics_presets[preset].copy()
         ratio = float(base.pop("min_detected_feature_ratio"))
@@ -274,7 +283,7 @@ def resolve_qc_params(
         resolved = {
             "qc_preset": preset,
             "qc_profile": qc_profile,
-            "feature_label": "metabolites",
+            "feature_label": "proteins" if data_type == "proteomics_matrix" else "metabolites",
             **base,
             "min_detected_features": detected_default,
         }
@@ -424,19 +433,22 @@ def create_gene_expression_result(
     node_id: str,
 ) -> DataObject:
     gene_query = str(params.get("gene") or "").strip()
-    is_metabolomics = source.meta.get("data_type") == "metabolomics_matrix" or params.get("data_type") == "metabolomics_matrix"
+    source_data_type = str(source.meta.get("data_type") or params.get("data_type") or "")
+    is_intensity_matrix = source_data_type in INTENSITY_MATRIX_TYPES
     assay_profile = str(source.meta.get("assay_profile") or params.get("assay_profile") or "")
-    if is_metabolomics and assay_profile == "protein":
+    if source_data_type == "proteomics_matrix" and not assay_profile:
+        assay_profile = "protein"
+    if is_intensity_matrix and assay_profile == "protein":
         feature_label = "protein"
         feature_label_plural = "proteins"
         plot_title = "Single protein abundance"
         value_label = "Intensity"
-    elif is_metabolomics and assay_profile == "feature_intensity":
+    elif is_intensity_matrix and assay_profile == "feature_intensity":
         feature_label = "feature"
         feature_label_plural = "features"
         plot_title = "Single feature abundance"
         value_label = "Intensity"
-    elif is_metabolomics:
+    elif is_intensity_matrix:
         feature_label = "metabolite"
         feature_label_plural = "metabolites"
         plot_title = "Single metabolite abundance"
@@ -476,6 +488,8 @@ def create_gene_expression_result(
         "gene_expression_table_file": str(plot_studio_table_path),
         "gene": gene_payload["gene"],
         "gene_id": gene_payload["gene_id"],
+        "data_type": source_data_type,
+        "assay_profile": assay_profile,
         "feature_label": feature_label,
         "value_label": gene_payload["value_label"],
         "sample_count": len(gene_payload["points"]),

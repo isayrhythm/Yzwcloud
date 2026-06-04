@@ -78,7 +78,9 @@ function toFormValues(values) {
 
 function qcProfileFromDetail(detail) {
   const uploadNode = detail?.graph?.nodes?.find((item) => item.id === "upload_expression");
-  return uploadNode?.output?.meta?.data_type === "metabolomics_matrix" ? "metabolomics" : "expression";
+  return ["metabolomics_matrix", "proteomics_matrix"].includes(uploadNode?.output?.meta?.data_type)
+    ? "metabolomics"
+    : "expression";
 }
 
 export function NodeParamsModal({ node, detail, onClose, onSubmit }) {

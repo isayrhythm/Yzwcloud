@@ -113,8 +113,11 @@ button {
 .workbench-brand {
   display: inline-flex;
   width: 100%;
+  height: auto;
+  min-height: 54px;
   gap: 10px;
   align-items: center;
+  justify-content: flex-start;
   padding: 10px 10px;
   border: 1px solid rgba(217, 228, 236, 0.9);
   border-radius: 18px;
@@ -125,21 +128,44 @@ button {
   text-align: left;
 }
 
+.workbench-brand .t-button__text {
+  display: inline-flex;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-start;
+}
+
 .workbench-brand .brand-mark {
+  flex: 0 0 auto;
   width: 34px;
   height: 34px;
   border-radius: 12px;
 }
 
+.workbench-brand .brand-mark + span {
+  display: grid;
+  gap: 2px;
+  align-content: center;
+  min-width: 0;
+}
+
 .workbench-brand strong,
 .workbench-brand small {
   display: block;
+  overflow: hidden;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workbench-brand small {
   margin-top: 1px;
   color: var(--muted);
   font-size: 11px;
+  line-height: 1.2;
 }
 
 .topnav {
@@ -968,7 +994,7 @@ h2 {
   min-height: 0;
   overflow: hidden;
   padding: 14px;
-  border-radius: 0 22px 22px 0;
+  border-radius: 22px;
   background: rgba(247, 250, 253, 0.96);
 }
 

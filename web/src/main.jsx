@@ -12,7 +12,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import { Button, Dropdown, MessagePlugin, Tag } from "tdesign-react";
-import { AddIcon, HomeIcon, MoreIcon, RefreshIcon } from "tdesign-icons-react";
+import { AddIcon, MoreIcon, RefreshIcon } from "tdesign-icons-react";
 import "@xyflow/react/dist/style.css";
 import "tdesign-react/es/style/index.css";
 import { AnalysisNode } from "./components/AnalysisNode.jsx";
@@ -808,7 +808,6 @@ function App() {
             <Button
               className="workbench-brand"
               variant="text"
-              icon={<HomeIcon />}
               onClick={() => setPage("home")}
             >
               <span className="brand-mark">Y</span>

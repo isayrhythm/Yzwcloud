@@ -358,6 +358,8 @@ def _inspect_csv(source_path: Path, metadata_path: Path | None) -> dict[str, Any
     duplicate_columns = _duplicates(header)
     numeric_ratios = _numeric_ratios(preview, len(header))
     likely_gene_columns = [name for name in GENE_COLUMNS if name in header]
+    if not likely_gene_columns and _looks_like_gene_symbol_matrix(header, preview):
+        likely_gene_columns = [header[0] or "gene"]
     likely_metabolomics_columns = _likely_metabolomics_columns(header)
     likely_protein_columns = _likely_protein_group_columns(header)
     likely_feature_matrix = _looks_like_quantitative_feature_matrix(header, preview, likely_gene_columns)
@@ -452,6 +454,23 @@ def _looks_like_quantitative_feature_matrix(
         return False
     annotation_count = len(header) - len(selected_samples)
     return annotation_count >= 1 and _safe_ratio(len(selected_samples), len(header)) >= 0.2
+
+
+def _looks_like_gene_symbol_matrix(header: list[str], preview: list[list[str]]) -> bool:
+    if len(header) < 4 or not preview:
+        return False
+    first_values = [_value_at(row, 0) for row in preview if row]
+    measured_gene_values = [value for value in first_values if not _is_missing_value(value)]
+    if not measured_gene_values:
+        return False
+    gene_like_count = sum(bool(re.match(r"^[A-Za-z][A-Za-z0-9_.-]{1,24}$", value)) for value in measured_gene_values)
+    if _safe_ratio(gene_like_count, len(measured_gene_values)) < 0.7:
+        return False
+    sample_columns = _infer_numeric_sample_columns(header, preview)
+    if len(sample_columns) < 2:
+        return False
+    tcga_sample_count = sum(_tcga_sample_type(name) in {"cancer", "normal"} for name, _ in sample_columns)
+    return tcga_sample_count >= 2 or _safe_ratio(len(sample_columns), len(header)) >= 0.5
 
 
 def _inspect_workbook(source_path: Path, metadata_path: Path | None) -> dict[str, Any]:
@@ -596,6 +615,9 @@ def _standardize_expression_like_table(
 
         gene_indices = [idx for idx, name in enumerate(header) if name in GENE_COLUMNS]
         gene_name_to_index = {header[idx]: idx for idx in gene_indices}
+        if not gene_name_to_index:
+            feature_index = 0
+            gene_name_to_index = {"gene_short_name": feature_index, "gene_id": feature_index}
         output_gene_columns = GENE_COLUMNS
         selected_samples = _dedupe_selected_sample_names(selected_samples)
         output_header = output_gene_columns + [name for name, _ in selected_samples]
@@ -1435,6 +1457,9 @@ def _infer_numeric_sample_columns(
 
 
 def _infer_group_from_sample_name(sample: str) -> str:
+    tcga_group = _tcga_sample_type(sample)
+    if tcga_group:
+        return tcga_group
     name = sample.rsplit("_", 1)[0] if sample.rsplit("_", 1)[-1].isdigit() else sample
     if "-" in name:
         prefix = name.split("-", 1)[0].strip()
@@ -1445,6 +1470,21 @@ def _infer_group_from_sample_name(sample: str) -> str:
     prefix = prefix.removeprefix("Group ").strip()
     prefix = re.sub(r"(?<=[A-Za-z])\d+$", "", prefix).strip()
     return prefix or "unknown"
+
+
+def _tcga_sample_type(sample: str) -> str:
+    parts = re.split(r"[-.]", sample)
+    if len(parts) < 4 or parts[0].upper() != "TCGA":
+        return ""
+    match = re.match(r"^(\d{2})", parts[3])
+    if not match:
+        return ""
+    sample_type = int(match.group(1))
+    if 1 <= sample_type <= 9:
+        return "cancer"
+    if 10 <= sample_type <= 19:
+        return "normal"
+    return ""
 
 
 def _find_expression_header_row(sheet: Any) -> tuple[int, list[str]]:

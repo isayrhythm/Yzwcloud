@@ -681,6 +681,19 @@ def test_browser_reload_restores_active_workbench_task() -> None:
     assert "localStorage.removeItem(TASK_STORAGE_KEY)" in source
 
 
+def test_workbench_task_selection_fits_flow_view() -> None:
+    source = _source(MAIN_PAGE)
+
+    assert "const pendingFitTaskIdRef = useRef(null)" in source
+    assert "const fitWorkflowView = useCallback" in source
+    assert "fitView({ padding: 0.18, duration: 300 })" in source
+    assert "pendingFitTaskIdRef.current = activeTaskId" in source
+    assert 'pendingFitTaskIdRef.current !== detail.task.task_id' in source
+    assert "const selectTask = (taskId) =>" in source
+    assert "pendingFitTaskIdRef.current = taskId" in source
+    assert "onClick={() => selectTask(task.task_id)}" in source
+
+
 def test_workflow_edges_route_through_directional_handles() -> None:
     main_source = _source(MAIN_PAGE)
     node_source = _source(ROOT / "web" / "src" / "components" / "AnalysisNode.jsx")

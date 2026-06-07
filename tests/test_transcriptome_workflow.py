@@ -16,10 +16,12 @@ if str(SRC) not in sys.path:
 
 from yzwcloud.main import app  # noqa: E402
 from yzwcloud.models import DataObject, GraphNode, NodeStatus  # noqa: E402
+from yzwcloud.data_intake_agent import run_data_intake_agent  # noqa: E402
 from yzwcloud.task_store import create_analysis_node, create_task, delete_task, load_graph, save_graph  # noqa: E402
 
 
 DATA_FILE = ROOT / "testdata" / "expression_matrix.csv"
+TCGA_COUNT_FILE = ROOT / "testdata" / "expdata_count.csv"
 
 
 def _request(client: TestClient, method: str, path: str, **kwargs: Any) -> Any:
@@ -98,6 +100,22 @@ def _first_gene_name() -> str:
             if row and (row[0] or row[1]):
                 return row[0] or row[1]
     raise AssertionError("No gene name found in expression matrix")
+
+
+def test_tcga_count_matrix_without_metadata_is_expression_matrix(tmp_path: Path) -> None:
+    result = run_data_intake_agent(
+        source_path=TCGA_COUNT_FILE,
+        output_dir=tmp_path / "tcga_count",
+        params={"use_llm": False},
+    )
+
+    assert result.meta["data_type"] == "expression_matrix"
+    assert result.meta["assay_profile"] == "expression"
+    assert result.meta["sample_count"] == 200
+    assert result.meta["gene_count"] > 1000
+    assert result.meta["conditions"] == {"cancer": 100, "normal": 100}
+    assert "diff_analysis" in result.meta["capabilities"]
+    assert "metabolomics_normalization" not in result.meta["capabilities"]
 
 
 def test_diff_followup_rejects_export_and_report_nodes() -> None:

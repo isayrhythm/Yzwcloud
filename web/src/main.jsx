@@ -189,7 +189,12 @@ function App() {
   const [plotStudioSession, setPlotStudioSession] = useState(() => createPlotStudioSession());
   const flowPanelRef = useRef(null);
   const miniMapTimerRef = useRef(null);
+  const pendingFitTaskIdRef = useRef(null);
   const reportModel = useMemo(() => buildReportModel(detail, logs), [detail, logs]);
+
+  const fitWorkflowView = useCallback(() => {
+    window.setTimeout(() => fitView({ padding: 0.18, duration: 300 }), 0);
+  }, [fitView]);
 
   const loadTasks = useCallback(async () => {
     const response = await api("/api/tasks");
@@ -224,6 +229,12 @@ function App() {
   useEffect(() => {
     loadDetail(activeTaskId).catch((error) => notifyError(error.message));
   }, [activeTaskId, loadDetail]);
+
+  useEffect(() => {
+    if (activeTaskId) {
+      pendingFitTaskIdRef.current = activeTaskId;
+    }
+  }, [activeTaskId]);
 
   useEffect(() => {
     if (!activeTaskId) return undefined;
@@ -315,6 +326,13 @@ function App() {
     setEdges(flowEdges);
   }, [detail]);
 
+  useEffect(() => {
+    if (page !== "workbench" || !detail || !nodes.length) return;
+    if (pendingFitTaskIdRef.current !== detail.task.task_id) return;
+    pendingFitTaskIdRef.current = null;
+    fitWorkflowView();
+  }, [detail, fitWorkflowView, nodes.length, page]);
+
   const createTask = async () => {
     const response = await api("/api/tasks", {
       method: "POST",
@@ -365,6 +383,15 @@ function App() {
   const startRenameTask = (task) => {
     setEditingTaskId(task.task_id);
     setEditingTaskName(task.name);
+  };
+
+  const selectTask = (taskId) => {
+    pendingFitTaskIdRef.current = taskId;
+    if (taskId === activeTaskId) {
+      fitWorkflowView();
+      return;
+    }
+    setActiveTaskId(taskId);
   };
 
   const handleTaskMenuClick = (task, item) => {
@@ -946,7 +973,7 @@ function App() {
                     <span className="task-id">{task.status} · {task.task_id}</span>
                   </form>
                 ) : (
-                  <button className="task-select" onClick={() => setActiveTaskId(task.task_id)}>
+                  <button className="task-select" onClick={() => selectTask(task.task_id)}>
                     <strong>{task.name}</strong>
                     <span className="task-meta">
                       <Tag

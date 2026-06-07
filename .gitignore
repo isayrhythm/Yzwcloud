@@ -3,6 +3,7 @@
 __pycache__/
 *.py[cod]
 .pdm-python
+.pdm-local-config.toml
 data/tasks/
 data/plot_studio_uploads/
 data/plot_studio_examples/

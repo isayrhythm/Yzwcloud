@@ -19,7 +19,7 @@ from yzwcloud.models import DataObject, GraphNode, NodeStatus  # noqa: E402
 from yzwcloud.task_store import create_analysis_node, create_task, delete_task, load_graph, save_graph  # noqa: E402
 
 
-DATA_FILE = ROOT / "expression_matrix.csv"
+DATA_FILE = ROOT / "testdata" / "expression_matrix.csv"
 
 
 def _request(client: TestClient, method: str, path: str, **kwargs: Any) -> Any:

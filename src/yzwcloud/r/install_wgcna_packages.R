@@ -1,4 +1,7 @@
-repos <- "https://cloud.r-project.org"
+cran_mirror <- "https://mirrors.tuna.tsinghua.edu.cn/CRAN/"
+options(repos = c(CRAN = cran_mirror))
+options(timeout = 600)
+
 user_library <- Sys.getenv("R_LIBS_USER")
 if (!nzchar(user_library)) {
   user_library <- file.path(Sys.getenv("LOCALAPPDATA"), "R", "win-library", paste(R.version$major, R.version$minor, sep = "."))
@@ -8,7 +11,7 @@ dir.create(user_library, recursive = TRUE, showWarnings = FALSE)
 
 install_if_missing <- function(package) {
   if (!requireNamespace(package, quietly = TRUE)) {
-    install.packages(package, repos = repos, lib = user_library)
+    install.packages(package, repos = cran_mirror, lib = user_library)
   }
 }
 

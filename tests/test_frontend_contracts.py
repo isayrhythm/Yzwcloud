@@ -709,7 +709,9 @@ def test_output_urls_stay_same_origin_outside_explicit_api_base() -> None:
     main_source = _source(ROOT / "src" / "yzwcloud" / "main.py")
 
     assert "VITE_YZWCLOUD_API_BASE" in source
-    assert 'port && port !== "8010"' not in source
-    assert ':8010${route}' not in source
-    assert 'port === "8011"' in plot_source
-    assert 'window.location.port === "8011"' in main_source
+    assert "window.location.port" not in source
+    assert "window.location.port" not in plot_source
+    assert "window.location.port" not in main_source
+    assert ":10001" not in source
+    assert ":10001" not in plot_source
+    assert ":10001" not in main_source

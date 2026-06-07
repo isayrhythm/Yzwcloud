@@ -7,6 +7,7 @@ import pytest
 
 import yzwcloud.dev_server as dev_server
 from yzwcloud.dev_server import (
+    DEFAULT_HOST,
     DEFAULT_PORT,
     LOG_DIR_NAME,
     cleanup_server_logs,
@@ -28,31 +29,32 @@ def _touch(path: Path, mtime: int) -> None:
     os.utime(path, (mtime, mtime))
 
 
-def test_default_server_runtime_uses_8010_and_logs_directory(
+def test_default_server_runtime_uses_10001_and_logs_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(dev_server, "project_root", lambda: tmp_path)
 
-    assert DEFAULT_PORT == 8010
+    assert DEFAULT_PORT == 10001
+    assert DEFAULT_HOST == "0.0.0.0"
     assert DEFAULT_PORT != 5174
     assert LOG_DIR_NAME == "logs"
     assert default_log_dir() == tmp_path / "logs"
-    assert server_pid_path(default_log_dir()).name == "server-8010.pid"
+    assert server_pid_path(default_log_dir()).name == "server-10001.pid"
     assert server_log_path(default_log_dir()).parent == tmp_path / "logs"
-    assert server_log_path(default_log_dir()).name.startswith("server-8010-")
+    assert server_log_path(default_log_dir()).name.startswith("server-10001-")
 
 
 def test_cleanup_server_logs_keeps_latest_matching_port(tmp_path: Path) -> None:
-    old_out = tmp_path / "server-8010-20260527-120000.out.log"
-    old_err = tmp_path / "server-8010-20260527-120000.err.log"
-    latest = tmp_path / "server-8010-20260528-120000.out.log"
+    old_out = tmp_path / "server-10001-20260527-120000.out.log"
+    old_err = tmp_path / "server-10001-20260527-120000.err.log"
+    latest = tmp_path / "server-10001-20260528-120000.out.log"
     unmatched_port = tmp_path / "server-9001-20260528-120000.out.log"
     other_port = tmp_path / "server-9000.out.log"
     gitkeep = tmp_path / ".gitkeep"
     for index, path in enumerate([old_out, old_err, latest, unmatched_port, other_port, gitkeep], start=1):
         _touch(path, index)
 
-    removed = cleanup_server_logs(tmp_path, port=8010, keep_latest=1)
+    removed = cleanup_server_logs(tmp_path, port=10001, keep_latest=1)
 
     assert removed == [old_out, old_err]
     assert latest.exists()
@@ -62,9 +64,9 @@ def test_cleanup_server_logs_keeps_latest_matching_port(tmp_path: Path) -> None:
 
 
 def test_matching_server_logs_can_target_all_ports(tmp_path: Path) -> None:
-    first = tmp_path / "server-8010.out.log"
+    first = tmp_path / "server-10001.out.log"
     second = tmp_path / "server-9000.err.log"
-    ignored = tmp_path / "worker-8010.log"
+    ignored = tmp_path / "worker-10001.log"
     _touch(first, 1)
     _touch(second, 2)
     _touch(ignored, 3)
@@ -78,8 +80,8 @@ def test_cleanup_server_logs_rejects_negative_retention(tmp_path: Path) -> None:
 
 
 def test_cleanup_server_logs_skips_locked_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    locked = tmp_path / "server-8010-locked.err.log"
-    removable = tmp_path / "server-8010-old.out.log"
+    locked = tmp_path / "server-10001-locked.err.log"
+    removable = tmp_path / "server-10001-old.out.log"
     _touch(locked, 1)
     _touch(removable, 2)
 
@@ -92,7 +94,7 @@ def test_cleanup_server_logs_skips_locked_files(tmp_path: Path, monkeypatch: pyt
 
     monkeypatch.setattr(Path, "unlink", fake_unlink)
 
-    removed = cleanup_server_logs(tmp_path, port=8010)
+    removed = cleanup_server_logs(tmp_path, port=10001)
 
     assert removed == [removable]
     assert locked.exists()
@@ -102,8 +104,8 @@ def test_cleanup_server_logs_skips_locked_files(tmp_path: Path, monkeypatch: pyt
 def test_cleanup_server_logs_detailed_reports_locked_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    locked = tmp_path / "server-8010-locked.err.log"
-    removable = tmp_path / "server-8010-old.out.log"
+    locked = tmp_path / "server-10001-locked.err.log"
+    removable = tmp_path / "server-10001-old.out.log"
     _touch(locked, 1)
     _touch(removable, 2)
 
@@ -116,7 +118,7 @@ def test_cleanup_server_logs_detailed_reports_locked_files(
 
     monkeypatch.setattr(Path, "unlink", fake_unlink)
 
-    result = cleanup_server_logs_detailed(tmp_path, port=8010)
+    result = cleanup_server_logs_detailed(tmp_path, port=10001)
 
     assert result.removed == [removable]
     assert result.skipped == [locked]
@@ -168,7 +170,7 @@ def test_start_server_spawns_uvicorn_and_records_pid(
         "uvicorn",
         "yzwcloud.main:app",
         "--host",
-        "127.0.0.1",
+        "0.0.0.0",
         "--port",
         "8123",
     ]
@@ -244,7 +246,7 @@ def test_restart_server_rejects_unknown_running_process(
 def test_clean_logs_cli_prints_skipped_locked_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    locked = tmp_path / "server-8010-locked.err.log"
+    locked = tmp_path / "server-10001-locked.err.log"
     _touch(locked, 1)
 
     def fake_unlink(path: Path, *args: object, **kwargs: object) -> None:
@@ -252,7 +254,7 @@ def test_clean_logs_cli_prints_skipped_locked_files(
 
     monkeypatch.setattr(Path, "unlink", fake_unlink)
 
-    exit_code = main(["clean-logs", "--log-dir", str(tmp_path), "--port", "8010"])
+    exit_code = main(["clean-logs", "--log-dir", str(tmp_path), "--port", "10001"])
 
     output = capsys.readouterr().out
     assert exit_code == 0
@@ -261,7 +263,7 @@ def test_clean_logs_cli_prints_skipped_locked_files(
 
 
 def test_clean_logs_cli_can_clean_all_server_ports(tmp_path: Path) -> None:
-    current_port = tmp_path / "server-8010-current.out.log"
+    current_port = tmp_path / "server-10001-current.out.log"
     legacy_port = tmp_path / "server-9000-legacy.out.log"
     worker = tmp_path / "worker-9000.log"
     for index, path in enumerate([current_port, legacy_port, worker], start=1):

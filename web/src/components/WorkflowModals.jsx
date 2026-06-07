@@ -1,11 +1,11 @@
 ﻿import { useState } from "react";
 
 import { formatBytes } from "../workflow/format.js";
-import { Button, Dialog, MessagePlugin, Tabs } from "tdesign-react";
+import { Button, Dialog, Tabs } from "tdesign-react";
 import { Modal } from "./Modal.jsx";
 
 function notifyError(message) {
-  void MessagePlugin.error(message || "操作失败");
+  console.error(message || "操作失败");
 }
 
 export function ConfirmDeleteModal({ title, message, confirmLabel, onClose, onConfirm }) {

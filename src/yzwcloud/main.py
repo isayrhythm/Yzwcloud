@@ -228,11 +228,7 @@ def _plot_studio_result_html(title: str, spec: dict[str, object]) -> str:
   <script>
     const spec = {spec_json};
     function plotlyUrls() {{
-      const urls = ["/static/vendor/plotly.min.js"];
-      if (window.location.hostname && window.location.port === "8011") {{
-        urls.push(`${{window.location.protocol}}//${{window.location.hostname}}:8010/static/vendor/plotly.min.js`);
-      }}
-      return [...new Set(urls)];
+      return ["/static/vendor/plotly.min.js"];
     }}
     function loadPlotly(index = 0) {{
       if (window.Plotly) return Promise.resolve(window.Plotly);

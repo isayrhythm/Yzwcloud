@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev:web": "vite --host 127.0.0.1 --port 8011",
+    "dev:web": "vite",
     "build:web": "vite build",
     "preview:web": "vite preview --host 127.0.0.1 --port 4173"
   },

@@ -22,11 +22,11 @@ build-backend = "pdm.backend"
 distribution = true
 
 [tool.pdm.scripts]
-dev = "uvicorn yzwcloud.main:app --reload --host 127.0.0.1 --port 8010"
-start = "uvicorn yzwcloud.main:app --host 127.0.0.1 --port 8010"
-start-bg = "python -m yzwcloud.dev_server start --port 8010"
-stop-bg = "python -m yzwcloud.dev_server stop --port 8010"
-restart-bg = "python -m yzwcloud.dev_server restart --port 8010"
+dev = "python -m yzwcloud.dev_server run --reload"
+start = "python -m yzwcloud.dev_server run"
+start-bg = "python -m yzwcloud.dev_server start"
+stop-bg = "python -m yzwcloud.dev_server stop"
+restart-bg = "python -m yzwcloud.dev_server restart"
 clean-logs = "python -m yzwcloud.dev_server clean-logs --all-ports"
 install-r = "Rscript src/yzwcloud/r/install_wgcna_packages.R"
 

@@ -27,12 +27,7 @@ import {
 let plotlyLoader = null;
 
 function plotlyScriptUrls() {
-  const urls = ["/static/vendor/plotly.min.js"];
-  const { protocol, hostname, port } = window.location;
-  if (hostname && port === "8011") {
-    urls.push(`${protocol}//${hostname}:8010/static/vendor/plotly.min.js`);
-  }
-  return Array.from(new Set(urls));
+  return ["/static/vendor/plotly.min.js"];
 }
 
 function loadPlotly() {
@@ -1779,12 +1774,13 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
         body: file,
       });
       if (!response.ok) {
-        let detail = response.statusText;
+        const text = await response.text();
+        let detail = text || response.statusText;
         try {
-          const payload = await response.json();
+          const payload = JSON.parse(text);
           detail = payload.detail || detail;
         } catch {
-          detail = await response.text();
+          // Keep the plain-text response body or status text.
         }
         throw new Error(detail);
       }

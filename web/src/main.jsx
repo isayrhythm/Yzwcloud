@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import "tdesign-react/es/_util/react-19-adapter";
 import {
   Background,
   Controls,
@@ -11,7 +12,7 @@ import {
   applyNodeChanges,
   useReactFlow,
 } from "@xyflow/react";
-import { Button, Dropdown, MessagePlugin, Tag } from "tdesign-react";
+import { Button, Dropdown, Tag } from "tdesign-react";
 import { AddIcon, MoreIcon, RefreshIcon } from "tdesign-icons-react";
 import "@xyflow/react/dist/style.css";
 import "tdesign-react/es/style/index.css";
@@ -61,7 +62,7 @@ const PAGE_STORAGE_KEY = "yzwcloud.currentPage";
 const TASK_STORAGE_KEY = "yzwcloud.activeTaskId";
 
 function notifyError(message) {
-  void MessagePlugin.error(message || "操作失败");
+  console.error(message || "操作失败");
 }
 
 function normalizePage(value) {
@@ -83,12 +84,13 @@ async function api(path, options = {}) {
     ...options,
   });
   if (!response.ok) {
-    let detail = response.statusText;
+    const text = await response.text();
+    let detail = text || response.statusText;
     try {
-      const payload = await response.json();
+      const payload = JSON.parse(text);
       detail = payload.detail || detail;
     } catch {
-      detail = await response.text();
+      // Keep the plain-text response body or status text.
     }
     throw new Error(detail);
   }
@@ -630,11 +632,13 @@ function App() {
       body: formData,
     });
     if (!response.ok) {
-      let detail = response.statusText;
+      const text = await response.text();
+      let detail = text || response.statusText;
       try {
-        detail = (await response.json()).detail || detail;
+        const payload = JSON.parse(text);
+        detail = payload.detail || detail;
       } catch {
-        detail = await response.text();
+        // Keep the plain-text response body or status text.
       }
       notifyError(`上传失败：${detail}`);
       return;

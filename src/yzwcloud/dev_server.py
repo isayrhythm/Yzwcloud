@@ -12,7 +12,18 @@ from datetime import datetime
 from pathlib import Path
 
 
-DEFAULT_PORT = 8010
+def _int_from_env(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+DEFAULT_PORT = _int_from_env("YZWCLOUD_BACKEND_PORT", 10001)
+DEFAULT_HOST = os.environ.get("YZWCLOUD_BACKEND_HOST", "0.0.0.0")
 LOG_DIR_NAME = "logs"
 
 
@@ -103,8 +114,9 @@ def cleanup_server_logs_detailed(
 
 
 def is_port_open(host: str, port: int, *, timeout: float = 0.35) -> bool:
+    connect_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
     try:
-        with socket.create_connection((host, port), timeout=timeout):
+        with socket.create_connection((connect_host, port), timeout=timeout):
             return True
     except OSError:
         return False
@@ -131,7 +143,7 @@ def normalized_process_env(env: dict[str, str] | None = None) -> dict[str, str]:
 def start_server(
     log_dir: Path | None = None,
     *,
-    host: str = "127.0.0.1",
+    host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     reload: bool = False,
     keep_latest: int = 3,
@@ -207,7 +219,7 @@ def start_server(
 def stop_server(
     log_dir: Path | None = None,
     *,
-    host: str = "127.0.0.1",
+    host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     wait_seconds: float = 8.0,
 ) -> ServerStopResult:
@@ -244,7 +256,7 @@ def stop_server(
 def restart_server(
     log_dir: Path | None = None,
     *,
-    host: str = "127.0.0.1",
+    host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     reload: bool = False,
     clean_all_ports: bool = True,
@@ -271,6 +283,12 @@ def restart_server(
         keep_latest=keep_latest,
         wait_seconds=wait_seconds,
     )
+
+
+def run_server(*, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, reload: bool = False) -> None:
+    import uvicorn
+
+    uvicorn.run("yzwcloud.main:app", host=host, port=port, reload=reload)
 
 
 def _read_pid(pid_path: Path) -> int | None:
@@ -303,19 +321,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="YZW BioCloud local server helpers")
     subcommands = parser.add_subparsers(dest="command", required=True)
     start = subcommands.add_parser("start", help="start the local API server in the background")
-    start.add_argument("--host", default="127.0.0.1")
+    start.add_argument("--host", default=DEFAULT_HOST)
     start.add_argument("--port", type=int, default=DEFAULT_PORT)
     start.add_argument("--reload", action="store_true")
     start.add_argument("--keep-latest", type=int, default=3)
     start.add_argument("--wait-seconds", type=float, default=8.0)
     start.add_argument("--log-dir", type=Path, default=default_log_dir())
     stop = subcommands.add_parser("stop", help="stop the local API server started by this helper")
-    stop.add_argument("--host", default="127.0.0.1")
+    stop.add_argument("--host", default=DEFAULT_HOST)
     stop.add_argument("--port", type=int, default=DEFAULT_PORT)
     stop.add_argument("--wait-seconds", type=float, default=8.0)
     stop.add_argument("--log-dir", type=Path, default=default_log_dir())
     restart = subcommands.add_parser("restart", help="restart the local API server and clean generated logs")
-    restart.add_argument("--host", default="127.0.0.1")
+    restart.add_argument("--host", default=DEFAULT_HOST)
     restart.add_argument("--port", type=int, default=DEFAULT_PORT)
     restart.add_argument("--reload", action="store_true")
     restart.add_argument("--keep-latest", type=int, default=0)
@@ -326,6 +344,10 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="clean only logs for the restarted port instead of every server-*.log file",
     )
+    run = subcommands.add_parser("run", help="run the local API server in the foreground")
+    run.add_argument("--host", default=DEFAULT_HOST)
+    run.add_argument("--port", type=int, default=DEFAULT_PORT)
+    run.add_argument("--reload", action="store_true")
     cleanup = subcommands.add_parser("clean-logs", help="remove generated local server logs")
     cleanup.add_argument("--port", type=int, default=DEFAULT_PORT)
     cleanup.add_argument(
@@ -381,6 +403,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"started port={args.port} pid={result.pid} log={result.log_path}")
         print(f"pid-file={result.pid_path}")
+        return 0
+    if args.command == "run":
+        run_server(host=args.host, port=args.port, reload=args.reload)
         return 0
     if args.command == "clean-logs":
         port = None if args.all_ports else args.port

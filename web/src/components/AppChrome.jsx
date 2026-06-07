@@ -7,9 +7,9 @@ export function AppChrome({ page, onNavigate, children }) {
     { id: "home", label: t("home") },
     { id: "workbench", label: t("analysisWorkspace") },
     { id: "plot", label: t("plotStudio") },
-    { id: "subscription", label: t("subscription") },
     { id: "lab", label: t("experimentDesign") },
     { id: "reports", label: t("reports") },
+    { id: "subscription", label: t("subscription") },
     { id: "docs", label: t("guide") },
   ];
 

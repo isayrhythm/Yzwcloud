@@ -45,7 +45,7 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     assert "report agent" in manifest["workflow_stages"][-1]["description"]
     recipes = {item["id"]: item for item in manifest["style_recipes"]}
     assert {"publication", "prism_clean", "data_review", "presentation", "exploration"} <= set(recipes)
-    assert recipes["publication"]["params"]["format"] == "svg"
+    assert recipes["publication"]["params"]["format"] == "tif"
     assert recipes["publication"]["params"]["show_grid"] is False
     assert recipes["prism_clean"]["params"]["show_grid"] is False
     assert recipes["prism_clean"]["params"]["axis_line_width"] >= 1.8
@@ -268,7 +268,7 @@ def test_plot_studio_presets_expose_prism_like_defaults() -> None:
     dpi_param = next(param for param in export_group["parameters"] if param["id"] == "dpi")
     format_param = next(param for param in export_group["parameters"] if param["id"] == "format")
     assert "1000" in dpi_param["options"]
-    assert set(format_param["options"]) == {"svg", "png", "jpeg", "webp"}
+    assert set(format_param["options"]) == {"tif", "svg", "png", "jpeg", "webp"}
     theme_group = next(group for group in boxplot["parameter_groups"] if group["id"] == "theme")
     assert theme_group["advanced"] is True
     assert {param["id"] for param in theme_group["parameters"]} >= {
@@ -3207,6 +3207,7 @@ def test_plot_studio_spec_builds_interactive_plotly_boxplot() -> None:
     assert spec["layout"]["height"] == 520
     assert spec["layout"]["margin"] == {"l": 96, "r": 44, "t": 120, "b": 88}
     assert spec["config"]["toImageButtonOptions"]["format"] == "png"
+    assert spec["config"]["toImageButtonOptions"]["exportFormat"] == "png"
     assert spec["config"]["toImageButtonOptions"]["filename"] == "Figure_1_boxplot"
     assert spec["config"]["toImageButtonOptions"]["scale"] == 4
     assert spec["config"]["displaylogo"] is False
@@ -3324,8 +3325,12 @@ def test_plot_studio_default_toolbar_stays_unobtrusive() -> None:
     assert spec["config"]["modeBarButtonsToRemove"] == ["lasso2d", "select2d"]
 
 
-def test_plot_studio_export_uses_supported_browser_formats() -> None:
+def test_plot_studio_export_uses_supported_browser_formats(tmp_path: Path) -> None:
     client = TestClient(app)
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_export_formats.csv"
+    table_file.write_text("group,value\nA,1\nA,2\nB,3\nB,4\n", encoding="utf-8")
 
     spec = _request(
         client,
@@ -3336,7 +3341,7 @@ def test_plot_studio_export_uses_supported_browser_formats() -> None:
                 "sourceKind": "analysis_output",
                 "name": "Expression matrix",
                 "type": "expression_matrix",
-                "dataPath": str(DATA_FILE),
+                "dataPath": str(table_file),
             },
             "plotType": "boxplot",
             "params": {"format": "jpeg", "dpi": "1000", "export_filename": "high res figure"},
@@ -3345,8 +3350,39 @@ def test_plot_studio_export_uses_supported_browser_formats() -> None:
 
     export = spec["config"]["toImageButtonOptions"]
     assert export["format"] == "jpeg"
+    assert export["exportFormat"] == "jpeg"
     assert export["scale"] == 6
     assert export["filename"] == "high_res_figure"
+
+
+def test_plot_studio_export_defaults_to_tiff_with_plotly_png_fallback(tmp_path: Path) -> None:
+    client = TestClient(app)
+    allowed_tmp = ROOT / "data" / "tmp_plot_studio_tests"
+    allowed_tmp.mkdir(parents=True, exist_ok=True)
+    table_file = allowed_tmp / f"{tmp_path.name}_export_tiff_default.csv"
+    table_file.write_text("group,value\nA,1\nA,2\nB,3\nB,4\n", encoding="utf-8")
+
+    spec = _request(
+        client,
+        "POST",
+        "/api/plot-studio/spec",
+        json={
+            "source": {
+                "sourceKind": "analysis_output",
+                "name": "Expression matrix",
+                "type": "expression_matrix",
+                "dataPath": str(table_file),
+            },
+            "plotType": "boxplot",
+            "params": {"dpi": "600", "export_filename": "journal figure"},
+        },
+    )
+
+    export = spec["config"]["toImageButtonOptions"]
+    assert export["format"] == "png"
+    assert export["exportFormat"] == "tif"
+    assert export["scale"] == 4
+    assert export["filename"] == "journal_figure"
 
 
 def test_plot_studio_scatter_statistics_controls_render_overlays(tmp_path: Path) -> None:

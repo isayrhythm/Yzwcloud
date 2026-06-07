@@ -5490,9 +5490,12 @@ def _base_layout(title: str, x_title: str, y_title: str, params: dict[str, Any])
 
 
 def _plotly_config(params: dict[str, Any]) -> dict[str, Any]:
-    export_format = str(params.get("format") or "svg")
-    if export_format not in {"svg", "png", "jpeg", "webp"}:
-        export_format = "svg"
+    export_format = str(params.get("format") or "tif").lower()
+    if export_format == "tiff":
+        export_format = "tif"
+    if export_format not in {"tif", "png", "svg", "jpeg", "webp"}:
+        export_format = "tif"
+    plotly_format = "png" if export_format == "tif" else export_format
     dpi = str(params.get("dpi") or "300")
     scale = {"150": 1, "300": 2, "600": 4, "1000": 6}.get(dpi, 2)
     filename = _plot_filename(params.get("export_filename"))
@@ -5503,7 +5506,12 @@ def _plotly_config(params: dict[str, Any]) -> dict[str, Any]:
         "displayModeBar": modebar,
         "responsive": True,
         "scrollZoom": _truthy(params.get("scroll_zoom"), False),
-        "toImageButtonOptions": {"format": export_format, "filename": filename, "scale": scale},
+        "toImageButtonOptions": {
+            "format": plotly_format,
+            "exportFormat": export_format,
+            "filename": filename,
+            "scale": scale,
+        },
         "modeBarButtonsToRemove": buttons_to_remove,
     }
 

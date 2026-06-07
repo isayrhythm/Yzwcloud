@@ -115,9 +115,9 @@ function sanitizePlotExportFilename(value) {
 
 function plotExportOptionsFromSpec(spec, fallbackFormat = "png") {
   const rawOptions = spec?.config?.toImageButtonOptions || {};
-  const supportedFormats = new Set(["svg", "png", "jpeg", "webp"]);
-  const rawFormat = String(rawOptions.format || fallbackFormat).toLowerCase();
-  const format = supportedFormats.has(rawFormat) ? rawFormat : fallbackFormat;
+  const supportedFormats = new Set(["tif", "tiff", "svg", "png", "jpeg", "webp"]);
+  const rawFormat = String(rawOptions.exportFormat || rawOptions.format || fallbackFormat).toLowerCase();
+  const format = supportedFormats.has(rawFormat) ? (rawFormat === "tiff" ? "tif" : rawFormat) : fallbackFormat;
   const scale = Number(rawOptions.scale);
   const options = {
     format,
@@ -138,6 +138,108 @@ function downloadDataUrl(dataUrl, filename) {
   document.body.removeChild(link);
 }
 
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  try {
+    downloadDataUrl(url, filename);
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+}
+
+function downloadTextFile(text, filename, type = "text/html;charset=utf-8") {
+  downloadBlob(new Blob([text], { type }), filename);
+}
+
+function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("无法读取导出图像。"));
+    image.src = dataUrl;
+  });
+}
+
+function writeTiffEntry(view, offset, tag, type, count, value) {
+  view.setUint16(offset, tag, true);
+  view.setUint16(offset + 2, type, true);
+  view.setUint32(offset + 4, count, true);
+  if (type === 3 && count === 1) {
+    view.setUint16(offset + 8, value, true);
+    view.setUint16(offset + 10, 0, true);
+  } else {
+    view.setUint32(offset + 8, value, true);
+  }
+}
+
+async function dataUrlToTiffBlob(dataUrl) {
+  const image = await loadImageFromDataUrl(dataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context || !canvas.width || !canvas.height) {
+    throw new Error("无法创建 TIFF 导出画布。");
+  }
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0);
+
+  const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+  const pixelBytes = canvas.width * canvas.height * 3;
+  const entryCount = 12;
+  const ifdOffset = 8;
+  const ifdBytes = 2 + entryCount * 12 + 4;
+  const bitsOffset = ifdOffset + ifdBytes;
+  const xResolutionOffset = bitsOffset + 6;
+  const yResolutionOffset = xResolutionOffset + 8;
+  const imageOffset = yResolutionOffset + 8;
+  const buffer = new ArrayBuffer(imageOffset + pixelBytes);
+  const view = new DataView(buffer);
+
+  view.setUint8(0, 0x49);
+  view.setUint8(1, 0x49);
+  view.setUint16(2, 42, true);
+  view.setUint32(4, ifdOffset, true);
+  view.setUint16(ifdOffset, entryCount, true);
+
+  let entryOffset = ifdOffset + 2;
+  const entry = (tag, type, count, value) => {
+    writeTiffEntry(view, entryOffset, tag, type, count, value);
+    entryOffset += 12;
+  };
+  entry(256, 4, 1, canvas.width);
+  entry(257, 4, 1, canvas.height);
+  entry(258, 3, 3, bitsOffset);
+  entry(259, 3, 1, 1);
+  entry(262, 3, 1, 2);
+  entry(273, 4, 1, imageOffset);
+  entry(277, 3, 1, 3);
+  entry(278, 4, 1, canvas.height);
+  entry(279, 4, 1, pixelBytes);
+  entry(282, 5, 1, xResolutionOffset);
+  entry(283, 5, 1, yResolutionOffset);
+  entry(296, 3, 1, 2);
+  view.setUint32(entryOffset, 0, true);
+
+  view.setUint16(bitsOffset, 8, true);
+  view.setUint16(bitsOffset + 2, 8, true);
+  view.setUint16(bitsOffset + 4, 8, true);
+  view.setUint32(xResolutionOffset, 300, true);
+  view.setUint32(xResolutionOffset + 4, 1, true);
+  view.setUint32(yResolutionOffset, 300, true);
+  view.setUint32(yResolutionOffset + 4, 1, true);
+
+  let target = imageOffset;
+  for (let source = 0; source < data.length; source += 4) {
+    view.setUint8(target, data[source]);
+    view.setUint8(target + 1, data[source + 1]);
+    view.setUint8(target + 2, data[source + 2]);
+    target += 3;
+  }
+  return new Blob([buffer], { type: "image/tiff" });
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -147,15 +249,15 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function openPlotExportPrintWindow({ dataUrl, title, filename }) {
-  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=850");
-  if (!printWindow) {
-    throw new Error("浏览器阻止了 PDF 导出窗口，请允许弹窗后重试。");
-  }
+function createPlotExportPrintWindow() {
+  return window.open("", "_blank", "width=1200,height=850");
+}
+
+function plotExportPrintHtml({ dataUrl, title, filename }) {
   const safeTitle = escapeHtml(title || filename);
   const safeFilename = escapeHtml(filename);
   const safeDataUrl = escapeHtml(dataUrl);
-  printWindow.document.write(`<!doctype html>
+  return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -190,12 +292,44 @@ function openPlotExportPrintWindow({ dataUrl, title, filename }) {
     </main>
     <script>window.addEventListener("load", () => { window.focus(); window.setTimeout(() => window.print(), 250); });</script>
   </body>
-</html>`);
-  printWindow.document.close();
+</html>`;
+}
+
+function openPlotExportPrintWindow({ dataUrl, title, filename, printWindow = null }) {
+  const targetWindow = printWindow || createPlotExportPrintWindow();
+  const html = plotExportPrintHtml({ dataUrl, title, filename });
+  if (!targetWindow) {
+    downloadTextFile(html, `${filename}-print.html`);
+    return false;
+  }
+  targetWindow.document.write(html);
+  targetWindow.document.close();
+  return true;
+}
+
+function parameterDefaultsFromPreset(preset) {
+  const defaults = {};
+  (preset?.parameter_groups || []).forEach((group) => {
+    (group.parameters || []).forEach((parameter) => {
+      if (parameter.id && Object.prototype.hasOwnProperty.call(parameter, "default")) {
+        defaults[parameter.id] = parameter.default;
+      }
+    });
+  });
+  return defaults;
 }
 
 function defaultParamsFromPreset(preset) {
-  return { ...(preset?.default_params || {}) };
+  return { ...parameterDefaultsFromPreset(preset), ...(preset?.default_params || {}) };
+}
+
+function mergePresetDefaultsWithCurrent(preset, current) {
+  const defaults = defaultParamsFromPreset(preset);
+  const next = { ...defaults, ...(current || {}) };
+  if (defaults.format === "tif" && (!current || current.format === undefined || current.format === "svg")) {
+    next.format = "tif";
+  }
+  return next;
 }
 
 function preferredNumericColumns(tableSummary) {
@@ -1579,7 +1713,7 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
 
   useEffect(() => {
     if (!selectedPreset) return;
-    setParams((current) => ({ ...defaultParamsFromPreset(selectedPreset), ...current }));
+    setParams((current) => mergePresetDefaultsWithCurrent(selectedPreset, current));
   }, [selectedPreset?.id]);
 
   useEffect(() => {
@@ -1822,8 +1956,14 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
     try {
       const Plotly = await loadPlotly();
       const options = plotExportOptionsFromSpec(previewSpec, "png");
-      const dataUrl = await Plotly.toImage(plotExportRef.current, options);
-      downloadDataUrl(dataUrl, `${options.filename}.${options.format}`);
+      if (options.format === "tif") {
+        const dataUrl = await Plotly.toImage(plotExportRef.current, { ...options, format: "png" });
+        const tiffBlob = await dataUrlToTiffBlob(dataUrl);
+        downloadBlob(tiffBlob, `${options.filename}.tif`);
+      } else {
+        const dataUrl = await Plotly.toImage(plotExportRef.current, options);
+        downloadDataUrl(dataUrl, `${options.filename}.${options.format}`);
+      }
       setPlotExportStatus("ready");
     } catch (exportFailure) {
       setPlotExportError(exportFailure.message || "导出高清图失败。");
@@ -1833,19 +1973,25 @@ export function PlotStudioPage({ session, report, activeTaskId, onSelectSource, 
 
   const exportCurrentPlotPdf = async () => {
     if (!previewSpec?.data?.length || !plotExportRef.current) return;
+    const printWindow = createPlotExportPrintWindow();
     setPlotExportStatus("pdf");
     setPlotExportError("");
     try {
       const Plotly = await loadPlotly();
       const options = plotExportOptionsFromSpec(previewSpec, "svg");
       const dataUrl = await Plotly.toImage(plotExportRef.current, { ...options, format: "svg" });
-      openPlotExportPrintWindow({
+      const opened = openPlotExportPrintWindow({
         dataUrl,
         filename: options.filename,
+        printWindow,
         title: selectedPreset?.label || "Plot Studio",
       });
+      if (!opened) {
+        setPlotExportError("浏览器阻止了 PDF 打印窗口，已下载可打印 HTML 文件。打开后按 Ctrl+P 保存为 PDF。");
+      }
       setPlotExportStatus("ready");
     } catch (exportFailure) {
+      if (printWindow) printWindow.close();
       setPlotExportError(exportFailure.message || "导出 PDF 失败。");
       setPlotExportStatus("error");
     }

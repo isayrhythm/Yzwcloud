@@ -2634,7 +2634,6 @@ h2 {
 }
 
 .subscription-hero,
-.subscription-metrics,
 .subscription-plans,
 .subscription-detail-band {
   border: 1px solid var(--line);
@@ -2707,47 +2706,28 @@ h2 {
   background: #f5f9fc;
 }
 
-.subscription-billing-toggle strong {
+.subscription-billing-toggle button {
   display: inline-grid;
   min-height: 38px;
   place-items: center;
+  border: 0;
   border-radius: 999px;
+  background: transparent;
   color: #506173;
+  cursor: pointer;
   font-size: 13px;
+  font: inherit;
+  font-weight: 900;
+}
+
+.subscription-billing-toggle button:hover {
+  color: var(--accent-strong);
 }
 
 .subscription-billing-toggle .active {
   color: #ffffff;
   background: var(--accent);
   box-shadow: 0 10px 24px rgba(0, 82, 217, 0.18);
-}
-
-.subscription-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  border-radius: 18px;
-}
-
-.subscription-metrics div {
-  display: grid;
-  gap: 6px;
-  padding: 18px 20px;
-  background: #ffffff;
-}
-
-.subscription-metrics span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 850;
-  text-transform: uppercase;
-}
-
-.subscription-metrics strong {
-  color: var(--accent-strong);
-  font-size: 22px;
-  line-height: 1.1;
 }
 
 .subscription-plans {
@@ -6072,7 +6052,6 @@ h2 {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .subscription-metrics,
   .subscription-plans {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6655,7 +6634,6 @@ h2 {
   .report-summary-grid,
   .report-section-grid,
   .report-structure-grid,
-  .subscription-metrics,
   .subscription-plans,
   .subscription-scenario-grid {
     grid-template-columns: 1fr;

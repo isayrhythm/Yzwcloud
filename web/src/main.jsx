@@ -42,6 +42,7 @@ import {
 } from "./plotStudio/session.js";
 import { outputUrl } from "./workflow/format.js";
 import {
+  arrangeGraphNodePositions,
   collectOccupiedNodeRects,
   fallbackPosition,
   findOpenNodePosition,
@@ -60,6 +61,7 @@ import "./styles.css";
 const PAGE_IDS = new Set(["home", "workbench", "plot", "subscription", "docs", "lab", "reports"]);
 const PAGE_STORAGE_KEY = "yzwcloud.currentPage";
 const TASK_STORAGE_KEY = "yzwcloud.activeTaskId";
+const EDGE_SIDE_CHANNELS = 5;
 
 function notifyError(message) {
   console.error(message || "操作失败");
@@ -128,9 +130,51 @@ function edgeHandlesForPositions(sourcePosition, targetPosition) {
   };
 }
 
+function edgeHandlesForGraphEdge(edge, nodePositions, visibleEdges) {
+  const fallback = edgeHandlesForPositions(nodePositions.get(edge.source), nodePositions.get(edge.target));
+  return {
+    sourceHandle: edgeSourceHandle(edge, nodePositions, visibleEdges, fallback.sourceHandle),
+    targetHandle: edgeTargetHandle(edge, nodePositions, visibleEdges, fallback.targetHandle),
+  };
+}
+
+function edgeSourceHandle(edge, nodePositions, visibleEdges, fallbackHandle) {
+  const siblings = visibleEdges
+    .filter((item) => item.source === edge.source)
+    .sort((a, b) => edgeTargetSortValue(a, nodePositions) - edgeTargetSortValue(b, nodePositions));
+  if (siblings.length <= 1) return fallbackHandle;
+  const index = siblings.findIndex((item) => item.target === edge.target);
+  return edgeChannelHandle(index, siblings.length, "source-right", fallbackHandle);
+}
+
+function edgeTargetHandle(edge, nodePositions, visibleEdges, fallbackHandle) {
+  const siblings = visibleEdges
+    .filter((item) => item.target === edge.target)
+    .sort((a, b) => edgeSourceSortValue(a, nodePositions) - edgeSourceSortValue(b, nodePositions));
+  if (siblings.length <= 1) return fallbackHandle;
+  const index = siblings.findIndex((item) => item.source === edge.source);
+  return edgeChannelHandle(index, siblings.length, "target-left", fallbackHandle);
+}
+
+function edgeChannelHandle(index, count, sideHandle, fallbackHandle) {
+  if (index < 0 || count <= 1) return fallbackHandle;
+  const channel = Math.round((index / Math.max(1, count - 1)) * (EDGE_SIDE_CHANNELS - 1));
+  return `${sideHandle}-${Math.max(0, Math.min(EDGE_SIDE_CHANNELS - 1, channel))}`;
+}
+
+function edgeTargetSortValue(edge, nodePositions) {
+  const position = nodePositions.get(edge.target);
+  return position ? position.y : 0;
+}
+
+function edgeSourceSortValue(edge, nodePositions) {
+  const position = nodePositions.get(edge.source);
+  return position ? position.y : 0;
+}
+
 function App() {
   const { t } = useI18n();
-  const { getViewport, setViewport } = useReactFlow();
+  const { fitView, getViewport, setViewport } = useReactFlow();
   const [tasks, setTasks] = useState([]);
   const [activeTaskId, setActiveTaskId] = useState(() => localStorage.getItem(TASK_STORAGE_KEY) || null);
   const [detail, setDetail] = useState(null);
@@ -246,10 +290,10 @@ function App() {
     });
     const nodePositions = new Map(flowNodes.map((node) => [node.id, node.position]));
     const visibleIds = new Set(graphNodes.map((node) => node.id));
-    const flowEdges = detail.graph.edges
-      .filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target))
+    const visibleEdges = detail.graph.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+    const flowEdges = visibleEdges
       .map((edge) => {
-        const handles = edgeHandlesForPositions(nodePositions.get(edge.source), nodePositions.get(edge.target));
+        const handles = edgeHandlesForGraphEdge(edge, nodePositions, visibleEdges);
         return {
           id: `${edge.source}->${edge.target}`,
           source: edge.source,
@@ -610,6 +654,31 @@ function App() {
     });
   };
 
+  const arrangeWorkflowNodes = () => {
+    if (!activeTaskId || !detail) return;
+    const viewport = getViewport();
+    const zoom = viewport.zoom || 1;
+    const visibleNodes = visibleGraphNodes(detail.graph.nodes, detail.graph.edges);
+    const currentPositions = new Map(nodes.map((node) => [node.id, node.position]));
+    const arrangedPositions = arrangeGraphNodePositions(visibleNodes, detail.graph.edges, {
+      currentPositions,
+      origin: {
+        x: (-viewport.x / zoom) + 80,
+        y: (-viewport.y / zoom) + 80,
+      },
+    });
+
+    Object.entries(arrangedPositions).forEach(([nodeId, position]) => {
+      saveNodePosition(activeTaskId, nodeId, position);
+    });
+    setNodes((current) =>
+      current.map((node) =>
+        arrangedPositions[node.id] ? { ...node, position: arrangedPositions[node.id] } : node,
+      ),
+    );
+    window.setTimeout(() => fitView({ padding: 0.18, duration: 300 }), 0);
+  };
+
   const createAnalysisNode = async (sourceNodeId, analysisType) => {
     const response = await api(`/api/tasks/${activeTaskId}/analysis-nodes`, {
       method: "POST",
@@ -933,6 +1002,16 @@ function App() {
               <span className="muted">{detail ? `${detail.task.name} · ${detail.task.status}` : "未选择任务"}</span>
             </div>
             <div className="workflow-report-actions">
+              <Button
+                className="workflow-arrange-button"
+                disabled={!detail}
+                icon={<RefreshIcon />}
+                onClick={arrangeWorkflowNodes}
+                shape="round"
+                variant="outline"
+              >
+                整理节点
+              </Button>
               <span className="task-id">{detail ? detail.task.task_id : ""}</span>
             </div>
           </div>

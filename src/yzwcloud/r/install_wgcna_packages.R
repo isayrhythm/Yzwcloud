@@ -14,7 +14,7 @@ install_if_missing <- function(package) {
 
 install_if_missing("BiocManager")
 
-bioc_packages <- c("DESeq2", "impute", "preprocessCore", "GO.db", "AnnotationDbi")
+bioc_packages <- c("DESeq2", "impute", "preprocessCore", "AnnotationDbi")
 for (package in bioc_packages) {
   if (!requireNamespace(package, quietly = TRUE)) {
     BiocManager::install(package, ask = FALSE, update = FALSE, lib = user_library)

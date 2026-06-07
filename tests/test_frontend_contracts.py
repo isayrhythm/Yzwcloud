@@ -19,6 +19,7 @@ ANALYSIS_NODE = ROOT / "web" / "src" / "components" / "AnalysisNode.jsx"
 WORKFLOW_MODALS = ROOT / "web" / "src" / "components" / "WorkflowModals.jsx"
 REPORTS_PAGE = ROOT / "web" / "src" / "pages" / "ReportsPage.jsx"
 WORKFLOW_OPTIONS = ROOT / "web" / "src" / "workflow" / "options.js"
+WORKFLOW_LAYOUT = ROOT / "web" / "src" / "workflow" / "layout.js"
 
 
 def _source(path: Path) -> str:
@@ -614,6 +615,10 @@ def test_workflow_header_exposes_task_report_exports() -> None:
         "workflow-report-actions",
         "workflow-report-primary",
         "流程报告",
+        "arrangeWorkflowNodes",
+        "arrangeGraphNodePositions",
+        "整理节点",
+        "fitView({ padding: 0.18, duration: 300 })",
     ]:
         assert fragment in source
 
@@ -629,6 +634,7 @@ def test_workflow_header_exposes_task_report_exports() -> None:
         ".workflow-title-row",
         ".workflow-report-actions",
         ".workflow-report-primary",
+        ".workflow-arrange-button",
     ]:
         assert fragment in styles
 
@@ -681,9 +687,16 @@ def test_workflow_edges_route_through_directional_handles() -> None:
     styles = _source(ROOT / "web" / "src" / "styles.css")
 
     assert "edgeHandlesForPositions" in main_source
+    assert "edgeHandlesForGraphEdge" in main_source
+    assert "edgeSourceHandle" in main_source
+    assert "edgeTargetHandle" in main_source
+    assert "edgeChannelHandle" in main_source
+    assert "EDGE_SIDE_CHANNELS = 5" in main_source
+    assert "const visibleEdges = detail.graph.edges.filter" in main_source
     assert "sourceHandle: handles.sourceHandle" in main_source
     assert "targetHandle: handles.targetHandle" in main_source
     assert 'type: "smoothstep"' not in main_source
+    assert "pathOptions: { borderRadius: 18, offset: 42 }" not in main_source
     for handle_id in [
         'id="source-right"',
         'id="source-top"',
@@ -691,10 +704,42 @@ def test_workflow_edges_route_through_directional_handles() -> None:
         'id="target-left"',
         'id="target-top"',
         'id="target-bottom"',
+        "edgeHandleChannels.map",
+        "source-right-${channel}",
+        "target-left-${channel}",
     ]:
         assert handle_id in node_source
     assert ".analysis-node .node-handle" in styles
     assert "opacity: 0" in styles
+
+
+def test_workflow_new_node_placement_searches_open_space_around_parent() -> None:
+    source = _source(WORKFLOW_LAYOUT)
+    main_source = _source(MAIN_PAGE)
+
+    for fragment in [
+        "arrangeGraphNodePositions",
+        'import { Graph, layout as dagreLayout } from "@dagrejs/dagre"',
+        "arrangeGraphNodePositionsWithDagre",
+        "rankdir: \"LR\"",
+        "ranker: \"network-simplex\"",
+        "acyclicer: \"greedy\"",
+        "nodesep: 190",
+        "ranksep: 270",
+        "dagreLayout(graph)",
+        "arrangeGraphNodePositionsWithLocalLayers",
+        "nodeSortValue",
+        "nodePositionCandidates",
+        "const rowOffsets = [0, 1, -1",
+        "const colOffsets = [0, 1, -1",
+        "firstOpenCandidate(candidates, occupiedRects, viewportBounds)",
+        "firstOpenCandidate(candidates, occupiedRects, expandedBounds)",
+        "leastCrowdedCandidate(candidates, occupiedRects, expandedBounds)",
+        "rectOverlapArea",
+    ]:
+        assert fragment in source
+
+    assert "findOpenNodePosition(desired, occupiedRects, bounds)" in main_source
 
 
 def test_feature_intensity_profile_uses_generic_feature_labels() -> None:

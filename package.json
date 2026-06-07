@@ -9,6 +9,7 @@
     "preview:web": "vite preview --host 127.0.0.1 --port 4173"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "@xyflow/react": "^12.8.0",
     "plotly.js-dist-min": "^3.5.1",

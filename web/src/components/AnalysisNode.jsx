@@ -4,6 +4,9 @@ import { formatBytes, formatDateTime, outputUrl } from "../workflow/format.js";
 import { dataProfile, nextAnalysisOptions, summarizeOutput } from "../workflow/options.js";
 import { statusLabel } from "../workflow/status.js";
 
+const edgeHandleChannels = [0, 1, 2, 3, 4];
+const edgeHandleTop = (index) => `${18 + index * 16}%`;
+
 export function AnalysisNode({ data }) {
   const node = data.node;
   const output = summarizeOutput(node.output);
@@ -58,6 +61,16 @@ export function AnalysisNode({ data }) {
   return (
     <article className={`analysis-node ${node.status} ${uploadedInput ? "has-uploaded-input" : ""}`}>
       <Handle className="node-handle node-handle-left" id="target-left" type="target" position={Position.Left} />
+      {edgeHandleChannels.map((channel) => (
+        <Handle
+          className="node-handle node-handle-left"
+          id={`target-left-${channel}`}
+          key={`target-left-${channel}`}
+          position={Position.Left}
+          style={{ top: edgeHandleTop(channel) }}
+          type="target"
+        />
+      ))}
       <Handle className="node-handle node-handle-top" id="target-top" type="target" position={Position.Top} />
       <Handle className="node-handle node-handle-bottom" id="target-bottom" type="target" position={Position.Bottom} />
       <div className="node-topline">
@@ -165,6 +178,16 @@ export function AnalysisNode({ data }) {
         ) : null}
       </div>
       <Handle className="node-handle node-handle-right" id="source-right" type="source" position={Position.Right} />
+      {edgeHandleChannels.map((channel) => (
+        <Handle
+          className="node-handle node-handle-right"
+          id={`source-right-${channel}`}
+          key={`source-right-${channel}`}
+          position={Position.Right}
+          style={{ top: edgeHandleTop(channel) }}
+          type="source"
+        />
+      ))}
       <Handle className="node-handle node-handle-top" id="source-top" type="source" position={Position.Top} />
       <Handle className="node-handle node-handle-bottom" id="source-bottom" type="source" position={Position.Bottom} />
     </article>

@@ -21,7 +21,7 @@
 R 包依赖主要包括：
 
 ```text
-DESeq2, WGCNA, jsonlite, BiocManager, impute, preprocessCore, GO.db, AnnotationDbi
+DESeq2, WGCNA, jsonlite, BiocManager, impute, preprocessCore, AnnotationDbi
 ```
 
 ## 安装

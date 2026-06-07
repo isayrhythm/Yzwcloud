@@ -1171,7 +1171,12 @@ h2 {
 }
 
 .workflow-report-actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.workflow-arrange-button {
+  flex: 0 0 auto;
 }
 
 .workflow-title-row {

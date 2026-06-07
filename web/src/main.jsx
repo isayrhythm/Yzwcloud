@@ -758,7 +758,7 @@ function App() {
   if (page === "docs") {
     return (
       <AppChrome page={page} onNavigate={navigatePage}>
-        <DocsPage onStart={openWorkbench} />
+        <DocsPage onStart={openWorkbench} onOpenPlot={openPlotStudio} />
       </AppChrome>
     );
   }

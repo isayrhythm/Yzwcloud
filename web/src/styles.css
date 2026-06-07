@@ -813,16 +813,9 @@ button {
   margin-top: 18px;
 }
 
-.doc-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 18px;
-}
-
 .feature-card,
-.doc-step,
-.docs-hero {
+.docs-hero,
+.doc-module {
   border: 1px solid var(--line);
   border-radius: 28px;
   background: var(--card);
@@ -844,7 +837,8 @@ button {
 
 .feature-card p,
 .doc-step p,
-.docs-hero p {
+.docs-hero p,
+.doc-module-header p {
   color: var(--muted);
   line-height: 1.7;
 }
@@ -856,26 +850,113 @@ button {
 }
 
 .docs-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 22px;
+  align-items: end;
   padding: 34px;
 }
 
 .docs-hero h1 {
+  margin: 0;
   font-size: clamp(40px, 6vw, 76px);
 }
 
-.docs-hero .primary {
+.docs-hero .primary,
+.docs-hero .secondary {
   margin-top: 12px;
 }
 
-.doc-step {
-  padding: 24px;
+.docs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
-.doc-step span {
+.doc-module {
+  display: grid;
+  gap: 22px;
+  padding: 28px;
+}
+
+.doc-module-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+}
+
+.doc-module-header h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 1.08;
+}
+
+.doc-module-header p {
+  max-width: 860px;
+  margin: 10px 0 0;
+}
+
+.doc-step-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.doc-step {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(0, 82, 217, 0.12);
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.doc-step h3 {
+  margin: 0 0 8px;
   color: var(--accent);
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.35;
   font-weight: 900;
-  letter-spacing: 0.18em;
+}
+
+.doc-step p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.doc-checklist {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid rgba(43, 115, 88, 0.16);
+  border-radius: 18px;
+  background: #f7fbf9;
+}
+
+.doc-checklist strong {
+  color: #146c4f;
+  font-size: 14px;
+}
+
+.doc-checklist ul {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-checklist li {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #2f5e4c;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .hero,
@@ -925,6 +1006,7 @@ h2 {
 }
 
 .primary,
+.secondary,
 .ghost,
 .run {
   border-radius: 999px;
@@ -943,6 +1025,18 @@ h2 {
   padding: 10px 16px;
 }
 
+.secondary {
+  flex: 0 0 auto;
+  padding: 14px 22px;
+  color: var(--accent-strong);
+  background: #f2f6ff;
+  box-shadow: inset 0 0 0 1px rgba(0, 82, 217, 0.14);
+}
+
+.secondary.compact {
+  padding: 10px 16px;
+}
+
 .ghost,
 .run {
   padding: 8px 13px;
@@ -951,6 +1045,7 @@ h2 {
 }
 
 .primary:hover,
+.secondary:hover,
 .ghost:hover,
 .run:hover {
   transform: translateY(-1px);
@@ -6056,6 +6151,20 @@ h2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .docs-hero,
+  .doc-module-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .docs-actions {
+    justify-content: flex-start;
+  }
+
+  .doc-step-list,
+  .doc-checklist ul {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .plot-gallery-page {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -6626,7 +6735,9 @@ h2 {
 
   .landing-hero,
   .capabilities,
-  .doc-grid,
+  .doc-checklist ul,
+  .doc-module-header,
+  .doc-step-list,
   .lab-grid,
   .lab-module-picker,
   .lab-risk-grid,

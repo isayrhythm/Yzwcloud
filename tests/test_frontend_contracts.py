@@ -9,6 +9,7 @@ PLOT_STUDIO_PAGE = ROOT / "web" / "src" / "pages" / "PlotStudioPage.jsx"
 PLOT_STUDIO_MODULES = ROOT / "web" / "src" / "plotStudio"
 MAIN_PAGE = ROOT / "web" / "src" / "main.jsx"
 HOME_PAGE = ROOT / "web" / "src" / "pages" / "HomePage.jsx"
+DOCS_PAGE = ROOT / "web" / "src" / "pages" / "DocsPage.jsx"
 STYLESHEET = ROOT / "web" / "src" / "styles.css"
 STATIC_INDEX = ROOT / "src" / "yzwcloud" / "static" / "index.html"
 STATIC_ASSETS = ROOT / "src" / "yzwcloud" / "static" / "assets"
@@ -548,6 +549,31 @@ def test_reports_page_links_slide_html_and_pdf_exports() -> None:
         'className="report-output-table"',
     ]:
         assert fragment in source
+
+
+def test_docs_page_is_split_into_analysis_and_plot_studio_guides() -> None:
+    source = _source(DOCS_PAGE)
+    main_source = _source(MAIN_PAGE)
+    styles = _source(STYLESHEET)
+
+    for fragment in [
+        "数据分析模块",
+        "Plot Studio 模块",
+        "ANALYSIS_STEPS",
+        "PLOT_STUDIO_STEPS",
+        "ANALYSIS_CHECKS",
+        "PLOT_STUDIO_CHECKS",
+        "进入分析台",
+        "打开 Plot Studio",
+        "导出高清图",
+        "保存回分析结果",
+    ]:
+        assert fragment in source
+
+    assert "<DocsPage onStart={openWorkbench} onOpenPlot={openPlotStudio} />" in main_source
+
+    for fragment in [".doc-module", ".doc-step-list", ".doc-checklist", ".docs-actions"]:
+        assert fragment in styles
 
 
 def test_app_chrome_uses_tdesign_buttons_for_navigation() -> None:

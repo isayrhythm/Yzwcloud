@@ -9,6 +9,7 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 
 from yzwcloud.config import DATA_DIR, STATIC_DIR
 from yzwcloud.executor import NodeExecutionError, run_node
@@ -62,6 +63,7 @@ from yzwcloud.task_store import (
 from yzwcloud.task_report import build_task_report, render_task_report_pdf
 
 app = FastAPI(title="Yzwcloud Bioinformatics Platform", version="0.1.0")
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 PLOT_STUDIO_UPLOADS_DIR = DATA_DIR / "plot_studio_uploads"

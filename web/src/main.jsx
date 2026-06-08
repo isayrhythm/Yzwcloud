@@ -62,6 +62,18 @@ const PAGE_IDS = new Set(["home", "workbench", "plot", "subscription", "docs", "
 const PAGE_STORAGE_KEY = "yzwcloud.currentPage";
 const TASK_STORAGE_KEY = "yzwcloud.activeTaskId";
 const EDGE_SIDE_CHANNELS = 5;
+const LOG_RENDER_LIMIT = 12000;
+
+function tailText(value, limit = LOG_RENDER_LIMIT) {
+  const text = String(value || "");
+  if (text.length <= limit) return text;
+  return `...\n${text.slice(-limit)}`;
+}
+
+function hasRunningWorkflow(detail) {
+  if (!detail) return false;
+  return detail.task?.status === "running" || detail.graph?.nodes?.some((node) => node.status === "running");
+}
 
 function notifyError(message) {
   console.error(message || "操作失败");
@@ -240,9 +252,9 @@ function App() {
     if (!activeTaskId) return undefined;
     const timer = window.setInterval(() => {
       loadDetail(activeTaskId).catch(() => {});
-    }, 1800);
+    }, hasRunningWorkflow(detail) ? 3000 : 10000);
     return () => window.clearInterval(timer);
-  }, [activeTaskId, loadDetail]);
+  }, [activeTaskId, detail, loadDetail]);
 
   useEffect(() => {
     localStorage.setItem(PAGE_STORAGE_KEY, page);
@@ -1076,7 +1088,7 @@ function App() {
           </div>
           <details className="log-drawer">
             <summary>任务日志</summary>
-            <pre className="logs">{logs}</pre>
+            <pre className="logs">{tailText(logs)}</pre>
           </details>
         </section>
       </section>

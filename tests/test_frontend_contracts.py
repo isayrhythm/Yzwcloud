@@ -694,6 +694,17 @@ def test_workbench_task_selection_fits_flow_view() -> None:
     assert "onClick={() => selectTask(task.task_id)}" in source
 
 
+def test_workbench_polling_uses_bounded_logs_and_slower_idle_refresh() -> None:
+    source = _source(MAIN_PAGE)
+
+    assert "const LOG_RENDER_LIMIT = 12000" in source
+    assert "function tailText" in source
+    assert "function hasRunningWorkflow" in source
+    assert "hasRunningWorkflow(detail) ? 3000 : 10000" in source
+    assert "}, [activeTaskId, detail, loadDetail]);" in source
+    assert '<pre className="logs">{tailText(logs)}</pre>' in source
+
+
 def test_workflow_edges_route_through_directional_handles() -> None:
     main_source = _source(MAIN_PAGE)
     node_source = _source(ROOT / "web" / "src" / "components" / "AnalysisNode.jsx")
